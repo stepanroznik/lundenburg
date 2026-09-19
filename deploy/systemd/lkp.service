@@ -1,0 +1,22 @@
+[Unit]
+Description=Lundenburg Kids Premium DVB-T playout
+After=local-fs.target network.target
+Wants=network.target
+
+[Service]
+Type=simple
+User=lundenburg
+Group=lundenburg
+WorkingDirectory=/home/lundenburg/lundenburg
+Environment=NODE_ENV=production
+EnvironmentFile=-/etc/lkp.env
+ExecStartPre=/usr/bin/npm run doctor -- --rf
+ExecStart=/usr/bin/npm run broadcast:start -- --rf --i-understand-rf
+Restart=on-failure
+RestartSec=3
+TimeoutStopSec=20
+KillMode=mixed
+NoNewPrivileges=true
+
+[Install]
+WantedBy=multi-user.target

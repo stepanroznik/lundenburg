@@ -1,0 +1,10 @@
+node_modules/
+dist/
+data/*
+!data/.gitkeep
+runtime/
+*.log
+runtime/*.ts
+*.xlsx
+.env
+.DS_Store

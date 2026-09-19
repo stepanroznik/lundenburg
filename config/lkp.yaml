@@ -1,0 +1,60 @@
+channel:
+  name: Lundenburg Kids Premium
+  provider: Lundenburg
+  timezone: Europe/Prague
+  serviceId: 4097
+  transportStreamId: 4097
+  originalNetworkId: 65281
+
+media:
+  root: /home/lundenburg/lkp-media
+  ffprobe: ffprobe
+  supportedExtensions: [.mkv, .mp4, .mov]
+  subtitleLanguages: [cs, de, en]
+
+storage:
+  database: ./data/lkp.sqlite
+  runtimeDirectory: ./runtime
+
+schedule:
+  horizonDays: 365
+  extendWhenBelowDays: 90
+  epgDays: 7
+  seed: lkp-v1
+
+video:
+  # Full HD target. Validate sustained throughput with the complete RF pipeline.
+  width: 1920
+  height: 1080
+  fps: 30
+  bitrate: 3800k
+  codec: libx264
+  preset: ultrafast
+  decoderThreads: 2
+  filterThreads: 1
+  encoderThreads: 2
+  cpuAffinity: 0,1
+  audioBitrate: 192k
+  muxRate: 4976471
+
+logo:
+  path: ./assets/logo/lkp-logo.svg
+  width: 120
+  left: 96
+  top: 54
+  opacity: 0.88
+  transitionDurationMs: 1100
+  transitionRotations: 3
+  transitionZoom: 1.08
+
+epg:
+  output: ./runtime/epg.xml
+  language: ces
+  refreshSeconds: 300
+
+broadcast:
+  frequencyHz: 634000000
+  gainDb: 14
+  amplitude: 0.8
+  fifo: ./runtime/lkp.ts
+  transmitter: ./scripts/transmit.py

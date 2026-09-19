@@ -1,0 +1,36 @@
+{
+  "name": "lundenburg-kids-premium",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Wall-clock-authoritative playout and DVB-T scheduling for Lundenburg Kids Premium",
+  "engines": {
+    "node": ">=20.11"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "check": "tsc -p tsconfig.json --noEmit",
+    "test": "node --import tsx --test test/*.test.ts",
+    "lkp": "tsx src/cli.ts",
+    "media:scan": "npm run lkp -- media scan",
+    "schedule:generate": "npm run lkp -- schedule generate",
+    "schedule:show": "npm run lkp -- schedule show",
+    "schedule:export": "npm run lkp -- schedule export",
+    "broadcast:start": "npm run lkp -- broadcast start",
+    "doctor": "npm run lkp -- doctor"
+  },
+  "dependencies": {
+    "better-sqlite3": "^12.2.0",
+    "commander": "^14.0.1",
+    "exceljs": "^4.4.0",
+    "luxon": "^3.7.2",
+    "yaml": "^2.8.1"
+  },
+  "devDependencies": {
+    "@types/better-sqlite3": "^7.6.13",
+    "@types/luxon": "^3.7.1",
+    "@types/node": "^24.5.2",
+    "tsx": "^4.20.5",
+    "typescript": "^5.9.2"
+  }
+}

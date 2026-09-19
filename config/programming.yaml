@@ -1,0 +1,3 @@
+# Show-level weights belong in each show.yaml. These defaults apply when absent.
+defaultWeight: 1
+avoidImmediateShowRepeat: true
