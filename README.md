@@ -4,7 +4,7 @@ LKP is a wall-clock-authoritative television playout service. Its SQLite schedul
 
 The application is TypeScript. FFmpeg/ffprobe handle media, TSDuck injects DVB EIT, and the retained GNU Radio flowgraph drives the HackRF. RF is never used by tests and requires an explicit acknowledgement. The configured and transmitter-level default gain is **14 dB**.
 
-The default Raspberry Pi 5 playout profile is 1280×720 at 25 fps and 3.2 Mb/s. FFmpeg uses the `ultrafast` x264 preset and is pinned to CPU cores 0–1, leaving cores 2–3 available to GNU Radio and the HackRF path. Live 1080p30 software encoding and modulation together saturate all four cores and cause transport-stream underruns.
+The default Raspberry Pi 5 playout profile is 1920×1080 at 30 fps and 3.8 Mb/s. FFmpeg uses the `ultrafast` x264 preset and is pinned to CPU cores 0–1, leaving cores 2–3 available to GNU Radio and the HackRF path. The logo remains a live overlay, but LKP rasterizes the committed SVG once into a size- and opacity-specific transparent PNG cache before playout; it never renders the SVG for every programme frame.
 
 ## What is implemented
 
@@ -60,7 +60,7 @@ SRT, ASS, and MP4 `mov_text` are text; DVB subtitles are bitmap display sets. FF
 
 ## Logo
 
-The supplied SVG is committed at [assets/logo/lkp-logo.svg](assets/logo/lkp-logo.svg). It is composited live; source programmes are untouched. Width, position, opacity, transition duration, rotations, and zoom are in `config/lkp.yaml`.
+The supplied SVG is committed at [assets/logo/lkp-logo.svg](assets/logo/lkp-logo.svg). At broadcast startup it is rasterized once into `runtime/graphics`; the cached transparent PNG is then composited live, so source programmes remain untouched and future graphics can use the same live compositor. Width, position, opacity, transition duration, rotations, and zoom are in `config/lkp.yaml`.
 
 ## Catalogue and schedule
 
