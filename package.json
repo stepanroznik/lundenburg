@@ -17,19 +17,35 @@
     "schedule:show": "npm run lkp -- schedule show",
     "schedule:export": "npm run lkp -- schedule export",
     "broadcast:start": "npm run lkp -- broadcast start",
-    "doctor": "npm run lkp -- doctor"
+    "doctor": "npm run lkp -- doctor",
+    "weather:map": "tsx src/weather/cli.ts map",
+    "weather:fetch": "tsx src/weather/cli.ts fetch",
+    "weather:generate": "tsx src/weather/cli.ts generate",
+    "weather:preview": "tsx src/weather/cli.ts generate --fixture mixed --audio silent",
+    "weather:render": "tsx src/weather/cli.ts render",
+    "weather:publish": "tsx src/weather/cli.ts publish",
+    "weather:auto": "tsx src/weather/cli.ts auto",
+    "weather:usage": "tsx src/weather/cli.ts usage"
   },
   "dependencies": {
+    "@remotion/bundler": "4.0.526",
+    "@remotion/cli": "4.0.526",
+    "@remotion/renderer": "4.0.526",
     "better-sqlite3": "^12.2.0",
     "commander": "^14.0.1",
     "exceljs": "^4.4.0",
     "luxon": "^3.7.2",
+    "react": "19.3.0",
+    "react-dom": "19.3.0",
+    "remotion": "4.0.526",
     "yaml": "^2.8.1"
   },
   "devDependencies": {
     "@types/better-sqlite3": "^7.6.13",
     "@types/luxon": "^3.7.1",
     "@types/node": "^24.5.2",
+    "@types/react": "19.3.0",
+    "@types/react-dom": "19.3.0",
     "tsx": "^4.20.5",
     "typescript": "^5.9.2"
   }

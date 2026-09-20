@@ -10,7 +10,7 @@ media:
   root: /home/lundenburg/lkp-media
   ffprobe: ffprobe
   supportedExtensions: [.mkv, .mp4, .mov]
-  subtitleLanguages: [cs, de, en]
+  subtitleLanguages: [cs, de, sk, en]
 
 storage:
   database: ./data/lkp.sqlite

@@ -170,3 +170,134 @@ Automated coverage includes determinism, persistence, extension, episode order, 
 - `scripts/transmit.py` — minimal GNU Radio/HackRF integration retained from the proven PoC
 - `deploy/systemd` — production service definition
 - `data` and `runtime` — ignored mutable state
+
+## Weather show
+
+The weather module prepares standalone 1080p30 H.264/AAC MP4 programmes. It
+does not start DVB or RF. Four layered SVG presenters share a recurring studio
+with a real OpenStreetMap railway/river map and a **Lundenburg** label.
+
+The first complete voiced render still needs visual/listening review before
+enabling unattended production. The commands below can take several minutes.
+
+### First episode
+
+Use Node 24 for this checkout (its existing SQLite addon was compiled for Node
+24), or rebuild `better-sqlite3` when switching Node major versions. FFmpeg, ffprobe and a
+Chromium browser are required. Set `WEATHER_BROWSER` to an existing executable
+if it is not `/usr/bin/google-chrome`; otherwise Remotion may download its own
+browser. Store `ELEVENLABS_API_KEY` in the environment or in the ignored,
+owner-only `runtime/weather/credentials.env` file. Only TTS access is needed:
+the code never requests voice lists, voice metadata or account information.
+
+```bash
+# Once: download real geographic features, cached for offline rendering.
+npm run weather:map
+
+# First voiced episode, using deliberately mixed weather for visual review:
+npm run weather:generate -- --edition evening --fixture mixed --render
+
+# No API charges: visual-only timeline, then render one representative frame.
+npm run weather:preview -- --edition evening
+npm run weather:render -- \
+  --episode runtime/weather/episodes/YYYY-MM-DD/evening-preview --still 150
+
+# Re-render cached speech without regenerating any narration:
+npm run weather:render -- \
+  --episode runtime/weather/episodes/YYYY-MM-DD/evening-preview
+```
+
+The generation command prints the exact episode directory. Do not run the
+silent preview command over a voiced preview you want to preserve: it replaces
+that edition's preview timeline (the permanent speech cache remains intact).
+For quick visual work, `--presenter sisi`, `--scale 0.5` and `--frames 90-180`
+are available on generation/render commands as appropriate. `--audio cache`
+uses only existing speech; `--audio silent` produces clearly marked previews.
+Fixtures: `sunny`, `rainy`, `storm`, `snow`, `heatwave`, `windy`, `mixed`.
+Mock/silent/single-presenter/partial renders cannot be published.
+
+### Voices and cached audio
+
+| Presenter | Language | Voice ID | Speed | Processing |
+| --- | --- | --- | --- | --- |
+| Knurpsi | German | `eerdi6005Xy1VVWpejx6` | 0.84 | Warm, clear |
+| Sisi | German | `AAiTaAHdZuRZAfYWRq5V` | 0.82 | Slightly brighter EQ |
+| Schalinka | Czech | `6Aa0226VrdZ4mFzZjj82` | 0.90 | Balanced EQ |
+| Haluschka | Slovak | `AAiTaAHdZuRZAfYWRq5V` | 0.88 | Slightly warmer EQ |
+
+Sisi and Haluschka intentionally share a raw voice. No pitch shift is applied.
+All four voices receive measured two-pass loudness normalization to -18 LUFS
+with a -2 dBTP target, including Schalinka. The content hash includes text,
+language, voice ID, model, speed, voice settings, processing profile, actual EQ,
+loudness targets, output format and lip-sync version. Completed speech and
+analysis are retained indefinitely. Failed processing can reuse its saved raw
+TTS response. A failed provider request stops generation; there are no automatic
+paid retries or substitute voices. Existing scheduled programmes are unaffected.
+
+Mouth shapes use actual character timestamps from ElevenLabs, with six mouth
+states and silence/rest handling. This is a lightweight grapheme-to-mouth
+approximation, not phoneme recognition; judge German/Czech/Slovak alignment in
+the first render before deciding whether to add Rhubarb. Speech is generated
+at natural sentence boundaries, never spliced from isolated words.
+
+`npm run weather:usage` shows local daily/monthly requested characters and cache
+hits by presenter. This is diagnostic accounting, not the provider's invoice.
+If a process is killed, inspect its `.lock` file under `runtime/weather` and
+remove it only after confirming that no generator still owns it.
+
+### Fresh weather and scheduling
+
+`config/weather.yaml` defines Prague edition windows, generation lead time,
+maximum forecast age, voice model/settings, loudness and render concurrency.
+Morning covers now/afternoon/evening/tomorrow; afternoon covers
+now/evening/tomorrow; evening covers now/tomorrow. Open-Meteo is fetched once for
+all four cities for each generation. Hourly data is normalized deterministically;
+future-period icons summarize the most significant condition and temperature
+labels show that period's maximum. Recent cached source data is allowed only
+within the configured age and only if it covers every required forecast hour.
+Unavailable/expired weather stops generation instead of inventing a forecast.
+
+```bash
+# Supply the intended future broadcast time (Prague local time if no offset):
+npm run weather:generate -- \
+  --edition afternoon --at 'YYYY-MM-DDT14:15:00+02:00' --render
+
+# Explicitly insert the completed edition into the authoritative schedule:
+npm run weather:publish -- \
+  --episode runtime/weather/episodes/YYYY-MM-DD/afternoon
+
+# Or prepare, render and publish the due edition near a future boundary:
+npm run weather:auto
+```
+
+**Publishing inserts at a future programme boundary and shifts later programmes
+by the episode duration.** It keeps programmes whole and changes no past or
+currently playing event. The operation is transactional, rejects duplicate or
+expired editions, and refreshes EPG. Normal append-only schedule generation is
+unchanged. Weather stays outside the weighted catalogue so it cannot repeat a
+year later. Publishing also checks that shifted weather remains valid. These
+commands must access the same SQLite schedule and media filesystem as playout.
+
+The optional `deploy/systemd/lkp-weather.timer` checks every five minutes; edition
+windows and the scheduler determine the actual broadcast time. Nothing is
+installed/enabled automatically. Enable only after a complete episode is reviewed
+and render time is measured. Rendering on the Pi while transmitting may contend
+for CPU: the supplied unit is a template, not a validated Pi deployment.
+
+Each episode directory archives the raw source, normalized forecast, script,
+timeline, original-language VTT, per-language SRT, MP4, programme metadata,
+generation report and (after publication) schedule entry. Subtitles remain text
+sidecars; the existing DVB bitmap conversion limitation still applies. The
+soundtrack has an original quiet opening/closing sting; continuous background
+music and extra effects are deliberately deferred until voice intelligibility
+has been reviewed.
+
+The first version needs no OpenAI key. `WeatherCopyGenerator` can optionally
+choose among approved character reactions; failures/invalid choices use the
+deterministic fallback. Unrestricted LLM rewrites and an OpenAI adapter are not
+enabled. Weather facts, temperatures and temporal wording remain deterministic.
+
+Implementation: `src/weather/{forecast,narration,speech,episode,render,publish}.ts`,
+the CLI in `src/weather/cli.ts`, and SVG studio/characters in
+`src/weather/video`. The map data licence and attribution are documented in
+`assets/weather/README.md`. No weather skill is created yet.

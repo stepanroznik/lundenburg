@@ -1,0 +1,17 @@
+timezone: Europe/Prague
+# Local validity windows, not fixed broadcast times. The scheduler chooses a boundary.
+starts: { morning: 6, afternoon: 13, evening: 18 }
+generationLeadMinutes: 20
+maxForecastAgeMinutes: 120
+model: eleven_multilingual_v2
+loudnessLufs: -18
+truePeakDb: -2
+voiceSettings:
+  stability: 0.55
+  similarity_boost: 0.75
+  style: 0.15
+  use_speaker_boost: true
+fps: 30
+width: 1920
+height: 1080
+concurrency: 2

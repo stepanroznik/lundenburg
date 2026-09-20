@@ -1,0 +1,10 @@
+[Unit]
+Description=Check for due morning, afternoon and evening weather
+
+[Timer]
+OnCalendar=*-*-* *:00/5:00
+Persistent=true
+Unit=lkp-weather.service
+
+[Install]
+WantedBy=timers.target

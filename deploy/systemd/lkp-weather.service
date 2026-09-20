@@ -1,0 +1,15 @@
+[Unit]
+Description=Prepare and schedule the due LKP weather edition
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=lundenburg
+WorkingDirectory=/home/lundenburg/lundenburg
+EnvironmentFile=-/etc/lkp-weather.env
+ExecStart=/usr/bin/npm run weather:auto
+TimeoutStartSec=3600
+Nice=10
+# Enable on the rendering host with access to the authoritative schedule/media.
+# Do not compete with Pi RF playout until render throughput has been measured.
