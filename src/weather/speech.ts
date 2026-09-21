@@ -5,6 +5,7 @@ import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { presenter, type WeatherConfig } from './config.js';
 import type { Atom, Mouth, MouthCue, SpeechAsset } from './model.js';
+import { acquireWeatherLock } from './lock.js';
 
 const run = promisify(execFile);
 export const speechRoot = path.resolve('runtime/weather/public/speech');
@@ -71,8 +72,7 @@ export class SpeechCache {
     if (this.mode === 'cache') throw new Error(`Uncached speech for ${atom.presenter}: ${atom.text}`);
     fs.mkdirSync(directory, { recursive: true });
     const lock = path.join(directory, '.lock');
-    const fd = fs.openSync(lock, 'wx');
-    fs.closeSync(fd);
+    const unlock = acquireWeatherLock(lock);
     try {
       const rawFile = path.join(directory, 'source.mp3');
       const alignmentFile = path.join(directory, 'alignment.json');
@@ -114,7 +114,7 @@ export class SpeechCache {
       fs.writeFileSync(`${metadataFile}.tmp`, JSON.stringify(asset));
       fs.renameSync(`${metadataFile}.tmp`, metadataFile);
       return asset;
-    } finally { fs.unlinkSync(lock); }
+    } finally { unlock(); }
   }
   private usage(atom: Atom, key: string, hit: boolean, characters: number) {
     fs.mkdirSync('runtime/weather', { recursive: true });

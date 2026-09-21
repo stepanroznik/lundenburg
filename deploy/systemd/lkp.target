@@ -1,0 +1,7 @@
+[Unit]
+Description=LKP independent television service
+Wants=lkp.service lkp-weather.timer
+After=network-online.target
+
+[Install]
+WantedBy=multi-user.target

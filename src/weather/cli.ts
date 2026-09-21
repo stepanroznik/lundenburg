@@ -13,6 +13,7 @@ import { assembleEpisode, subtitles } from './episode.js';
 import { renderEpisode } from './render.js';
 import { prepareMap } from './map.js';
 import { publishWeather } from './publish.js';
+import { acquireWeatherLock } from './lock.js';
 import type { Edition, Episode, ProgrammeMetadata } from './model.js';
 
 const program = new Command().name('lkp-weather');
@@ -20,7 +21,9 @@ const c = loadWeatherConfig();
 interface GenerateOptions { edition: Edition; at?: string; fixture?: string; audio: 'tts' | 'cache' | 'silent'; presenter?: string; render?: boolean; publish?: boolean }
 const json = (file: string, value: unknown) => fs.writeFileSync(file, JSON.stringify(value, null, 2));
 function broadcastTime(options: GenerateOptions): Date {
-  const at = options.at ? DateTime.fromISO(options.at, { zone: c.timezone }) : DateTime.now().setZone(c.timezone).startOf('day').set({ hour: c.starts[options.edition] });
+  const now = DateTime.now().setZone(c.timezone);
+  const start = now.startOf('day').set({ hour: c.starts[options.edition] });
+  const at = options.at ? DateTime.fromISO(options.at, { zone: c.timezone }) : options.fixture ? start : DateTime.max(start, now.plus({ minutes: c.generationLeadMinutes }));
   if (!at.isValid) throw new Error('Invalid broadcast time');
   const window = editionWindow(options.edition, at.toJSDate(), c);
   if (at < window.from || at >= window.until) throw new Error('Broadcast time is outside the selected edition');
@@ -30,13 +33,14 @@ function broadcastTime(options: GenerateOptions): Date {
 async function generate(options: GenerateOptions): Promise<string> {
   const at = broadcastTime(options);
   const preview = Boolean(options.fixture || options.audio === 'silent' || options.presenter);
+  console.log(options.fixture ? `DESIGN PREVIEW: synthetic ${options.fixture} weather, NOT a real forecast.` : 'LIVE WEATHER: fetching a fresh forecast for all four cities.');
   if (options.publish && preview) throw new Error('Preview editions cannot be published');
   if ((options.render || options.publish) && !fs.existsSync('assets/weather/region.json')) throw new Error('Run npm run weather:map before generating speech for a render');
   const date = DateTime.fromJSDate(at, { zone: c.timezone }).toISODate()!;
   const directory = path.resolve(`runtime/weather/episodes/${date}/${options.edition}${preview ? '-preview' : ''}`);
   fs.mkdirSync(directory, { recursive: true });
   const lock = path.join(directory, '.lock');
-  fs.closeSync(fs.openSync(lock, 'wx'));
+  const unlock = acquireWeatherLock(lock);
   const started = Date.now();
   const speech = new SpeechCache(c, options.audio);
   try {
@@ -61,7 +65,7 @@ async function generate(options: GenerateOptions): Promise<string> {
   } catch (error) {
     json(path.join(directory, 'failure.json'), { at: new Date().toISOString(), message: error instanceof Error ? error.message : String(error), speech: speech.stats });
     throw error;
-  } finally { fs.unlinkSync(lock); }
+  } finally { unlock(); }
 }
 async function render(directory: string, options: { still?: string; scale?: string; frames?: string }) {
   const episode = JSON.parse(fs.readFileSync(path.join(directory, 'timeline.json'), 'utf8')) as Episode;
@@ -100,7 +104,11 @@ function publish(directory: string, atMs: number) {
   } finally { db.close(); }
 }
 program.command('map').description('download a reusable real OSM railway/river snapshot').action(prepareMap);
-program.command('generate').addOption(new Option('--edition <edition>').choices(['morning', 'afternoon', 'evening']).default('morning'))
+function currentEdition(): Edition {
+  const hour = DateTime.now().setZone(c.timezone).hour;
+  return hour >= c.starts.evening ? 'evening' : hour >= c.starts.afternoon ? 'afternoon' : 'morning';
+}
+program.command('generate').addOption(new Option('--edition <edition>').choices(['morning', 'afternoon', 'evening']).default(currentEdition()))
   .option('--at <time>', 'intended broadcast time (ISO; Prague if no offset)')
   .addOption(new Option('--fixture <fixture>').choices([...fixtures]))
   .addOption(new Option('--audio <mode>').choices(['tts', 'cache', 'silent']).default('tts'))

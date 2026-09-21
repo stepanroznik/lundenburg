@@ -177,8 +177,9 @@ The weather module prepares standalone 1080p30 H.264/AAC MP4 programmes. It
 does not start DVB or RF. Four layered SVG presenters share a recurring studio
 with a real OpenStreetMap railway/river map and a **Lundenburg** label.
 
-The first complete voiced render still needs visual/listening review before
-enabling unattended production. The commands below can take several minutes.
+The initial voiced render has been reviewed. The revised atlas, character details
+and explicitly future-tense narration need a new complete render. The commands
+below can take several minutes.
 
 ### First episode
 
@@ -194,7 +195,10 @@ the code never requests voice lists, voice metadata or account information.
 # Once: download real geographic features, cached for offline rendering.
 npm run weather:map
 
-# First voiced episode, using deliberately mixed weather for visual review:
+# Real weather, automatically fetched; no fixture option:
+npm run weather:generate -- --render
+
+# Deliberately fictional mixed weather ONLY for clothing/graphics review:
 npm run weather:generate -- --edition evening --fixture mixed --render
 
 # No API charges: visual-only timeline, then render one representative frame.
@@ -213,6 +217,8 @@ that edition's preview timeline (the permanent speech cache remains intact).
 For quick visual work, `--presenter sisi`, `--scale 0.5` and `--frames 90-180`
 are available on generation/render commands as appropriate. `--audio cache`
 uses only existing speech; `--audio silent` produces clearly marked previews.
+The fixture label appears on the opening card, not throughout the forecast.
+`mixed` includes snow at -2°C in Bratislava by design. It is never live weather.
 Fixtures: `sunny`, `rainy`, `storm`, `snow`, `heatwave`, `windy`, `mixed`.
 Mock/silent/single-presenter/partial renders cannot be published.
 
@@ -242,8 +248,9 @@ at natural sentence boundaries, never spliced from isolated words.
 
 `npm run weather:usage` shows local daily/monthly requested characters and cache
 hits by presenter. This is diagnostic accounting, not the provider's invoice.
-If a process is killed, inspect its `.lock` file under `runtime/weather` and
-remove it only after confirming that no generator still owns it.
+Locks record process identity and boot ID: a new run recovers locks left by a
+killed process or Pi reboot. A lock still owned by a running process is respected.
+Empty legacy locks from older versions require manual inspection/removal.
 
 ### Fresh weather and scheduling
 
@@ -256,6 +263,11 @@ future-period icons summarize the most significant condition and temperature
 labels show that period's maximum. Recent cached source data is allowed only
 within the configured age and only if it covers every required forecast hour.
 Unavailable/expired weather stops generation instead of inventing a forecast.
+Current-period conditions use present tense; future periods use explicit future
+tense in all three languages, including German temperature sentences. Changes
+generate only the newly required sentence atoms; no outdated present-tense atom
+is substituted for a future forecast. The large map heading/date and every city's
+card all show the same period. Tomorrow advances the date in Prague local time.
 
 ```bash
 # Supply the intended future broadcast time (Prague local time if no offset):
@@ -278,11 +290,56 @@ unchanged. Weather stays outside the weighted catalogue so it cannot repeat a
 year later. Publishing also checks that shifted weather remains valid. These
 commands must access the same SQLite schedule and media filesystem as playout.
 
-The optional `deploy/systemd/lkp-weather.timer` checks every five minutes; edition
-windows and the scheduler determine the actual broadcast time. Nothing is
-installed/enabled automatically. Enable only after a complete episode is reviewed
-and render time is measured. Rendering on the Pi while transmitting may contend
-for CPU: the supplied unit is a template, not a validated Pi deployment.
+The timer starts generation at **05:00, 12:00 and 17:00 Europe/Prague**, one hour
+before the default edition windows. It fetches fresh data on each run and selects
+a future programme boundary from the existing schedule. If preparation finishes
+late, publication uses the next safe boundary within validity; if none exists,
+ordinary programming continues. When changing the window/lead settings, adjust
+`OnCalendar` in the timer to match. `Persistent=true` checks a missed activation
+after reboot. No weather is inserted until the entire render succeeds.
+
+### Independent Pi service
+
+From the workstation, run the following installer (package installation and
+copying cached speech can exceed 30 seconds):
+
+```bash
+bash scripts/deploy-weather.sh
+```
+
+It creates `/home/lundenburg/lkp-weather` on the Pi as a **separate installation**,
+copies the geographic snapshot and permanent speech cache, installs Chromium and
+the renderer dependencies, and enables `lkp-weather.timer`. It does not restart
+or replace the existing playout installation. Its generated `config/lkp.yaml`
+points to the broadcaster's existing SQLite database and EPG output, respecting
+the paths in `/etc/lkp.env`. The supplied credentials file is transferred with
+owner-only permissions. No API key is embedded in the service or repository.
+
+Rendering uses one worker, idle CPU scheduling on cores 0–1 (the playout cores),
+a 50% CPU quota, idle I/O, a 768 MB soft memory limit and a 1 GB hard limit, with
+swap disabled. Radio cores 2–3 are excluded. These controls prioritize playout;
+Pi render duration and broadcast stability still need to be measured together.
+Do not infer a throughput guarantee from workstation timings. If rendering is
+killed or a provider is unavailable, the existing schedule continues unchanged.
+
+The cached 2200×1520 atlas replaces per-frame processing of thousands of OSM paths
+without lowering output resolution. Fully opaque intro/outro scenes skip drawing
+the hidden studio. Desktop renders default to eight workers (capped by available
+CPU parallelism); `WEATHER_RENDER_CONCURRENCY` overrides this, and the Pi service
+always uses one. `render-timing.json` records setup, frame rendering, encoding,
+worker count and the slowest frames, so a full render can be compared without
+generating any more speech. Short previews write `preview-render-timing.json`.
+Programme output remains 1080p30 at the same encoding settings. Optional
+`lkp.target` groups the existing broadcaster and weather timer for a single boot
+target; the installer does not start that target or start RF transmission.
+
+```bash
+# On the Pi:
+systemctl list-timers lkp-weather.timer
+journalctl -u lkp-weather.service -n 50
+# Manual generation uses the same protected resource limits:
+sudo systemctl start lkp-weather.service
+```
 
 Each episode directory archives the raw source, normalized forecast, script,
 timeline, original-language VTT, per-language SRT, MP4, programme metadata,

@@ -1,10 +1,12 @@
 import fs from 'node:fs';
 import path from 'node:path';
+import os from 'node:os';
 import { bundle } from '@remotion/bundler';
 import { renderMedia, renderStill, selectComposition } from '@remotion/renderer';
 import type { Episode } from './model.js';
 import type { RegionMap } from './geography.js';
 import type { WeatherConfig } from './config.js';
+import { prepareAtlas } from './atlas-cache.js';
 
 export async function bundleWeather(): Promise<string> {
   return bundle({
@@ -28,6 +30,7 @@ export async function bundleWeather(): Promise<string> {
 export function prepareSting(): void {
   const root = 'runtime/weather/public';
   fs.mkdirSync(root, { recursive: true });
+  fs.cpSync('assets/weather/fonts', path.join(root, 'fonts'), { recursive: true });
   // Original, restrained three-second marimba-style ident; no external music licence.
   const rate = 48000, samples = rate * 3;
   const data = Buffer.alloc(44 + samples * 2);
@@ -45,17 +48,31 @@ export function prepareSting(): void {
   fs.writeFileSync(path.join(root, 'sting.wav'), data);
 }
 export async function renderEpisode(episode: Episode, output: string, c: WeatherConfig, options: { still?: number; scale?: number; frames?: [number, number] } = {}): Promise<void> {
+  const started = Date.now();
   const mapPath = 'assets/weather/region.json';
   if (!fs.existsSync(mapPath)) throw new Error('Real map snapshot missing. Run npm run weather:map first.');
   const map = JSON.parse(fs.readFileSync(mapPath, 'utf8')) as RegionMap;
   if (!map.features?.length) throw new Error('Real map snapshot is empty');
   prepareSting();
+  const atlas = prepareAtlas(map);
   const serveUrl = await bundleWeather();
-  const browserExecutable = process.env.WEATHER_BROWSER || (fs.existsSync('/usr/bin/google-chrome') ? '/usr/bin/google-chrome' : undefined);
-  const inputProps = { episode, map };
+  const browserExecutable = process.env.WEATHER_BROWSER || ['/usr/bin/chromium', '/usr/bin/google-chrome', '/usr/bin/chromium-browser'].find(p => fs.existsSync(p));
+  const inputProps = { episode, atlas };
   const composition = await selectComposition({ serveUrl, id: 'Weather', inputProps, ...(browserExecutable ? { browserExecutable } : {}) });
+  const setupMs = Date.now() - started;
   const common = { serveUrl, composition, inputProps, outputLocation: output, ...(browserExecutable ? { browserExecutable } : {}) };
-  if (options.still !== undefined) { await renderStill({ ...common, frame: options.still, imageFormat: 'png', scale: options.scale ?? 1 }); return; }
-  await renderMedia({ ...common, codec: 'h264', audioCodec: 'aac', audioBitrate: '192k', videoBitrate: '3800k', pixelFormat: 'yuv420p', x264Preset: 'medium', concurrency: c.concurrency, scale: options.scale ?? 1, ...(options.frames ? { frameRange: options.frames } : {}), onProgress: ({ progress }) => { if (Math.floor(progress * 100) % 10 === 0) process.stdout.write(`\rRendering ${Math.round(progress * 100)}%`); } });
-  process.stdout.write('\n');
+  if (options.still !== undefined) { await renderStill({ ...common, output, frame: options.still, imageFormat: 'png', scale: options.scale ?? 1 }); return; }
+  let lastProgress = -1;
+  let renderedDoneIn: number | null = null;
+  let encodedDoneIn: number | null = null;
+  const concurrency = Math.max(1, Math.min(os.availableParallelism(), Number(process.env.WEATHER_RENDER_CONCURRENCY) || c.concurrency));
+  const result = await renderMedia({ ...common, codec: 'h264', audioCodec: 'aac', audioBitrate: '192k', videoBitrate: '3800k', pixelFormat: 'yuv420p', x264Preset: 'medium', concurrency, scale: options.scale ?? 1, ...(options.frames ? { frameRange: options.frames } : {}), onProgress: (p) => {
+    renderedDoneIn = p.renderedDoneIn ?? renderedDoneIn;
+    encodedDoneIn = p.encodedDoneIn ?? encodedDoneIn;
+    const percent = Math.floor(p.progress * 100);
+    if (percent !== lastProgress && percent % 10 === 0) { lastProgress = percent; process.stdout.write(`\rRendering ${percent}%`); }
+  } });
+  const timing = { setupMs, framesMs: renderedDoneIn, encodingMs: encodedDoneIn, totalMs: Date.now() - started, concurrency, frameCount: options.frames ? options.frames[1] - options.frames[0] + 1 : episode.durationInFrames, slowestFrames: result.slowestFrames };
+  fs.writeFileSync(path.join(path.dirname(output), options.frames ? 'preview-render-timing.json' : 'render-timing.json'), JSON.stringify(timing, null, 2));
+  process.stdout.write(`\nRender timing: ${JSON.stringify(timing)}\n`);
 }

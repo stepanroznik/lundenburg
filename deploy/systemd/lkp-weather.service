@@ -6,10 +6,26 @@ Wants=network-online.target
 [Service]
 Type=oneshot
 User=lundenburg
-WorkingDirectory=/home/lundenburg/lundenburg
+WorkingDirectory=/home/lundenburg/lkp-weather
 EnvironmentFile=-/etc/lkp-weather.env
+Environment=WEATHER_RENDER_CONCURRENCY=1
+Environment=WEATHER_BROWSER=/usr/bin/chromium
 ExecStart=/usr/bin/npm run weather:auto
-TimeoutStartSec=3600
-Nice=10
-# Enable on the rendering host with access to the authoritative schedule/media.
-# Do not compete with Pi RF playout until render throughput has been measured.
+TimeoutStartSec=5400
+Nice=19
+CPUSchedulingPolicy=idle
+CPUWeight=1
+CPUQuota=50%
+# Playout uses cores 0-1; reserve cores 2-3 for GNU Radio/HackRF.
+# SCHED_IDLE makes rendering yield to normal-priority playout on 0-1.
+CPUAffinity=0 1
+AllowedCPUs=0-1
+IOWeight=1
+IOSchedulingClass=idle
+MemoryHigh=768M
+MemoryMax=1G
+MemorySwapMax=0
+OOMPolicy=stop
+KillMode=control-group
+TimeoutStopSec=15
+NoNewPrivileges=true

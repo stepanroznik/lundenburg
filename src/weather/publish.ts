@@ -14,12 +14,13 @@ export function publishWeather(meta: ProgrammeMetadata, db: LkpDatabase, config:
   if (!Number.isFinite(from) || !Number.isFinite(until) || !Number.isFinite(meta.durationMs) || meta.durationMs <= 0) throw new Error('Invalid generated programme metadata');
   const existing = db.db.prepare('SELECT id FROM schedule_entries WHERE media_id=?').get(meta.id);
   if (existing) throw new Error(`Edition already scheduled: ${meta.id}`);
-  const boundary = db.nextAfter(Math.max(atMs, from));
+  const earliest = Math.max(atMs, from, Date.now() + 60_000);
+  const boundary = db.nextAfter(earliest);
   if (!boundary || boundary.startsAtMs <= Date.now() + 30_000 || boundary.startsAtMs + meta.durationMs > until) throw new Error('No safe future programme boundary within the forecast validity window');
   const entry: ScheduleEntry = { id: stableId(meta.id, boundary.startsAtMs), sequence: boundary.sequence, mediaId: meta.id, showId: 'lkp-weather', showTitle: 'LKP Wetterfreunde', episodeTitle: meta.title, description: 'Das Wetter in Lundenburg, Wien, Brno und Bratislava.', startsAtMs: boundary.startsAtMs, endsAtMs: boundary.startsAtMs + meta.durationMs, durationMs: meta.durationMs, mediaPath: path.resolve(meta.mediaPath), audioLanguage: 'mul', subtitleLanguages: ['de', 'cs', 'sk'] };
   db.db.transaction(() => {
     // Check again under the write transaction to avoid publishing against a moved boundary.
-    const current = db.nextAfter(Math.max(atMs, from));
+    const current = db.nextAfter(earliest);
     if (!current || current.id !== boundary.id || current.startsAtMs !== boundary.startsAtMs) throw new Error('Schedule changed during publication; regenerate against its new boundary');
     const future = db.db.prepare('SELECT id, media_id, media_path FROM schedule_entries WHERE sequence>=? ORDER BY sequence DESC').all(boundary.sequence) as Array<{ id: string; media_id: string; media_path: string }>;
     for (const row of future) {

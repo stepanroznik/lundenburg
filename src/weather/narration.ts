@@ -6,7 +6,15 @@ const conditions: Record<Language, Record<WeatherState, string>> = {
   cs: { clear: 'Svítí sluníčko.', 'partly-cloudy': 'Sluníčko se střídá s mraky.', cloudy: 'Oblohu zakrývají mraky.', fog: 'Je mlha a vidíme jen kousek před sebe.', drizzle: 'Jemně mrholí.', rain: 'Prší.', showers: 'Občas přijde přeháňka.', 'heavy-rain': 'Pořádně prší.', thunderstorm: 'Mohou přijít bouřky. Při bouřce raději zůstaňte uvnitř.', snow: 'Padají sněhové vločky.', windy: 'Fouká silný vítr.', hot: 'Je horko. Nezapomeňte pít a odpočívat ve stínu.', cold: 'Je mrazivo.' },
   sk: { clear: 'Slniečko svieti.', 'partly-cloudy': 'Slniečko sa strieda s oblakmi.', cloudy: 'Oblohu zakrývajú oblaky.', fog: 'Je hmla a vidíme len kúsok pred seba.', drizzle: 'Jemne mrholí.', rain: 'Prší.', showers: 'Občas príde prehánka.', 'heavy-rain': 'Výdatne prší.', thunderstorm: 'Môžu prísť búrky. Počas búrky radšej zostaňte vnútri.', snow: 'Padajú snehové vločky.', windy: 'Fúka silný vietor.', hot: 'Je horúco. Nezabudnite piť a oddychovať v tieni.', cold: 'Je mrazivo.' },
 };
-// Future introductions put the following present-tense description in forecast context.
+const futureConditions: Record<Language, Record<WeatherState, string>> = {
+  de: { clear: 'Die Sonne wird scheinen.', 'partly-cloudy': 'Sonne und Wolken werden sich abwechseln.', cloudy: 'Viele Wolken werden über uns hinwegziehen.', fog: 'Nebel wird die Sicht einschränken.', drizzle: 'Es wird leicht nieseln.', rain: 'Es wird regnen.', showers: 'Ab und zu wird ein Regenschauer vorbeiziehen.', 'heavy-rain': 'Es wird kräftig regnen.', thunderstorm: 'Es werden Gewitter möglich sein. Bleibt bei Blitz und Donner bitte drinnen.', snow: 'Es wird schneien.', windy: 'Der Wind wird kräftig wehen.', hot: 'Es wird heiß werden. Denkt ans Trinken und an Schatten.', cold: 'Es wird frostig kalt werden.' },
+  cs: { clear: 'Bude svítit sluníčko.', 'partly-cloudy': 'Sluníčko se bude střídat s mraky.', cloudy: 'Oblohu budou zakrývat mraky.', fog: 'Bude mlha a uvidíme jen kousek před sebe.', drizzle: 'Bude jemně mrholit.', rain: 'Bude pršet.', showers: 'Občas se objeví přeháňka.', 'heavy-rain': 'Bude pořádně pršet.', thunderstorm: 'Budou hrozit bouřky. Při bouřce raději zůstaňte uvnitř.', snow: 'Budou padat sněhové vločky.', windy: 'Bude foukat silný vítr.', hot: 'Bude horko. Nezapomeňte pít a odpočívat ve stínu.', cold: 'Bude mrazivo.' },
+  sk: { clear: 'Bude svietiť slniečko.', 'partly-cloudy': 'Slniečko sa bude striedať s oblakmi.', cloudy: 'Oblohu budú zakrývať oblaky.', fog: 'Bude hmla a uvidíme len kúsok pred seba.', drizzle: 'Bude jemne mrholiť.', rain: 'Bude pršať.', showers: 'Občas sa objaví prehánka.', 'heavy-rain': 'Bude výdatne pršať.', thunderstorm: 'Budú hroziť búrky. Počas búrky radšej zostaňte vnútri.', snow: 'Budú padať snehové vločky.', windy: 'Bude fúkať silný vietor.', hot: 'Bude horúco. Nezabudnite piť a oddychovať v tieni.', cold: 'Bude mrazivo.' },
+};
+export const isFuture = (period: Period, edition: Edition) => period !== 'current' && period !== edition;
+export function conditionText(language: Language, edition: Edition, fact: Fact): string {
+  return (isFuture(fact.period, edition) ? futureConditions : conditions)[language][fact.state];
+}
 export function contextText(language: Language, edition: Edition, period: Period): string {
   const now: Record<Language, Record<Edition, string>> = {
     de: { morning: 'So sieht unser Wetter heute Morgen aus.', afternoon: 'So sieht unser Wetter jetzt am Nachmittag aus.', evening: 'So sieht unser Wetter jetzt am Abend aus.' },
@@ -21,11 +29,11 @@ export function contextText(language: Language, edition: Edition, period: Period
   };
   return future[language][period as Exclude<Period, 'current'>];
 }
-export function temperatureText(language: Language, fact: Fact): string {
+export function temperatureText(language: Language, fact: Fact, edition?: Edition): string {
   const n = Math.round(fact.temperatureC);
   const value = n < 0 ? `mínus ${Math.abs(n)}` : `${n}`;
-  const future = fact.period !== 'current';
-  if (language === 'de') return `${future ? 'Die Temperatur erreicht etwa' : 'Die Temperatur liegt bei etwa'} ${n < 0 ? `minus ${Math.abs(n)}` : n} Grad.`;
+  const future = edition ? isFuture(fact.period, edition) : fact.period !== 'current';
+  if (language === 'de') return `${future ? 'Die Temperatur wird etwa' : 'Die Temperatur liegt bei etwa'} ${n < 0 ? `minus ${Math.abs(n)}` : n} Grad${future ? ' erreichen' : ''}.`;
   const a = Math.abs(n);
   const unit = a === 1 ? 'stupeň' : a >= 2 && a <= 4 ? (language === 'cs' ? 'stupně' : 'stupne') : (language === 'cs' ? 'stupňů' : 'stupňov');
   return language === 'cs' ? `${future ? 'Teplota vystoupí přibližně na' : 'Teď máme přibližně'} ${value} ${unit}.` : `${future ? 'Teplota vystúpi približne na' : 'Teraz máme približne'} ${value} ${unit}.`;
@@ -42,8 +50,8 @@ export async function speechPlan(forecast: Forecast, edition: Edition, copy?: We
     add('greeting', greetings[p.id]);
     for (const fact of forecast.cities[p.id]) {
       add('context', contextText(p.language, edition, fact.period), fact.period);
-      add('condition', conditions[p.language][fact.state], fact.period);
-      add('temperature', temperatureText(p.language, fact), fact.period);
+      add('condition', conditionText(p.language, edition, fact), fact.period);
+      add('temperature', temperatureText(p.language, fact, edition), fact.period);
     }
     const choices = reactions[p.id];
     let reaction = choices[(new Date(forecast.broadcastAt).getUTCDate() + index) % choices.length]!;
@@ -55,7 +63,7 @@ export async function speechPlan(forecast: Forecast, edition: Edition, copy?: We
       } catch { /* Deterministic narration remains complete. */ }
     }
     add('reaction', reaction, forecast.cities[p.id].at(-1)!.period);
-    add(p.id === 'haluschka' ? 'goodbye' : 'handoff', handoffs[p.id]);
+    add(p.id === 'haluschka' ? 'goodbye' : 'handoff', handoffs[p.id], forecast.cities[p.id].at(-1)!.period);
   }
   return atoms;
 }

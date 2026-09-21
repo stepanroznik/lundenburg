@@ -5,7 +5,9 @@ import os from 'node:os';
 import path from 'node:path';
 import { loadWeatherConfig, presenter } from '../src/weather/config.js';
 import { mockForecast, normalizeWeather, periodsFor, editionWindow } from '../src/weather/forecast.js';
-import { contextText, speechPlan, temperatureText } from '../src/weather/narration.js';
+import { conditionText, contextText, speechPlan, temperatureText } from '../src/weather/narration.js';
+import { forecastDate } from '../src/weather/display.js';
+import { acquireWeatherLock } from '../src/weather/lock.js';
 import { alignmentCues, cacheHash, speechParameters, SpeechCache, speechRoot } from '../src/weather/speech.js';
 import { assembleEpisode, subtitles } from '../src/weather/episode.js';
 import { publishWeather } from '../src/weather/publish.js';
@@ -17,6 +19,29 @@ import type { Atom, Edition, Language } from '../src/weather/model.js';
 const c = loadWeatherConfig();
 const at = new Date('2026-09-21T07:00:00+02:00');
 const atom: Atom = { id: 'test', presenter: 'sisi', language: 'de', text: 'Hallo!', period: 'current', purpose: 'greeting' };
+test('tomorrow uses explicit future speech and the next local calendar date', () => {
+  const fact = mockForecast('rainy', at, 'evening').cities.knurpsi[0]!;
+  assert.equal(conditionText('de','evening',fact),'Es regnet.');
+  assert.equal(conditionText('de','evening',{...fact,period:'tomorrow'}),'Es wird regnen.');
+  assert.equal(conditionText('cs','evening',{...fact,period:'tomorrow'}),'Bude pršet.');
+  assert.equal(conditionText('sk','evening',{...fact,period:'tomorrow'}),'Bude pršať.');
+  assert.match(temperatureText('de',{...fact,period:'tomorrow'},'evening'), /wird.*erreichen/);
+  assert.match(forecastDate('2026-10-24T23:30:00+02:00','tomorrow'), /Sonntag, 25\. Oktober/);
+  assert.match(forecastDate('2026-10-25T23:30:00+01:00','tomorrow'), /Montag, 26\. Oktober/);
+});
+test('Pi restarts recover dead generation locks without stealing a live one', () => {
+  const directory=fs.mkdtempSync(path.join(os.tmpdir(),'weather-lock-'));
+  const file=path.join(directory,'.lock');
+  try {
+    const release=acquireWeatherLock(file);
+    assert.throws(()=>acquireWeatherLock(file), /already owns/);
+    release();
+    fs.writeFileSync(file,JSON.stringify({pid:process.pid,identity:'previous-boot:123',token:'old'}));
+    const recovered=acquireWeatherLock(file);
+    recovered();
+    assert.equal(fs.existsSync(file),false);
+  } finally { fs.rmSync(directory,{recursive:true,force:true}); }
+});
 test('weather hazards outrank temperature/wind and unknown codes fail closed', () => {
   assert.equal(normalizeWeather(95, 34, 60), 'thunderstorm');
   assert.equal(normalizeWeather(75, -3, 50), 'snow');
