@@ -1,7 +1,7 @@
+import type { Language, Presenter, Mouth } from '../characters/types.js';
+export type { Language, Presenter, Mouth } from '../characters/types.js';
 export type Edition = 'morning' | 'afternoon' | 'evening';
 export type Period = 'current' | 'afternoon' | 'evening' | 'tomorrow';
-export type Language = 'de' | 'cs' | 'sk';
-export type Presenter = 'knurpsi' | 'sisi' | 'schalinka' | 'haluschka';
 export type WeatherState = 'clear' | 'partly-cloudy' | 'cloudy' | 'fog' | 'drizzle' | 'rain' | 'showers' | 'heavy-rain' | 'thunderstorm' | 'snow' | 'windy' | 'hot' | 'cold';
 export interface Fact {
   period: Period; state: WeatherState; temperatureC: number;
@@ -17,7 +17,6 @@ export interface Atom {
   purpose: 'greeting' | 'context' | 'condition' | 'temperature' | 'reaction' | 'handoff' | 'goodbye';
   period: Period;
 }
-export type Mouth = 'rest' | 'closed' | 'open' | 'wide' | 'round' | 'teeth';
 export interface MouthCue { start: number; end: number; value: Mouth }
 export interface SpeechAsset { key: string; audio: string; duration: number; cues: MouthCue[] }
 export interface Beat extends Atom { from: number; frames: number; asset: SpeechAsset }

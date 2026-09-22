@@ -4,8 +4,46 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 test "$(id -un)" = lundenburg || { echo 'Run this installer as lundenburg.' >&2; exit 1; }
 test "$(pwd)" = /home/lundenburg/lkp-weather || { echo 'Use the isolated /home/lundenburg/lkp-weather directory.' >&2; exit 1; }
-sudo apt-get update
-sudo apt-get install -y chromium ffmpeg
+
+find_browser() {
+  local candidate
+  for candidate in /usr/bin/chromium /usr/bin/chromium-browser /usr/bin/chromium-headless-shell /usr/bin/google-chrome; do
+    if [ -x "$candidate" ]; then
+      printf '%s\n' "$candidate"
+      return 0
+    fi
+  done
+  return 1
+}
+
+browser_path="$(find_browser || true)"
+if [ -z "$browser_path" ] || ! command -v ffmpeg >/dev/null; then
+  sudo apt-get -o Acquire::Retries=3 update
+fi
+if [ -z "$browser_path" ]; then
+  # Raspberry Pi OS publishes a Chromium build from archive.raspberrypi.com,
+  # but weather rendering does not require that customized build. Prefer the
+  # Debian build so a temporary Pi-mirror DNS failure cannot block setup.
+  debian_chromium_version="$(apt-cache madison chromium | awk '$3 !~ /rpt/ { print $3; exit }')"
+  if [ -n "$debian_chromium_version" ]; then
+    chromium_packages=(
+      "chromium=$debian_chromium_version"
+      "chromium-common=$debian_chromium_version"
+    )
+    if apt-cache madison chromium-sandbox | awk -v version="$debian_chromium_version" '$3 == version { found=1 } END { exit !found }'; then
+      chromium_packages+=("chromium-sandbox=$debian_chromium_version")
+    fi
+    sudo apt-get -o Acquire::Retries=3 install -y --no-install-recommends "${chromium_packages[@]}"
+  else
+    sudo apt-get -o Acquire::Retries=3 install -y --no-install-recommends chromium
+  fi
+  browser_path="$(find_browser || true)"
+  test -n "$browser_path" || { echo 'Chromium installation completed but no supported browser executable was found.' >&2; exit 1; }
+fi
+if ! command -v ffmpeg >/dev/null; then
+  sudo apt-get -o Acquire::Retries=3 install -y --no-install-recommends ffmpeg
+fi
+echo "Weather renderer will use $browser_path"
 npm ci --no-audit --no-fund
 npm run check
 node --input-type=module <<'NODE'

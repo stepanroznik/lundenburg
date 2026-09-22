@@ -20,6 +20,11 @@ function Tree({ x, y, size, pine }: { x: number; y: number; size: number; pine: 
 // geography; these illustrations are not a land-cover survey.
 const forests = [[16.2,49.17,14], [16.78,49.31,18], [16.16,48.3,17], [16.98,48.61,17], [17.29,48.53,16], [16.53,48.95,10], [16.81,48.82,10]];
 const villages = [[16.638,48.805,'Mikulov'], [16.803,48.801,'Lednice'], [16.576,48.571,'Mistelbach'], [17.021,48.436,'Malacky'], [17.132,48.849,'Hodonín']] as const;
+const projectedLength = (points: [number, number][]) => points.slice(1).reduce((sum, point, i) => {
+  const a = project(points[i]![0], points[i]![1]);
+  const b = project(point[0], point[1]);
+  return sum + Math.hypot(b[0] - a[0], b[1] - a[1]);
+}, 0);
 
 export function Atlas({ map, borders = [] }: { map: RegionMap; borders?: number[][][] }) {
   return <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1100 760" width="2200" height="1520">
@@ -29,11 +34,13 @@ export function Atlas({ map, borders = [] }: { map: RegionMap; borders?: number[
     <path d="M0 210Q170 120 220 280T390 530L290 760H0ZM870 0Q740 160 1010 285L1100 200V0Z" fill="#d5e7bd"/>
     <path d="M0 620Q160 560 195 680T420 760M760 760Q890 610 1100 650" stroke="#ccdfb0" strokeWidth="28" fill="none"/>
     <g fill="none" strokeLinecap="round" strokeLinejoin="round">{map.features.filter(f=>f.kind==='river').map((f,i)=><path key={i} d={f.points.map(([x,y],j)=>`${j?'L':'M'}${project(x,y).map(n=>n.toFixed(1)).join(' ')}`).join('')} stroke="#80c9d5" strokeWidth="3.2"/>)}</g>
-    <g fill="none" stroke="#909883" strokeWidth="1.6" strokeDasharray="6 5" opacity=".7">{borders.map((line,i)=><path key={i} d={line.map((p,j)=>`${j?'L':'M'}${project(p[0]!,p[1]!).map(n=>n.toFixed(1)).join(' ')}`).join('')}/>)}</g>
-    <g fill="none" opacity=".68">{map.features.filter(f=>f.kind==='rail').map((f,i)=>{
+    <g fill="none">{map.features.filter(f=>f.kind==='rail').map((f,i)=>{
       const d=f.points.map(([x,y],j)=>`${j?'L':'M'}${project(x,y).map(n=>n.toFixed(1)).join(' ')}`).join('');
-      return <g key={i}><path d={d} stroke="#94a18b" strokeWidth="8" strokeDasharray="1.6 7"/><path d={d} stroke="#81917f" strokeWidth="3.4"/><path d={d} stroke="#e7efd3" strokeWidth="1.5"/></g>;
+      const main = f.importance ? f.importance === 'main' : projectedLength(f.points) >= 18;
+      const opacity = main ? .55 : .18;
+      return <g key={i}><path d={d} stroke="#879384" strokeOpacity={opacity} strokeWidth={main ? 7 : 5} strokeDasharray="1.4 7"/><path d={d} stroke="#738477" strokeOpacity={opacity} strokeWidth={main ? 3.1 : 2.2}/><path d={d} stroke="#e7efd3" strokeOpacity={opacity} strokeWidth={main ? 1.35 : .9}/></g>;
     })}</g>
+    <g fill="none" stroke="#004f4f" strokeWidth="9" opacity=".16" strokeLinecap="round" strokeLinejoin="round">{borders.map((line,i)=><path key={i} d={line.map((p,j)=>`${j?'L':'M'}${project(p[0]!,p[1]!).map(n=>n.toFixed(1)).join(' ')}`).join('')}/>)}</g>
     {forests.flatMap(([lon,lat,count],cluster)=>Array.from({length:count!},(_,i)=>{
       const [x,y]=project(lon!,lat!);const a=i*2.39996;const r=Math.sqrt(i)*15;
       return <Tree key={`${cluster}-${i}`} x={x+Math.cos(a)*r} y={y+Math.sin(a)*r*.65} size={.62+(i%4)*.11} pine={(i+cluster)%3===0}/>;

@@ -17,14 +17,21 @@ function commandCheck(name: string, command: string, args: string[], required = 
 
 export function runDoctor(db: LkpDatabase, config: AppConfig, rf: boolean): DoctorCheck[] {
   const checks: DoctorCheck[] = [];
+  const needsRf = rf || config.broadcast.mode === 'dvb' || config.broadcast.mode === 'both';
+  const needsInternet = config.broadcast.mode === 'internet' || config.broadcast.mode === 'both';
   checks.push({ name: 'media root', ok: fs.existsSync(config.media.root), detail: config.media.root, required: true });
   checks.push({ name: 'database', ok: db.db.open, detail: config.storage.database, required: true });
   checks.push({ name: 'logo', ok: isFile(config.logo.path), detail: config.logo.path, required: true });
   checks.push(commandCheck('FFmpeg', 'ffmpeg', ['-version']));
   checks.push(commandCheck('ffprobe', config.media.ffprobe, ['-version']));
-  checks.push(commandCheck('TSDuck', 'tsp', ['--version'], rf));
-  checks.push(commandCheck('GNU Radio', 'gnuradio-config-info', ['--version'], rf));
-  if (rf) checks.push(commandCheck('HackRF', 'hackrf_info', []));
+  checks.push(commandCheck('TSDuck', 'tsp', ['--version'], needsRf));
+  checks.push(commandCheck('GNU Radio', 'gnuradio-config-info', ['--version'], needsRf));
+  if (needsRf) checks.push(commandCheck('HackRF', 'hackrf_info', []));
+  if (needsInternet) {
+    try { fs.mkdirSync(config.internet.hlsDirectory, { recursive: true }); fs.accessSync(config.internet.hlsDirectory, fs.constants.W_OK); checks.push({ name: 'HLS directory', ok: true, detail: config.internet.hlsDirectory, required: true }); }
+    catch (error) { checks.push({ name: 'HLS directory', ok: false, detail: String(error), required: true }); }
+    checks.push({ name: 'HLS web player', ok: isFile(`${config.projectRoot}/node_modules/hls.js/dist/hls.min.js`), detail: 'hls.js', required: true });
+  }
   const current = db.currentAt(Date.now());
   checks.push({ name: 'schedule covers now', ok: Boolean(current), detail: current ? `${current.showTitle}: ${current.episodeTitle}` : 'Run media scan and schedule generate', required: true });
   const missing = db.listSchedule(Date.now(), Date.now() + config.schedule.epgDays * 86_400_000).filter((entry) => !isFile(entry.mediaPath));

@@ -1,0 +1,28 @@
+[Unit]
+Description=Lundenburg Kids Premium authenticated web player
+After=local-fs.target network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=lundenburg
+Group=lundenburg
+WorkingDirectory=/home/lundenburg/lundenburg
+Environment=NODE_ENV=production
+EnvironmentFile=-/etc/lkp.env
+EnvironmentFile=/etc/lkp-stream.env
+ExecStart=/usr/bin/node --import tsx src/internet.ts
+Restart=on-failure
+RestartSec=3
+TimeoutStopSec=10
+KillMode=control-group
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=read-only
+ProtectSystem=strict
+# SQLite WAL mode needs to create/read its -shm file even though the player only
+# issues SELECT queries. Keep write access limited to mutable runtime state.
+ReadWritePaths=/home/lundenburg/lundenburg/runtime/internet /home/lundenburg/lundenburg/data
+
+[Install]
+WantedBy=multi-user.target

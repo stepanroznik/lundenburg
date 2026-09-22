@@ -3,5 +3,5 @@ export function project(longitude: number, latitude: number): [number, number] {
   // Northern headroom keeps every city's weather card above its landmark.
   return [70 + (longitude - bounds.west) / (bounds.east - bounds.west) * 960, 165 + (bounds.north - latitude) / (bounds.north - bounds.south) * 510];
 }
-export interface MapFeature { kind: 'rail' | 'river'; points: [number, number][] }
+export interface MapFeature { kind: 'rail' | 'river'; points: [number, number][]; importance?: 'main' | 'secondary' }
 export interface RegionMap { attribution: string; fetchedAt: string; features: MapFeature[] }

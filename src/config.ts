@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parse } from 'yaml';
-import type { AppConfig } from './types.js';
+import type { AppConfig, OutputMode } from './types.js';
 
 const sourceRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
@@ -37,6 +37,7 @@ export function loadConfig(explicitPath?: string): AppConfig {
   const logo = requiredObject(raw.logo, 'logo');
   const epg = requiredObject(raw.epg, 'epg');
   const broadcast = requiredObject(raw.broadcast, 'broadcast');
+  const internet = requiredObject(raw.internet, 'internet');
   const mediaRoot = process.env.LKP_MEDIA_ROOT ?? stringValue(media, 'root');
   const database = process.env.LKP_DATABASE ?? stringValue(storage, 'database');
 
@@ -81,12 +82,31 @@ export function loadConfig(explicitPath?: string): AppConfig {
       refreshSeconds: numberValue(epg, 'refreshSeconds'),
     },
     broadcast: {
+      mode: stringValue(broadcast, 'mode') as OutputMode,
       frequencyHz: numberValue(broadcast, 'frequencyHz'), gainDb: Number(process.env.LKP_GAIN_DB ?? numberValue(broadcast, 'gainDb')),
       amplitude: numberValue(broadcast, 'amplitude'), fifo: resolveFromProject(projectRoot, stringValue(broadcast, 'fifo')),
       transmitter: resolveFromProject(projectRoot, stringValue(broadcast, 'transmitter')),
     },
+    internet: {
+      bind: stringValue(internet, 'bind'), port: numberValue(internet, 'port'),
+      hlsDirectory: resolveFromProject(projectRoot, stringValue(internet, 'hlsDirectory')),
+      segmentSeconds: numberValue(internet, 'segmentSeconds'), playlistSegments: numberValue(internet, 'playlistSegments'),
+      audioBitrate: stringValue(internet, 'audioBitrate'),
+    },
   };
+  if (raw.intermissions !== undefined) {
+    const section=requiredObject(raw.intermissions,'intermissions');
+    const weights=requiredObject(section.weights,'intermissions.weights');
+    if(typeof section.enabled!=='boolean')throw new Error('intermissions.enabled must be boolean');
+    result.intermissions={enabled:section.enabled,manifest:resolveFromProject(projectRoot,stringValue(section,'manifest')),boundaryRate:numberValue(section,'boundaryRate'),weights:{ident:numberValue(weights,'ident'),silent:numberValue(weights,'silent'),voiced:numberValue(weights,'voiced')}};
+    if(result.intermissions.boundaryRate<0||result.intermissions.boundaryRate>1||Object.values(result.intermissions.weights).some(n=>n<0)||Object.values(result.intermissions.weights).reduce((a,b)=>a+b,0)<=0)throw new Error('Invalid intermission probability/weights');
+  }
   if (result.broadcast.gainDb < 0 || result.broadcast.gainDb > 30) throw new Error('broadcast.gainDb must be between 0 and 30');
+  if (!['dvb', 'internet', 'both'].includes(result.broadcast.mode)) throw new Error('broadcast.mode must be dvb, internet, or both');
+  if (!Number.isInteger(result.internet.port) || result.internet.port < 1 || result.internet.port > 65_535) throw new Error('internet.port must be a valid TCP port');
+  if (result.internet.bind !== '127.0.0.1' && result.internet.bind !== '::1') throw new Error('internet.bind must remain loopback-only; public HTTPS is provided by Tailscale Funnel');
+  if (!(result.internet.segmentSeconds >= 1 && result.internet.segmentSeconds <= 10)) throw new Error('internet.segmentSeconds must be between 1 and 10');
+  if (!Number.isInteger(result.internet.playlistSegments) || result.internet.playlistSegments < 3 || result.internet.playlistSegments > 30) throw new Error('internet.playlistSegments must be between 3 and 30');
   if (!Number.isInteger(result.video.encoderThreads) || result.video.encoderThreads < 1) throw new Error('video.encoderThreads must be a positive integer');
   if (!/^[0-9,-]+$/.test(result.video.cpuAffinity)) throw new Error('video.cpuAffinity must be a CPU list such as 0,1');
   for (const key of ['decoderThreads', 'filterThreads'] as const) {

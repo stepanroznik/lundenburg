@@ -15,12 +15,20 @@ function canonical(value: unknown): string {
   return JSON.stringify(value);
 }
 export const cacheHash = (value: unknown) => createHash('sha256').update(canonical(value)).digest('hex');
-export function speechParameters(atom: Atom, c: WeatherConfig) {
+export interface SpeechDirection { speed?: number; stability?: number; style?: number; previousText?: string; nextText?: string; }
+export function spokenNames(text: string, language: string): string {
+  if (language !== 'cs' && language !== 'sk') return text;
+  return text.replace(/Haluschka/g, 'Haluška').replace(/Haluschko/g, 'Haluško').replace(/Schalinka/g, 'Šalinka').replace(/Schalinko/g, 'Šalinko');
+}
+export function speechParameters(atom: Atom, c: WeatherConfig, direction?: SpeechDirection) {
   const p = presenter(atom.presenter);
   return {
     version: 1, provider: 'elevenlabs', voiceId: p.voiceId, model: c.model,
-    language: atom.language, text: atom.text, speed: p.speed,
-    voiceSettings: { ...c.voiceSettings, speed: p.speed }, outputFormat: 'mp3_44100_128',
+    language: atom.language, text: spokenNames(atom.text, atom.language), speed: direction?.speed ?? p.speed,
+    voiceSettings: { ...c.voiceSettings, speed: direction?.speed ?? p.speed,
+      ...(direction?.stability === undefined ? {} : {stability: direction.stability}),
+      ...(direction?.style === undefined ? {} : {style: direction.style}) }, outputFormat: 'mp3_44100_128',
+    ...(direction ? { direction } : {}),
     processing: { profile: p.profile, eq: p.eq, loudnessLufs: c.loudnessLufs, truePeakDb: c.truePeakDb, lra: 7, sampleRate: 48000, channels: 2 },
     lipsync: 'character-alignment-v1',
   };
@@ -56,8 +64,8 @@ export interface SpeechStats { hits: number; misses: number; characters: number 
 export class SpeechCache {
   readonly stats: SpeechStats = { hits: 0, misses: 0, characters: 0 };
   constructor(private c: WeatherConfig, private mode: 'tts' | 'cache' | 'silent' = 'tts', private request: typeof fetch = fetch) {}
-  async get(atom: Atom): Promise<SpeechAsset> {
-    const parameters = speechParameters(atom, this.c);
+  async get(atom: Atom, direction?: SpeechDirection): Promise<SpeechAsset> {
+    const parameters = speechParameters(atom, this.c, direction);
     const key = cacheHash(parameters);
     const directory = path.join(speechRoot, key);
     const metadataFile = path.join(directory, 'asset.json');
@@ -80,7 +88,9 @@ export class SpeechCache {
         // Only the TTS endpoint is used. Voice metadata/list permission is never required.
         const response = await this.request(`https://api.elevenlabs.io/v1/text-to-speech/${parameters.voiceId}/with-timestamps?output_format=${parameters.outputFormat}`, {
           method: 'POST', headers: { 'xi-api-key': readKey(), 'Content-Type': 'application/json' },
-          body: JSON.stringify({ text: atom.text, model_id: parameters.model, voice_settings: parameters.voiceSettings }),
+          body: JSON.stringify({ text: parameters.text, language_code: parameters.language, model_id: parameters.model, voice_settings: parameters.voiceSettings,
+            ...(direction?.previousText ? {previous_text: spokenNames(direction.previousText, atom.language)} : {}),
+            ...(direction?.nextText ? {next_text: spokenNames(direction.nextText, atom.language)} : {}) }),
           signal: AbortSignal.timeout(25_000),
         });
         if (!response.ok) throw new Error(`ElevenLabs TTS failed for ${atom.presenter}: HTTP ${response.status}. Generation stopped; no automatic paid retry.`);

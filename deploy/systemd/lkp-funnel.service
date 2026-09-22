@@ -1,0 +1,15 @@
+[Unit]
+Description=Lundenburg Kids Premium public HTTPS ingress
+After=tailscaled.service lkp-internet.service network-online.target
+Wants=tailscaled.service lkp-internet.service network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/tailscale funnel --bg --https=443 http://127.0.0.1:8080
+ExecStop=/usr/bin/tailscale funnel reset
+RemainAfterExit=true
+TimeoutStartSec=60
+TimeoutStopSec=20
+
+[Install]
+WantedBy=multi-user.target

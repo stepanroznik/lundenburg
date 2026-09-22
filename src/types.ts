@@ -1,4 +1,5 @@
 export type SubtitleKind = 'sidecar' | 'embedded' | 'dvb-bitmap';
+export type OutputMode = 'dvb' | 'internet' | 'both';
 
 export interface SubtitleTrack {
   language: string;
@@ -58,7 +59,13 @@ export interface PlaybackEvent {
   error?: string;
 }
 
+export interface IntermissionConfig {
+  enabled: boolean; manifest: string; boundaryRate: number;
+  weights: { ident: number; silent: number; voiced: number };
+}
+
 export interface AppConfig {
+  intermissions?: IntermissionConfig;
   configPath: string;
   projectRoot: string;
   channel: {
@@ -80,6 +87,11 @@ export interface AppConfig {
   };
   epg: { output: string; language: string; refreshSeconds: number };
   broadcast: {
+    mode: OutputMode;
     frequencyHz: number; gainDb: number; amplitude: number; fifo: string; transmitter: string;
+  };
+  internet: {
+    bind: string; port: number; hlsDirectory: string; segmentSeconds: number;
+    playlistSegments: number; audioBitrate: string;
   };
 }

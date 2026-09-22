@@ -2,7 +2,7 @@
 
 LKP is a wall-clock-authoritative television playout service. Its SQLite schedule, not process uptime, decides what is on air. Starting at 18:31 during an event scheduled for 18:24:30 seeks 6:30 into that event, retains its original EPG times, and switches at the next stored boundary.
 
-The application is TypeScript. FFmpeg/ffprobe handle media, TSDuck injects DVB EIT, and the retained GNU Radio flowgraph drives the HackRF. RF is never used by tests and requires an explicit acknowledgement. The configured and transmitter-level default gain is **14 dB**.
+The application is TypeScript. FFmpeg/ffprobe handle media. The same encoded H.264/MP2 transport stream can feed TSDuck/GNU Radio for DVB-T, a lightweight HLS relay for Internet viewing, or both. RF is never used by tests and requires an explicit acknowledgement. The configured and transmitter-level default gain is **14 dB**.
 
 The default Raspberry Pi 5 playout profile is 1920×1080 at 30 fps and 3.8 Mb/s. FFmpeg uses the `ultrafast` x264 preset and is pinned to CPU cores 0–1, leaving cores 2–3 available to GNU Radio and the HackRF path. The logo remains a live overlay, but LKP rasterizes the committed SVG once into a size- and opacity-specific transparent PNG cache before playout; it never renders the SVG for every programme frame.
 
@@ -19,6 +19,8 @@ The default Raspberry Pi 5 playout profile is 1920×1080 at 30 fps and 3.8 Mb/s.
 - sidecar and embedded subtitle discovery (`cs`, `de`, `en`), with pass-through of genuine DVB bitmap inputs;
 - XLSX worksheets for Schedule, Playback Log, and Comparison;
 - dry-run MPEG-TS output, diagnostics, systemd unit, and automated tests.
+- configurable `dvb`, `internet`, and `both` output modes from one playout source;
+- an authenticated HLS player exposed through Tailscale Funnel HTTPS.
 
 ## Installation on the Pi
 
@@ -101,6 +103,17 @@ Excel dates/times are real cells displayed in Prague civil time. Headers are fro
 
 ## Playout and diagnostics
 
+Select the output without changing code in `config/lkp.yaml`:
+
+```yaml
+broadcast:
+  mode: internet # dvb, internet, or both
+```
+
+All modes use one programme clock and one H.264 encoder. Internet output copies
+that video bitstream and converts only the small MP2 audio stream to browser-safe
+AAC. `dvb` and `both` require the RF acknowledgement; `internet` does not.
+
 Run diagnostics first:
 
 ```bash
@@ -116,6 +129,12 @@ ffprobe runtime/preview.ts
 ```
 
 Long-running dry-run omits `--once`. At startup the service locates the stored current event, seeks by `now - startsAt`, and shows a static logo. Later scheduled boundaries receive the transition animation. Each actual attempt and its initial seek/result are stored in `playback_log`.
+
+For debugging, shift the broadcast clock into the past. Hours and minutes may be used separately or together; the stored schedule is not changed. Programme boundaries remain aligned with real playback time. A dry-run leaves the live EPG on its normal clock; an RF run shifts its generated EPG to match the replay:
+
+```bash
+npm run broadcast:start -- --dry-run --past-hours 2 --past-minutes 30 --max-seconds 15 --output runtime/past-preview.ts
+```
 
 RF is regulated spectrum. Only after checking local rules, load, transport analysis, and a shielded/short-range setup:
 
@@ -133,19 +152,28 @@ This starts the continuous TSDuck/GNU Radio pipeline at the configured **14 dB**
 
 ## systemd
 
-The supplied unit is not installed or enabled automatically.
+The supplied units supervise playout, the authenticated local player, and public
+HTTPS ingress. Generate the stream password on the host and keep it out of Git:
 
 ```bash
 sudo cp deploy/lkp.env.example /etc/lkp.env
+sudo cp deploy/lkp-stream.env.example /etc/lkp-stream.env
+sudo chmod 600 /etc/lkp-stream.env
 sudo cp deploy/systemd/lkp.service /etc/systemd/system/lkp.service
+sudo cp deploy/systemd/lkp-internet.service /etc/systemd/system/lkp-internet.service
+sudo cp deploy/systemd/lkp-funnel.service /etc/systemd/system/lkp-funnel.service
 sudo systemctl daemon-reload
-sudo systemctl enable --now lkp.service
+sudo systemctl enable --now lkp-internet.service lkp.service lkp-funnel.service
 
-journalctl -u lkp.service -f
-sudo systemctl stop lkp.service
+journalctl -u lkp.service -u lkp-internet.service -u lkp-funnel.service -f
 ```
 
-Review `/etc/lkp.env`, especially the RF acknowledgement and 14 dB gain, before enabling. The service restarts after failure and terminates supervised children on stop.
+The player binds only to `127.0.0.1`; Tailscale Funnel is the public TLS
+boundary. HTTP Basic authentication is enforced before the HTML, schedule API,
+HLS playlist, and every media segment. Review `/etc/lkp.env`, especially the RF
+acknowledgement and 14 dB gain, before enabling a mode containing DVB-T. Services
+restart after failure and terminate supervised children cleanly on stop. See
+[`INTERNET_STREAMING.md`](INTERNET_STREAMING.md) for installation and checks.
 
 ## Verification
 
@@ -300,8 +328,9 @@ after reboot. No weather is inserted until the entire render succeeds.
 
 ### Independent Pi service
 
-From the workstation, run the following installer (package installation and
-copying cached speech can exceed 30 seconds):
+From the development workstation in this repository—not from an SSH shell on the
+Pi—run the following deployer (package installation and copying cached speech can
+exceed 30 seconds):
 
 ```bash
 bash scripts/deploy-weather.sh
@@ -314,9 +343,12 @@ or replace the existing playout installation. Its generated `config/lkp.yaml`
 points to the broadcaster's existing SQLite database and EPG output, respecting
 the paths in `/etc/lkp.env`. The supplied credentials file is transferred with
 owner-only permissions. No API key is embedded in the service or repository.
+The installer reuses an existing browser when possible. Otherwise it prefers the
+minimal Debian Chromium package rather than depending on Raspberry Pi's package
+mirror, and retries transient package downloads.
 
 Rendering uses one worker, idle CPU scheduling on cores 0–1 (the playout cores),
-a 50% CPU quota, idle I/O, a 768 MB soft memory limit and a 1 GB hard limit, with
+a one-core CPU quota, idle I/O, a 768 MB soft memory limit and a 1 GB hard limit, with
 swap disabled. Radio cores 2–3 are excluded. These controls prioritize playout;
 Pi render duration and broadcast stability still need to be measured together.
 Do not infer a throughput guarantee from workstation timings. If rendering is
@@ -324,9 +356,10 @@ killed or a provider is unavailable, the existing schedule continues unchanged.
 
 The cached 2200×1520 atlas replaces per-frame processing of thousands of OSM paths
 without lowering output resolution. Fully opaque intro/outro scenes skip drawing
-the hidden studio. Desktop renders default to eight workers (capped by available
-CPU parallelism); `WEATHER_RENDER_CONCURRENCY` overrides this, and the Pi service
-always uses one. `render-timing.json` records setup, frame rendering, encoding,
+the hidden studio. Measurements on the current workstation showed that two workers
+were faster than eight, so the checked-in default remains two.
+`WEATHER_RENDER_CONCURRENCY` overrides this, and the Pi service always uses one.
+`render-timing.json` records setup, frame rendering, encoding,
 worker count and the slowest frames, so a full render can be compared without
 generating any more speech. Short previews write `preview-render-timing.json`.
 Programme output remains 1080p30 at the same encoding settings. Optional

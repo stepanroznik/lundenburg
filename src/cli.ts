@@ -4,6 +4,7 @@ import { Command, Option } from 'commander';
 import { DateTime } from 'luxon';
 import { loadConfig } from './config.js';
 import { LkpDatabase } from './database.js';
+import { reconcileIntermissions } from './intermissions/rotation.js';
 import { runDoctor } from './doctor.js';
 import { writeEpgAtomic } from './epg.js';
 import { exportWorkbook } from './export.js';
@@ -48,6 +49,19 @@ schedule.command('generate').description('create or safely extend the persistent
       });
       console.log(`Added ${result.added} entries. Schedule: ${formatLocal(result.firstMs, config.channel.timezone)} → ${formatLocal(result.lastMs, config.channel.timezone)}.`);
     } finally { db.close(); }
+  });
+
+schedule.command('intermissions').description('insert the published skit rotation at safe future programme boundaries')
+  .action(async () => {
+    const {config,db}=context();
+    try {
+      if(!config.intermissions?.enabled)throw new Error('Intermissions are not enabled in the channel configuration');
+      const backup=`${config.storage.database}.before-intermissions-${Date.now()}.sqlite`;
+      await db.db.backup(backup);
+      const added=reconcileIntermissions(db,config);
+      writeEpgAtomic(db.listSchedule(Date.now()-86400000,Date.now()+config.schedule.epgDays*86400000),config);
+      console.log(`Inserted ${added} intermissions. Schedule backup: ${backup}`);
+    } finally {db.close();}
   });
 
 schedule.command('show').description('show schedule entries')
@@ -116,18 +130,26 @@ program.command('doctor').description('check runtime, media, schedule, and broad
   });
 
 const broadcast = program.command('broadcast').description('wall-clock-authoritative playout');
-broadcast.command('start').description('start scheduled playout (dry-run unless --rf is specified)')
+broadcast.command('start').description('start scheduled playout using broadcast.mode from configuration')
   .addOption(new Option('--rf', 'send DVB-T to the HackRF; regulated spectrum').conflicts('dryRun'))
+  .addOption(new Option('--mode <mode>', 'override configured output mode').choices(['dvb', 'internet', 'both']))
   .option('--dry-run', 'write a transport stream without transmitting RF')
   .option('--once', 'play only the current scheduled item')
   .option('--output <file>', 'dry-run MPEG-TS output')
   .option('--max-seconds <seconds>', 'stop after a bounded preview', Number)
+  .option('--past-hours <hours>', 'play the schedule from this many hours ago', Number)
+  .option('--past-minutes <minutes>', 'play the schedule from this many minutes ago', Number)
   .option('--gain <dB>', 'override HackRF TX gain for this run (0-30 dB)', Number)
   .option('--i-understand-rf', 'required acknowledgement for --rf')
   .option('-v, --verbose', 'show child-process diagnostics')
-  .action(async (options: { rf?: boolean; dryRun?: boolean; once?: boolean; output?: string; maxSeconds?: number; gain?: number; iUnderstandRf?: boolean; verbose?: boolean }) => {
+  .action(async (options: { rf?: boolean; mode?: 'dvb'|'internet'|'both'; dryRun?: boolean; once?: boolean; output?: string; maxSeconds?: number; pastHours?: number; pastMinutes?: number; gain?: number; iUnderstandRf?: boolean; verbose?: boolean }) => {
     const { config, db } = context();
     try {
+      for (const [flag, value] of [['--past-hours', options.pastHours], ['--past-minutes', options.pastMinutes]] as const) {
+        if (value !== undefined && (!Number.isFinite(value) || value < 0)) throw new Error(`${flag} must be a non-negative number`);
+      }
+      const pastOffsetMs = Math.round(((options.pastHours ?? 0) * 60 + (options.pastMinutes ?? 0)) * 60_000);
+      if (!Number.isSafeInteger(pastOffsetMs)) throw new Error('The requested past offset is too large');
       if (options.gain !== undefined) {
         if (!Number.isFinite(options.gain) || options.gain < 0 || options.gain > 30) {
           throw new Error('--gain must be a number between 0 and 30 dB');
@@ -135,8 +157,11 @@ broadcast.command('start').description('start scheduled playout (dry-run unless 
         config.broadcast.gainDb = options.gain;
       }
       await runBroadcast(db, config, {
-        dryRun: !options.rf, once: Boolean(options.once), ...(options.output ? { output: options.output } : {}),
+        dryRun: Boolean(options.dryRun),
+        ...((options.rf || options.mode) ? { mode: options.rf ? 'dvb' as const : options.mode! } : {}),
+        once: Boolean(options.once), ...(options.output ? { output: options.output } : {}),
         ...(options.maxSeconds ? { maxSeconds: options.maxSeconds } : {}),
+        ...(pastOffsetMs ? { pastOffsetMs } : {}),
         rfAcknowledged: Boolean(options.iUnderstandRf || process.env.LKP_RF_ACKNOWLEDGED === 'YES'), verbose: Boolean(options.verbose),
       });
     } finally { db.close(); }

@@ -53,8 +53,26 @@ epg:
   refreshSeconds: 300
 
 broadcast:
+  # dvb = HackRF only; internet = authenticated HLS only; both = shared encode to both.
+  mode: internet
   frequencyHz: 634000000
   gainDb: 14
   amplitude: 0.8
   fifo: ./runtime/lkp.ts
   transmitter: ./scripts/transmit.py
+
+internet:
+  # Loopback is deliberate: Tailscale Funnel supplies public HTTPS.
+  bind: 127.0.0.1
+  port: 8080
+  hlsDirectory: ./runtime/internet/hls
+  segmentSeconds: 4
+  playlistSegments: 15
+  audioBitrate: 128k
+
+# Available after the intermission render/publish command completes.
+intermissions:
+  enabled: true
+  manifest: /home/lundenburg/lkp-intermissions/runtime/intermissions/published.json
+  boundaryRate: 0.8
+  weights: { ident: 70, silent: 20, voiced: 10 }

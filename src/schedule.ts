@@ -2,6 +2,7 @@ import crypto from 'node:crypto';
 import { DateTime } from 'luxon';
 import type { AppConfig, MediaItem, ScheduleEntry } from './types.js';
 import { LkpDatabase } from './database.js';
+import { reconcileIntermissions, isProgramme } from './intermissions/rotation.js';
 import { stableId } from './util.js';
 
 interface ShowBucket { id: string; weight: number; episodes: MediaItem[] }
@@ -39,7 +40,7 @@ export function buildScheduleEntries(
 
   let cursor = startMs;
   let sequence = initialSequence;
-  let previousShow = previousEntries.at(-1)?.showId;
+  let previousShow = previousEntries.filter(isProgramme).at(-1)?.showId;
   const result: ScheduleEntry[] = [];
   while (cursor < targetEndMs) {
     const show = chooseShow(shows, seed, sequence, previousShow);
@@ -73,15 +74,20 @@ export function ensureSchedule(
   const requestedStart = options.fromMs ?? DateTime.fromMillis(now, { zone }).startOf('day').toMillis();
   const horizonDays = options.horizonDays ?? config.schedule.horizonDays;
   const targetEnd = DateTime.fromMillis(Math.max(now, requestedStart), { zone }).plus({ days: horizonDays }).endOf('day').toMillis();
-  if (existing && existing.lastMs >= targetEnd) return { added: 0, firstMs: existing.firstMs, lastMs: existing.lastMs };
+  if (existing && existing.lastMs >= targetEnd) {
+    const added=reconcileIntermissions(db,config);
+    const bounds=db.scheduleBounds()!;
+    return {added,firstMs:bounds.firstMs,lastMs:bounds.lastMs};
+  }
   const previous = existing ? db.listSchedule(existing.firstMs, existing.lastMs + 1) : [];
   const last = previous.at(-1);
   const startMs = last?.endsAtMs ?? requestedStart;
   const sequence = last ? last.sequence + 1 : 0;
   const entries = buildScheduleEntries(db.listMedia(), config.schedule.seed, startMs, targetEnd, sequence, previous);
   db.insertSchedule(entries);
+  const intermissions = reconcileIntermissions(db, config);
   const bounds = db.scheduleBounds()!;
-  return { added: entries.length, firstMs: bounds.firstMs, lastMs: bounds.lastMs };
+  return { added: entries.length + intermissions, firstMs: bounds.firstMs, lastMs: bounds.lastMs };
 }
 
 export function validateTimeline(entries: ScheduleEntry[]): string[] {

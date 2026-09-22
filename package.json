@@ -17,6 +17,7 @@
     "schedule:show": "npm run lkp -- schedule show",
     "schedule:export": "npm run lkp -- schedule export",
     "broadcast:start": "npm run lkp -- broadcast start",
+    "internet:start": "tsx src/internet.ts",
     "doctor": "npm run lkp -- doctor",
     "weather:map": "tsx src/weather/cli.ts map",
     "weather:fetch": "tsx src/weather/cli.ts fetch",
@@ -25,7 +26,14 @@
     "weather:render": "tsx src/weather/cli.ts render",
     "weather:publish": "tsx src/weather/cli.ts publish",
     "weather:auto": "tsx src/weather/cli.ts auto",
-    "weather:usage": "tsx src/weather/cli.ts usage"
+    "weather:usage": "tsx src/weather/cli.ts usage",
+    "intermissions:list": "tsx src/intermissions/cli.ts list",
+    "intermissions:prepare": "tsx src/intermissions/cli.ts prepare",
+    "intermissions:render": "tsx src/intermissions/cli.ts render",
+    "intermissions:stills": "tsx src/intermissions/cli.ts render --stills --scale .5",
+    "intermissions:publish": "tsx src/intermissions/cli.ts publish",
+    "intermissions:gallery": "tsx src/intermissions/cli.ts gallery",
+    "intermissions:finish": "bash scripts/finish-intermissions-pi.sh"
   },
   "dependencies": {
     "@remotion/bundler": "4.0.526",
@@ -34,6 +42,7 @@
     "better-sqlite3": "^12.2.0",
     "commander": "^14.0.1",
     "exceljs": "^4.4.0",
+    "hls.js": "1.7.3",
     "luxon": "^3.7.2",
     "react": "19.3.0",
     "react-dom": "19.3.0",

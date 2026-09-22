@@ -34,7 +34,10 @@ export function WeatherShow({ episode, atlas }: ShowProps) {
   const pointing = ['context', 'condition', 'temperature', 'handoff'].includes(beat.purpose);
   return <AbsoluteFill style={{ background: '#f9fbf4', fontFamily: 'Fredoka, DejaVu Sans, sans-serif' }}>
     <svg viewBox="0 0 1920 1080" width="100%" height="100%">
-      <defs><clipPath id="map-clip"><path d="M16 0H1084L1100 16V744L1084 760H16L0 744V16Z"/></clipPath></defs>
+      <defs>
+        <clipPath id="panel-clip"><rect x="678" y="140" width="1148" height="856" rx="24"/></clipPath>
+        <clipPath id="map-clip"><rect width="1100" height="760" rx="20"/></clipPath>
+      </defs>
       {(!intro || frame > 3 * episode.fps - 15) && !outro && <>
       <rect width="1920" height="1080" fill="#eff8f2"/>
       <path d="M0 0H1920V115Q1380 25 860 127T0 87Z" fill="#cfeee9"/>
@@ -45,9 +48,14 @@ export function WeatherShow({ episode, atlas }: ShowProps) {
       <path d="M0 965Q290 895 565 975T1920 1010V1080H0" fill="#c5dfba"/>
       <path d="M0 1070Q175 970 410 1040" fill="none" stroke="#8db873" strokeWidth="4"/>
       <g transform="translate(47 928)"><path d="M0 0v66m0-13q-38 1-37-31 34 1 37 31m0-19q28 3 28-26-25 3-28 26" fill="#79c718" stroke="#668d53" strokeWidth="3"/><g fill="#fd6f04">{[0,1,2,3,4].map(i=><ellipse key={i} cy="-17" rx="10" ry="17" transform={`rotate(${i*72})`}/>)}</g><circle r="11" fill="#fdbf11"/></g>
-      <path d="M712 150H1808L1840 182V992L1824 1008H712L688 984V174Z" fill="#004f4f" opacity=".10"/>
-      <path d="M702 140H1800L1826 166V978L1808 996H702L678 972V164Z" fill="#fff" stroke={border} strokeWidth="5"/>
-      <path d="M702 140H1800L1826 166V230H678V164Z" fill={theme.tint}/><path d="M702 140H1170L1190 160 1179 219H693L678 200V164Z" fill={border}/><circle cx="1788" cy="162" r="8" fill="#fdbf11"/>
+      <rect x="688" y="150" width="1152" height="858" rx="28" fill="#004f4f" opacity=".10"/>
+      <g clipPath="url(#panel-clip)">
+        <rect x="678" y="140" width="1148" height="856" fill="#fff"/>
+        <rect x="678" y="140" width="1148" height="90" fill={theme.tint}/>
+        <path d="M678 140H1170L1190 160 1179 219H693L678 200Z" fill={border}/>
+      </g>
+      <rect x="678" y="140" width="1148" height="856" rx="24" fill="none" stroke={border} strokeWidth="5"/>
+      <circle cx="1788" cy="162" r="8" fill="#fdbf11"/>
       <text x="715" y="201" fill="white" fontWeight="bold" fontSize={fact.period === 'afternoon' ? 43 : 53}>{theme.label}</text>
       <text x="1760" y="194" textAnchor="end" fill="#004f4f" fontSize="24">{forecastDate(episode.broadcastAt, fact.period)}</text>
       <svg x="696" y="244" width="1112" height="733" viewBox="0 0 1100 760" preserveAspectRatio="none">

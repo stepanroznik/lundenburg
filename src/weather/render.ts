@@ -56,7 +56,7 @@ export async function renderEpisode(episode: Episode, output: string, c: Weather
   prepareSting();
   const atlas = prepareAtlas(map);
   const serveUrl = await bundleWeather();
-  const browserExecutable = process.env.WEATHER_BROWSER || ['/usr/bin/chromium', '/usr/bin/google-chrome', '/usr/bin/chromium-browser'].find(p => fs.existsSync(p));
+  const browserExecutable = process.env.WEATHER_BROWSER || ['/usr/bin/chromium', '/usr/bin/chromium-browser', '/usr/bin/chromium-headless-shell', '/usr/bin/google-chrome'].find(p => fs.existsSync(p));
   const inputProps = { episode, atlas };
   const composition = await selectComposition({ serveUrl, id: 'Weather', inputProps, ...(browserExecutable ? { browserExecutable } : {}) });
   const setupMs = Date.now() - started;

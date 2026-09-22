@@ -1,7 +1,11 @@
 #!/usr/bin/env bash
-# Run on the development workstation. Package installation can exceed 30 seconds.
+# Run on the development workstation, not on the Pi. Package installation can exceed 30 seconds.
 set -euo pipefail
 cd "$(dirname "$0")/.."
+if [ -r /proc/device-tree/model ] && grep -q 'Raspberry Pi' /proc/device-tree/model; then
+  echo 'Run this deployer on the development workstation; it copies and installs the weather service on the Pi.' >&2
+  exit 1
+fi
 destination="${1:-lundenburg@10.0.1.46}"
 remote_root=/home/lundenburg/lkp-weather
 test -s assets/weather/region.json || { echo 'Prepare the geographic snapshot with npm run weather:map first.' >&2; exit 1; }

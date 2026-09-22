@@ -11,7 +11,8 @@ export function config(root: string): AppConfig {
     video: { width: 1920, height: 1080, fps: 30, bitrate: '3800k', codec: 'libx264', preset: 'veryfast', decoderThreads: 2, filterThreads: 1, encoderThreads: 2, cpuAffinity: '0,1', audioBitrate: '192k', muxRate: 4976471 },
     logo: { path: path.join(root, 'logo.svg'), width: 220, left: 48, top: 40, opacity: 0.88, transitionDurationMs: 1100, transitionRotations: 3, transitionZoom: 1.08 },
     epg: { output: path.join(root, 'runtime/epg.xml'), language: 'ces', refreshSeconds: 300 },
-    broadcast: { frequencyHz: 634000000, gainDb: 14, amplitude: 0.8, fifo: path.join(root, 'runtime/lkp.ts'), transmitter: path.join(root, 'transmit.py') },
+    broadcast: { mode: 'dvb', frequencyHz: 634000000, gainDb: 14, amplitude: 0.8, fifo: path.join(root, 'runtime/lkp.ts'), transmitter: path.join(root, 'transmit.py') },
+    internet: { bind: '127.0.0.1', port: 8080, hlsDirectory: path.join(root, 'runtime/internet/hls'), segmentSeconds: 2, playlistSegments: 8, audioBitrate: '128k' },
   };
 }
 

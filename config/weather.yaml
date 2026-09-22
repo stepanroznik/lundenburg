@@ -14,5 +14,6 @@ voiceSettings:
 fps: 30
 width: 1920
 height: 1080
-# Desktop default; the protected Pi service overrides this to one worker.
-concurrency: 8
+# Measured faster than eight workers on the current workstation; the protected
+# Pi service overrides this to one worker.
+concurrency: 2

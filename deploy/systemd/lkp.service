@@ -1,5 +1,5 @@
 [Unit]
-Description=Lundenburg Kids Premium DVB-T playout
+Description=Lundenburg Kids Premium playout
 After=local-fs.target network.target
 Wants=network.target
 
@@ -10,12 +10,12 @@ Group=lundenburg
 WorkingDirectory=/home/lundenburg/lundenburg
 Environment=NODE_ENV=production
 EnvironmentFile=-/etc/lkp.env
-ExecStartPre=/usr/bin/npm run doctor -- --rf
-ExecStart=/usr/bin/npm run broadcast:start -- --rf --i-understand-rf
+ExecStartPre=/usr/bin/npm run doctor
+ExecStart=/usr/bin/node --import tsx src/cli.ts broadcast start --i-understand-rf
 Restart=on-failure
 RestartSec=3
 TimeoutStopSec=20
-KillMode=mixed
+KillMode=control-group
 NoNewPrivileges=true
 
 [Install]

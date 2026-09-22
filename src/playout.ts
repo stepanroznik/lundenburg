@@ -3,7 +3,7 @@ import path from 'node:path';
 import { spawn, spawnSync, type ChildProcess, type SpawnOptions } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import type { Writable } from 'node:stream';
-import type { AppConfig, MediaItem, ScheduleEntry } from './types.js';
+import type { AppConfig, MediaItem, OutputMode, ScheduleEntry } from './types.js';
 import { LkpDatabase } from './database.js';
 import { writeEpgAtomic } from './epg.js';
 import { ensureSchedule } from './schedule.js';
@@ -16,6 +16,8 @@ export interface BroadcastOptions {
   rfAcknowledged: boolean;
   verbose: boolean;
   maxSeconds?: number;
+  pastOffsetMs?: number;
+  mode?: OutputMode;
 }
 
 function log(level: string, message: string, fields: Record<string, unknown> = {}): void {
@@ -28,10 +30,11 @@ export function buildFfmpegArgs(
   entry: ScheduleEntry, media: MediaItem | undefined, seekMs: number, remainingMs: number,
   animate: boolean, config: AppConfig, logo: PreparedLogo,
 ): string[] {
+  const intermission = entry.showId === 'lkp-intermissions';
   const args = ['-hide_banner', '-loglevel', 'warning', '-nostdin',
     '-filter_complex_threads', String(config.video.filterThreads),
-    '-threads', String(config.video.decoderThreads), '-ss', seconds(seekMs), '-i', entry.mediaPath,
-    '-threads', '1', '-framerate', String(config.video.fps), '-i', logo.path];
+    '-threads', String(config.video.decoderThreads), '-ss', seconds(seekMs), '-i', entry.mediaPath];
+  if (!intermission) args.push('-threads', '1', '-framerate', String(config.video.fps), '-i', logo.path);
   const d = config.logo.transitionDurationMs / 1000;
   const eased = `(1-pow(1-min(t/${d}\\,1)\\,3))`;
   const scale = `(1+${config.logo.transitionZoom - 1}*sin(PI*${eased}))`;
@@ -54,7 +57,8 @@ export function buildFfmpegArgs(
       `y=${config.logo.top}-(${animate ? canvas : logo.height}-${logo.height})/2:` +
       'eval=init:eof_action=repeat:repeatlast=1:format=yuv420[v]',
   ].join(';');
-  args.push('-filter_complex', videoFilter, '-map', '[v]', '-map', '0:a:0?');
+  const filter = intermission ? `[0:v:0]scale=${config.video.width}:${config.video.height}:force_original_aspect_ratio=decrease,pad=${config.video.width}:${config.video.height}:(ow-iw)/2:(oh-ih)/2:color=black,fps=${config.video.fps},setsar=1,format=yuv420p[v]` : videoFilter;
+  args.push('-filter_complex', filter, '-map', '[v]', '-map', '0:a:0?');
   const bitmapTracks = media?.subtitles.filter((subtitle) => subtitle.kind === 'dvb-bitmap' && subtitle.streamIndex !== undefined) ?? [];
   bitmapTracks.forEach((track) => args.push('-map', `0:${track.streamIndex}`));
   args.push(
@@ -62,6 +66,11 @@ export function buildFfmpegArgs(
     '-threads', String(config.video.encoderThreads),
     '-b:v', config.video.bitrate, '-maxrate', config.video.bitrate, '-bufsize', '7600k', '-g', String(config.video.fps * 2),
     '-c:a', 'mp2', '-b:a', config.video.audioBitrate, '-ar', '48000', '-ac', '2',
+    // Programme encoders restart at boundaries. A wall-clock offset keeps the
+    // elementary-stream timestamps monotonic for the long-lived HLS remuxer.
+    // Keep the value below MPEG-TS's 33-bit clock wrap. The HLS relay corrects
+    // the once-daily discontinuity while preserving continuity between shows.
+    '-output_ts_offset', (((entry.startsAtMs + seekMs) / 1000) % 86_400).toFixed(3),
   );
   if (bitmapTracks.length) args.push('-c:s', 'dvbsub');
   args.push(
@@ -96,10 +105,10 @@ function stopChild(child: ChildProcess | undefined): void {
 
 async function transcodeEntry(
   entry: ScheduleEntry, media: MediaItem | undefined, seekMs: number, animate: boolean,
-  config: AppConfig, sink: Writable, verbose: boolean, stopAtMs: number,
+  config: AppConfig, sinks: Writable[], verbose: boolean, stopAtMs: number, pastOffsetMs: number,
   onChild: (child: ChildProcess | undefined) => void, logo: PreparedLogo,
 ): Promise<{ code: number | null; endedAtMs: number }> {
-  const deadline = Math.min(entry.endsAtMs, stopAtMs);
+  const deadline = Math.min(entry.endsAtMs + pastOffsetMs, stopAtMs);
   const remainingMs = Math.max(1, deadline - Date.now());
   const ffmpegArgs = buildFfmpegArgs(entry, media, seekMs, remainingMs, animate, config, logo);
   const command = config.video.cpuAffinity ? 'taskset' : 'ffmpeg';
@@ -107,13 +116,32 @@ async function transcodeEntry(
   const child = spawnLogged(command, args,
     { stdio: ['ignore', 'pipe', verbose ? 'pipe' : 'ignore'] }, verbose);
   onChild(child);
-  child.stdout!.pipe(sink, { end: false });
+  for (const sink of sinks) child.stdout!.pipe(sink, { end: false });
   const timer = setTimeout(() => stopChild(child), Math.max(1, deadline - Date.now() + 150));
   const code = await waitFor(child);
   onChild(undefined);
   clearTimeout(timer);
-  child.stdout!.unpipe(sink);
+  for (const sink of sinks) child.stdout!.unpipe(sink);
   return { code, endedAtMs: Date.now() };
+}
+
+export function scheduleTimeForBroadcast(realTimeMs: number, pastOffsetMs: number): number {
+  return realTimeMs - pastOffsetMs;
+}
+
+export function shiftScheduleForBroadcast(entries: ScheduleEntry[], pastOffsetMs: number): ScheduleEntry[] {
+  if (!pastOffsetMs) return entries;
+  return entries.map((entry) => ({
+    ...entry,
+    startsAtMs: entry.startsAtMs + pastOffsetMs,
+    endsAtMs: entry.endsAtMs + pastOffsetMs,
+  }));
+}
+
+function writeBroadcastEpg(db: LkpDatabase, config: AppConfig, realNowMs: number, pastOffsetMs: number): void {
+  const scheduleNowMs = scheduleTimeForBroadcast(realNowMs, pastOffsetMs);
+  const entries = db.listSchedule(scheduleNowMs - 86_400_000, scheduleNowMs + config.schedule.epgDays * 86_400_000);
+  writeEpgAtomic(shiftScheduleForBroadcast(entries, pastOffsetMs), config);
 }
 
 function prepareFifo(config: AppConfig): void {
@@ -142,41 +170,99 @@ function startRfPipeline(config: AppConfig, acknowledged: boolean, verbose: bool
   return { sink: tsp.stdin!, tsp, transmitter };
 }
 
+export function internetFfmpegArgs(config: AppConfig): string[] {
+  const segment = path.join(config.internet.hlsDirectory, 'segment-%09d.ts');
+  const playlist = path.join(config.internet.hlsDirectory, 'stream.m3u8');
+  return [
+    '-hide_banner', '-loglevel', 'warning', '-nostdin',
+    '-fflags', '+genpts+discardcorrupt', '-f', 'mpegts', '-i', 'pipe:0',
+    '-map', '0:v:0', '-map', '0:a:0',
+    // Video is the exact already-encoded channel output. Only the small audio
+    // stream is converted from DVB MP2 to browser-compatible AAC.
+    '-c:v', 'copy', '-c:a', 'aac', '-b:a', config.internet.audioBitrate, '-ar', '48000', '-ac', '2',
+    '-f', 'hls', '-hls_time', String(config.internet.segmentSeconds),
+    '-hls_list_size', String(config.internet.playlistSegments),
+    '-hls_delete_threshold', '2',
+    '-hls_flags', 'delete_segments+append_list+omit_endlist+independent_segments+program_date_time+temp_file',
+    '-hls_segment_filename', segment, playlist,
+  ];
+}
+
+function startInternetPipeline(config: AppConfig): { sink: Writable; relay: ChildProcess } {
+  fs.mkdirSync(config.internet.hlsDirectory, { recursive: true });
+  for (const name of fs.readdirSync(config.internet.hlsDirectory)) {
+    if (/^(stream\.m3u8|segment-\d+\.ts)(\.tmp)?$/.test(name)) fs.unlinkSync(path.join(config.internet.hlsDirectory, name));
+  }
+  const relay = spawnLogged('ffmpeg', internetFfmpegArgs(config), { stdio: ['pipe', 'ignore', 'inherit'] }, true);
+  if (!relay.stdin) throw new Error('Internet HLS relay has no input pipe');
+  return { sink: relay.stdin, relay };
+}
+
 export async function runBroadcast(db: LkpDatabase, config: AppConfig, options: BroadcastOptions): Promise<void> {
+  const pastOffsetMs = options.pastOffsetMs ?? 0;
+  if (!Number.isSafeInteger(pastOffsetMs) || pastOffsetMs < 0) throw new Error('pastOffsetMs must be a non-negative safe integer');
+  const epgOffsetMs = options.dryRun ? 0 : pastOffsetMs;
   const logo = prepareLogo(config);
   ensureSchedule(db, config);
   const now = Date.now();
-  const epgEnd = now + config.schedule.epgDays * 86_400_000;
-  writeEpgAtomic(db.listSchedule(now - 86_400_000, epgEnd), config);
+  writeBroadcastEpg(db, config, now, epgOffsetMs);
+  if (pastOffsetMs) {
+    log('info', 'Broadcast clock shifted into the past', {
+      pastOffsetMs,
+      scheduleTime: new Date(scheduleTimeForBroadcast(now, pastOffsetMs)).toISOString(),
+    });
+  }
   const mediaById = new Map(db.listMedia(false).map((media) => [media.id, media]));
   let tsp: ChildProcess | undefined;
   let transmitter: ChildProcess | undefined;
-  let sink: Writable;
+  let internetRelay: ChildProcess | undefined;
+  let currentFfmpeg: ChildProcess | undefined;
+  let stopping = false;
+  let outputFailure: Error | undefined;
+  const sinks: Writable[] = [];
+  const watch = (child: ChildProcess, name: string) => child.once('close', (code, signal) => {
+    if (!stopping) {
+      outputFailure = new Error(`${name} stopped unexpectedly (code ${code ?? 'none'}, signal ${signal ?? 'none'})`);
+      stopChild(currentFfmpeg);
+    }
+  });
   if (options.dryRun) {
     const output = path.resolve(options.output ?? path.join(config.storage.runtimeDirectory, 'preview.ts'));
     fs.mkdirSync(path.dirname(output), { recursive: true });
-    sink = fs.createWriteStream(output);
+    sinks.push(fs.createWriteStream(output));
     log('info', 'Dry-run transport stream output opened', { output });
   } else {
-    const pipeline = startRfPipeline(config, options.rfAcknowledged, options.verbose);
-    ({ sink, tsp, transmitter } = pipeline);
-    log('info', 'RF pipeline started', { frequencyHz: config.broadcast.frequencyHz, gainDb: config.broadcast.gainDb });
+    const mode = options.mode ?? config.broadcast.mode;
+    if (mode === 'dvb' || mode === 'both') {
+      const pipeline = startRfPipeline(config, options.rfAcknowledged, options.verbose);
+      ({ tsp, transmitter } = pipeline); sinks.push(pipeline.sink);
+      watch(tsp, 'TSDuck pipeline'); watch(transmitter, 'HackRF transmitter');
+      log('info', 'DVB-T output started', { frequencyHz: config.broadcast.frequencyHz, gainDb: config.broadcast.gainDb });
+    }
+    if (mode === 'internet' || mode === 'both') {
+      const pipeline = startInternetPipeline(config);
+      internetRelay = pipeline.relay; sinks.push(pipeline.sink);
+      watch(internetRelay, 'Internet HLS relay');
+      log('info', 'Internet HLS output started', { directory: config.internet.hlsDirectory, videoCodec: 'copy', audioCodec: 'aac' });
+    }
+    if (!sinks.length) throw new Error(`No output sink for mode ${mode}`);
   }
 
-  let stopping = false;
-  let currentFfmpeg: ChildProcess | undefined;
   const serviceDeadline = options.maxSeconds ? Date.now() + options.maxSeconds * 1000 : Number.POSITIVE_INFINITY;
-  const stop = (): void => { stopping = true; stopChild(currentFfmpeg); stopChild(tsp); stopChild(transmitter); };
+  const stop = (): void => { stopping = true; stopChild(currentFfmpeg); stopChild(tsp); stopChild(transmitter); stopChild(internetRelay); };
   process.once('SIGINT', stop); process.once('SIGTERM', stop);
   let first = true;
   try {
     while (!stopping) {
-      const wallClock = Date.now();
-      const entry = db.currentAt(wallClock) ?? db.nextAfter(wallClock);
-      if (!entry) throw new Error(`Schedule does not cover ${new Date(wallClock).toISOString()}`);
-      if (entry.startsAtMs > wallClock) await new Promise((resolve) => setTimeout(resolve, entry.startsAtMs - wallClock));
+      if (outputFailure) throw outputFailure;
+      const realNowMs = Date.now();
+      const scheduleNowMs = scheduleTimeForBroadcast(realNowMs, pastOffsetMs);
+      const entry = db.currentAt(scheduleNowMs) ?? db.nextAfter(scheduleNowMs);
+      if (!entry) throw new Error(`Schedule does not cover ${new Date(scheduleNowMs).toISOString()}`);
+      if (entry.startsAtMs > scheduleNowMs) await new Promise((resolve) => setTimeout(resolve, entry.startsAtMs - scheduleNowMs));
       const actualStartMs = Date.now();
-      const seekMs = Math.max(0, actualStartMs - entry.startsAtMs);
+      const actualScheduleStartMs = scheduleTimeForBroadcast(actualStartMs, pastOffsetMs);
+      const seekMs = Math.max(0, actualScheduleStartMs - entry.startsAtMs);
       const coldStartResume = first && seekMs > 1000;
       const eventId = randomUUID();
       db.startPlayback({
@@ -185,29 +271,32 @@ export async function runBroadcast(db: LkpDatabase, config: AppConfig, options: 
       });
       log('info', 'Programme playout started', { scheduleEntryId: entry.id, title: `${entry.showTitle}: ${entry.episodeTitle}`, seekMs, coldStartResume });
       try {
-        const result = await transcodeEntry(entry, mediaById.get(entry.mediaId), seekMs, !first && seekMs < 1000, config, sink, options.verbose, serviceDeadline, (child) => { currentFfmpeg = child; }, logo);
-        if (serviceDeadline < entry.endsAtMs) {
+        const result = await transcodeEntry(entry, mediaById.get(entry.mediaId), seekMs, !first && seekMs < 1000, config, sinks, options.verbose, serviceDeadline, pastOffsetMs, (child) => { currentFfmpeg = child; }, logo);
+        if (outputFailure) throw outputFailure;
+        const realEntryEndMs = entry.endsAtMs + pastOffsetMs;
+        if (serviceDeadline < realEntryEndMs) {
           db.finishPlayback(eventId, 'interrupted', 'bounded preview completed');
           break;
         }
-        const earlyByMs = entry.endsAtMs - result.endedAtMs;
+        const earlyByMs = realEntryEndMs - result.endedAtMs;
         if (result.code !== 0 && earlyByMs > 1000) throw new Error(`FFmpeg exited ${Math.round(earlyByMs)} ms before boundary (code ${result.code})`);
         db.finishPlayback(eventId, 'completed');
       } catch (error) {
         db.finishPlayback(eventId, 'failed', error instanceof Error ? error.message : String(error));
         log('error', 'Programme playout failed; wall-clock schedule remains authoritative', { scheduleEntryId: entry.id, error: String(error) });
         if (stopping) break;
-        const wait = entry.endsAtMs - Date.now();
+        const wait = entry.endsAtMs + pastOffsetMs - Date.now();
         if (wait > 0) await new Promise((resolve) => setTimeout(resolve, wait));
       }
       first = false;
       if (options.once) break;
       if (Date.now() >= serviceDeadline) break;
-      writeEpgAtomic(db.listSchedule(Date.now() - 86_400_000, Date.now() + config.schedule.epgDays * 86_400_000), config);
+      writeBroadcastEpg(db, config, Date.now(), epgOffsetMs);
     }
   } finally {
-    sink.end();
-    stopChild(tsp); stopChild(transmitter);
+    stopping = true;
+    for (const sink of sinks) sink.end();
+    stopChild(tsp); stopChild(transmitter); stopChild(internetRelay);
     process.removeListener('SIGINT', stop); process.removeListener('SIGTERM', stop);
   }
 }
