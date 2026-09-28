@@ -2,3 +2,13 @@ title: Wreck-It Ralph
 season: 1
 episode: 1
 description: Ralph opustí svou arkádovou hru, aby získal hrdinskou medaili, ale jeho cesta ohrozí celý herní svět.
+externalIds:
+  imdb: tt1772341
+  tmdb: '82690'
+creditsPolicy: shorten
+markers:
+  - kind: credits
+    startMs: 5590000
+    endMs: 6073568
+    source: manual
+    confidence: 1

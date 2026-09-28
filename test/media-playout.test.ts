@@ -3,7 +3,7 @@ import { test } from 'node:test';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { episodeTitleFromTemplate, findShowMetadataFile, isDiscoverableMediaFile, parseEpisodeFilename } from '../src/media.js';
+import { discoverSidecars, episodeTitleFromTemplate, findShowMetadataFile, isDiscoverableMediaFile, parseEpisodeFilename } from '../src/media.js';
 import { buildFfmpegArgs, internetFfmpegArgs, scheduleTimeForBroadcast, shiftScheduleForBroadcast } from '../src/playout.js';
 import { buildScheduleEntries } from '../src/schedule.js';
 import { config, item } from './helpers.js';
@@ -34,6 +34,20 @@ test('incomplete conversion files are excluded from media discovery', () => {
 test('show templates provide German catalogue titles without renaming source media', () => {
   assert.equal(episodeTitleFromTemplate('Staffel {season}, Folge {episode}', { season: 1, episode: 7, title: 'release-name' }), 'Staffel 1, Folge 7');
   assert.equal(episodeTitleFromTemplate('Folge {episode}', { episode: 42, title: 'source title' }), 'Folge 42');
+});
+
+test('unsuffixed subtitle sidecars inherit the declared show language', () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'lkp-sidecars-'));
+  try {
+    const media = path.join(root, 'Folge 1.mp4');
+    fs.writeFileSync(media, '');
+    fs.writeFileSync(path.join(root, 'Folge 1.srt'), '');
+    fs.writeFileSync(path.join(root, 'Folge 1.cs.ass'), '');
+    assert.deepEqual(
+      discoverSidecars(media, new Set(['cs', 'de', 'en']), 'de').map((track) => [track.language, track.codec]),
+      [['cs', 'ass'], ['de', 'srt']],
+    );
+  } finally { fs.rmSync(root, { recursive: true, force: true }); }
 });
 
 test('cold start can use static logo while real transition uses three rotations', () => {

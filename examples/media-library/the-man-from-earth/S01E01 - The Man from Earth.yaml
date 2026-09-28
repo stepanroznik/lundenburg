@@ -2,3 +2,13 @@ title: The Man from Earth
 season: 1
 episode: 1
 description: Rozlučkové setkání profesora Johna Oldmana se promění v napínavou debatu poté, co prozradí své neuvěřitelné tajemství.
+externalIds:
+  imdb: tt0756683
+  tmdb: '13363'
+creditsPolicy: shorten
+markers:
+  - kind: credits
+    startMs: 4977000
+    endMs: 5228203
+    source: manual
+    confidence: 1

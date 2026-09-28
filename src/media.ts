@@ -135,16 +135,16 @@ export function isDiscoverableMediaFile(filename: string, extensions: Set<string
     !lower.endsWith('.rendering.mp4');
 }
 
-function discoverSidecars(mediaPath: string, allowed: Set<string>): SubtitleTrack[] {
+export function discoverSidecars(mediaPath: string, allowed: Set<string>, defaultLanguage?: string): SubtitleTrack[] {
   const dir = path.dirname(mediaPath);
   const stem = path.basename(mediaPath, path.extname(mediaPath));
   const tracks: SubtitleTrack[] = [];
-  for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+  for (const entry of fs.readdirSync(dir, { withFileTypes: true }).sort((a, b) => a.name.localeCompare(b.name, 'cs'))) {
     if (!entry.isFile()) continue;
     const escaped = stem.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-    const match = new RegExp(`^${escaped}\\.([a-z]{2,3})\\.(srt|ass)$`, 'i').exec(entry.name);
+    const match = new RegExp(`^${escaped}(?:\\.([a-z]{2,3}))?\\.(srt|ass)$`, 'i').exec(entry.name);
     if (!match) continue;
-    const language = normalizeLanguage(match[1]);
+    const language = normalizeLanguage(match[1] ?? defaultLanguage);
     if (language && allowed.has(language)) tracks.push({ language, kind: 'sidecar', path: path.join(dir, entry.name), codec: match[2]!.toLowerCase() });
   }
   return tracks;
@@ -176,6 +176,33 @@ function manualBreakpoints(values: EpisodeMetadata['breakpoints']): Breakpoint[]
       });
 }
 
+async function localBreakAnalysis(mediaPath: string): Promise<Breakpoint[]> {
+  const stderr = await new Promise<string>((resolve, reject) => {
+    const child = spawn('ffmpeg', ['-hide_banner', '-nostats', '-v', 'info', '-i', mediaPath, '-vf', 'blackdetect=d=0.20:pix_th=0.10', '-af', 'silencedetect=n=-35dB:d=0.25', '-f', 'null', '-'], { stdio: ['ignore', 'ignore', 'pipe'] });
+    let output = '';
+    child.stderr.setEncoding('utf8').on('data', (chunk: string) => { output += chunk; });
+    child.on('error', reject);
+    child.on('close', (code) => code === 0 ? resolve(output) : reject(new Error(`ffmpeg editorial analysis exited ${code}`)));
+  });
+  const silence: Array<{ start: number; end: number }> = [];
+  const starts: number[] = [];
+  for (const match of stderr.matchAll(/silence_start:\s*([0-9.]+)/g)) starts.push(Number(match[1]) * 1000);
+  let silenceIndex = 0;
+  for (const match of stderr.matchAll(/silence_end:\s*([0-9.]+)/g)) {
+    const start = starts[silenceIndex++];
+    if (start !== undefined) silence.push({ start, end: Number(match[1]) * 1000 });
+  }
+  const candidates: Breakpoint[] = [];
+  for (const match of stderr.matchAll(/black_start:([0-9.]+)\s+black_end:([0-9.]+)/g)) {
+    const start = Number(match[1]) * 1000;
+    const end = Number(match[2]) * 1000;
+    const atMs = Math.round((start + end) / 2);
+    const quiet = silence.some((interval) => interval.start <= end + 250 && interval.end >= start - 250);
+    candidates.push(scoreBreakSignal({ atMs, black: true, silence: quiet, sceneChange: true, dialogueGap: quiet }));
+  }
+  return candidates;
+}
+
 export async function scanMedia(config: AppConfig, onProgress?: (message: string) => void): Promise<MediaItem[]> {
   assertMediaStorage(config);
   const mediaFiles = walk(config.media.root, new Set(config.media.supportedExtensions));
@@ -200,7 +227,8 @@ export async function scanMedia(config: AppConfig, onProgress?: (message: string
     const showTitle = show.title ?? titleFromSlug(path.basename(showDirectory === config.media.root ? showId : showDirectory));
     const episodeTitle = episodeMeta.title ?? episodeTitleFromTemplate(show.episodeTitleTemplate, parsed);
     const description = episodeMeta.description ?? show.description ?? '';
-    const subtitles = discoverSidecars(mediaPath, allowedLanguages);
+    const defaultLanguage = normalizeLanguage(show.language);
+    const subtitles = discoverSidecars(mediaPath, allowedLanguages, defaultLanguage);
     for (const stream of probe.streams.filter((s) => s.codec_type === 'subtitle')) {
       const language = normalizeLanguage(stream.tags?.language);
       if (language && allowedLanguages.has(language)) subtitles.push({
@@ -210,17 +238,22 @@ export async function scanMedia(config: AppConfig, onProgress?: (message: string
     }
     const audio = probe.streams.find((s) => s.codec_type === 'audio');
     const uniqueSubtitles = subtitles.filter((track, i) => subtitles.findIndex((other) => other.language === track.language && other.kind === track.kind && other.path === track.path && other.streamIndex === track.streamIndex) === i);
-    const defaultLanguage = normalizeLanguage(show.language);
     const season = episodeMeta.season ?? parsed.season;
     const episode = episodeMeta.episode ?? parsed.episode;
     const audioLanguage = normalizeLanguage(audio?.tags?.language ?? show.language);
     const chapters = chapterEditorial(probe);
     const editorialMarkers = [...chapters.markers, ...(episodeMeta.markers ?? [])].sort((a, b) => a.startMs - b.startMs);
-    const breakpoints = [...chapters.breakpoints, ...manualBreakpoints(episodeMeta.breakpoints)].sort((a, b) => a.atMs - b.atMs);
+    let breakpoints = [...chapters.breakpoints, ...manualBreakpoints(episodeMeta.breakpoints)];
     const durationMs = Math.round(durationSeconds * 1000);
+    const qcWarnings: string[] = [];
+    if (durationMs > 35 * 60_000) {
+      onProgress?.(`Analyzing editorial breaks in ${path.relative(config.media.root, mediaPath)}`);
+      try { breakpoints = [...breakpoints, ...await localBreakAnalysis(mediaPath)]; }
+      catch (error) { qcWarnings.push(`Local breakpoint analysis failed: ${error instanceof Error ? error.message : String(error)}`); }
+    }
+    breakpoints.sort((a, b) => a.atMs - b.atMs);
     const effectiveEditorialDurationMs = editorialEnd(editorialMarkers, durationMs);
     const externalIds = { ...(show.externalIds ?? {}), ...(episodeMeta.externalIds ?? {}) };
-    const qcWarnings: string[] = [];
     if (!Object.keys(externalIds).length) qcWarnings.push('No IMDb/TMDb/TVDB identifier; external enrichment and subtitle matching are limited');
     if (!editorialMarkers.some((marker) => marker.kind === 'credits' && marker.confidence >= .7)) qcWarnings.push('No reliable credits marker; automatic credits shortening is disabled');
     for (const language of allowedLanguages) if (!uniqueSubtitles.some((track) => track.language === language)) qcWarnings.push(`Missing ${language} subtitles`);

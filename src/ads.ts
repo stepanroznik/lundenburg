@@ -129,8 +129,8 @@ export class AdBumperService {
       try {
         await execute('ffmpeg', [
           '-hide_banner', '-loglevel', 'warning', '-y',
-          '-f', 'lavfi', '-i', `color=c=#004f4f:s=${this.config.video.width}x${this.config.video.height}:r=25:d=2.5`, '-i', audio,
-          '-filter_complex', `[0:v]drawbox=x=180:y=320:w=1560:h=440:color=#fffcf4:t=fill,drawbox=x=200:y=340:w=1520:h=400:color=#fb1143:t=8,drawtext=fontfile=${font}:text=WERBUNG:fontcolor=#004f4f:fontsize=210:x=(w-text_w)/2:y=(h-text_h)/2[v];[1:a]adelay=550|550,apad=pad_dur=2.5[a]`,
+          '-f', 'lavfi', '-i', `color=c=0x004f4f:s=${this.config.video.width}x${this.config.video.height}:r=25:d=2.5`, '-i', audio,
+          '-filter_complex', `[0:v]drawbox=x=180:y=320:w=1560:h=440:color=0xfffcf4:t=fill,drawbox=x=200:y=340:w=1520:h=400:color=0xfb1143:t=8,drawtext=fontfile=${font}:text=WERBUNG:fontcolor=0x004f4f:fontsize=210:x=(w-text_w)/2:y=(h-text_h)/2[v];[1:a]adelay=550|550,apad=pad_dur=2.5[a]`,
           '-map', '[v]', '-map', '[a]', '-t', '2.5', '-c:v', 'libx264', '-preset', 'medium', '-crf', '18', '-pix_fmt', 'yuv420p', '-g', '50',
           '-c:a', 'aac', '-b:a', '192k', '-ar', '48000', '-ac', '2', '-movflags', '+faststart', partial,
         ]);
