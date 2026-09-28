@@ -60,7 +60,9 @@ export class AdIngestService {
   async ingest(sourceUrl: string, options: AdIngestOptions = {}): Promise<AdAsset> {
     if (!this.config.advertising) throw new Error('Advertising is not configured');
     const url = allowedUrl(sourceUrl);
-    const metadata = JSON.parse(await execute('yt-dlp', ['--dump-single-json', '--no-playlist', url.toString()])) as YoutubeMetadata;
+    const projectDownloader = path.join(this.config.projectRoot, 'runtime/tools/yt-dlp/bin/yt-dlp');
+    const downloader = process.env.LKP_YT_DLP ?? (fs.existsSync(projectDownloader) ? projectDownloader : 'yt-dlp');
+    const metadata = JSON.parse(await execute(downloader, ['--dump-single-json', '--no-playlist', url.toString()])) as YoutubeMetadata;
     if (!metadata.id || !metadata.title) throw new Error('yt-dlp did not return an advertisement ID and title');
     const root = this.config.advertising.root;
     const sourceRoot = path.join(root, 'source');
@@ -68,7 +70,7 @@ export class AdIngestService {
     fs.mkdirSync(sourceRoot, { recursive: true });
     fs.mkdirSync(playoutRoot, { recursive: true });
     const template = path.join(sourceRoot, `${metadata.id}.%(ext)s`);
-    const downloaded = (await execute('yt-dlp', [
+    const downloaded = (await execute(downloader, [
       '--no-playlist', '--format', 'bv*+ba/b', '--merge-output-format', 'mkv',
       '--output', template, '--print', 'after_move:filepath', url.toString(),
     ])).split(/\r?\n/).filter(Boolean).at(-1);

@@ -153,6 +153,7 @@ npm run lkp -- ads list
 `yt-dlp` downloads the source and the ingest service atomically creates a
 1920x1080 H.264/yuv420p 25 fps, AAC 48 kHz playout copy under the generated media
 root. To ingest the six approved initial spots, use `npm run lkp -- ads bootstrap`.
+The CLI automatically uses `runtime/tools/yt-dlp/bin/yt-dlp` when present, so the Pi can keep the downloader project-local without a system package installation.
 Prepare the four 2.5-second voiced bumpers cache-only first; permit paid TTS only
 for missing one-word assets:
 
