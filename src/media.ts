@@ -178,7 +178,7 @@ function manualBreakpoints(values: EpisodeMetadata['breakpoints']): Breakpoint[]
 
 async function localBreakAnalysis(mediaPath: string): Promise<Breakpoint[]> {
   const stderr = await new Promise<string>((resolve, reject) => {
-    const child = spawn('ffmpeg', ['-hide_banner', '-nostats', '-v', 'info', '-i', mediaPath, '-vf', 'blackdetect=d=0.20:pix_th=0.10', '-af', 'silencedetect=n=-35dB:d=0.25', '-f', 'null', '-'], { stdio: ['ignore', 'ignore', 'pipe'] });
+    const child = spawn('ffmpeg', ['-hide_banner', '-nostats', '-v', 'info', '-i', mediaPath, '-vf', 'scale=480:-2,fps=5,blackdetect=d=0.20:pix_th=0.10', '-af', 'silencedetect=n=-35dB:d=0.25', '-f', 'null', '-'], { stdio: ['ignore', 'ignore', 'pipe'] });
     let output = '';
     child.stderr.setEncoding('utf8').on('data', (chunk: string) => { output += chunk; });
     child.on('error', reject);
