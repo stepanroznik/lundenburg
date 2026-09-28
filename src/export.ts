@@ -2,6 +2,7 @@ import path from 'node:path';
 import ExcelJS from 'exceljs';
 import { DateTime } from 'luxon';
 import type { AppConfig, PlaybackEvent, ScheduleEntry } from './types.js';
+import { publicSchedule } from './listing.js';
 
 const headerFill: ExcelJS.Fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF17365D' } };
 
@@ -24,6 +25,9 @@ export async function exportWorkbook(
   workbook.creator = 'Lundenburg Kids Premium';
   workbook.created = new Date();
   const zone = config.channel.timezone;
+  const visibleSchedule = publicSchedule(schedule);
+  const visibleIds = new Set(visibleSchedule.map((entry) => entry.id));
+  const visiblePlayback = playback.filter((event) => visibleIds.has(event.scheduleEntryId));
   const scheduleSheet = workbook.addWorksheet('Schedule');
   scheduleSheet.columns = [
     { header: 'Date', key: 'date' }, { header: 'Start', key: 'start' }, { header: 'End', key: 'end' },
@@ -32,7 +36,7 @@ export async function exportWorkbook(
     { header: 'Audio language', key: 'audio' }, { header: 'Subtitle languages', key: 'subtitles' },
     { header: 'Media file', key: 'media' }, { header: 'Schedule entry ID', key: 'id' },
   ];
-  for (const entry of schedule) scheduleSheet.addRow({
+  for (const entry of visibleSchedule) scheduleSheet.addRow({
     date: localDate(entry.startsAtMs, zone), start: localDate(entry.startsAtMs, zone), end: localDate(entry.endsAtMs, zone),
     duration: entry.durationMs / 86_400_000, show: entry.showTitle, season: entry.season ?? '', episode: entry.episode ?? '',
     title: entry.episodeTitle, description: entry.description, audio: entry.audioLanguage ?? '',
@@ -50,7 +54,7 @@ export async function exportWorkbook(
     { header: 'Actual end', key: 'actualEnd' }, { header: 'Initial seek', key: 'seek' },
     { header: 'Cold-start resume', key: 'cold' }, { header: 'Result', key: 'result' }, { header: 'Error', key: 'error' },
   ];
-  for (const event of playback) playbackSheet.addRow({
+  for (const event of visiblePlayback) playbackSheet.addRow({
     scheduleId: event.scheduleEntryId, plannedStart: localDate(event.plannedStartMs, zone), plannedEnd: localDate(event.plannedEndMs, zone),
     actualStart: localDate(event.actualStartMs, zone), actualEnd: event.actualEndMs ? localDate(event.actualEndMs, zone) : '',
     seek: event.initialSeekMs / 86_400_000, cold: event.coldStartResume ? 'yes' : 'no', result: event.status, error: event.error ?? '',
@@ -66,8 +70,8 @@ export async function exportWorkbook(
     { header: 'Start delta (s)', key: 'startDelta' }, { header: 'Planned end', key: 'plannedEnd' },
     { header: 'Actual end', key: 'actualEnd' }, { header: 'End delta (s)', key: 'endDelta' }, { header: 'Result', key: 'result' },
   ];
-  const scheduleById = new Map(schedule.map((entry) => [entry.id, entry]));
-  for (const event of playback) {
+  const scheduleById = new Map(visibleSchedule.map((entry) => [entry.id, entry]));
+  for (const event of visiblePlayback) {
     const planned = scheduleById.get(event.scheduleEntryId);
     comparisonSheet.addRow({
       id: event.scheduleEntryId, title: planned ? `${planned.showTitle}: ${planned.episodeTitle}` : '',

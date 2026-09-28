@@ -2,9 +2,10 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { spawn } from 'node:child_process';
 import { parse } from 'yaml';
-import type { AppConfig, MediaItem, SubtitleTrack } from './types.js';
+import type { AppConfig, Breakpoint, CreditsPolicy, EditorialMarker, ExternalIds, MediaItem, SubtitleTrack } from './types.js';
 import { normalizeLanguage, stableId } from './util.js';
 import { assertMediaStorage } from './media-storage.js';
+import { editorialEnd, scoreBreakSignal } from './editorial.js';
 
 interface ShowMetadata {
   id?: string;
@@ -14,6 +15,8 @@ interface ShowMetadata {
   weight?: number;
   enabled?: boolean;
   episodeTitleTemplate?: string;
+  externalIds?: ExternalIds;
+  creditsPolicy?: CreditsPolicy;
 }
 
 interface EpisodeMetadata {
@@ -23,6 +26,10 @@ interface EpisodeMetadata {
   season?: number;
   episode?: number;
   enabled?: boolean;
+  externalIds?: ExternalIds;
+  creditsPolicy?: CreditsPolicy;
+  markers?: EditorialMarker[];
+  breakpoints?: Array<number | (Partial<Breakpoint> & { atMs: number })>;
 }
 
 interface ProbeStream {
@@ -42,6 +49,7 @@ interface ProbeStream {
 interface ProbeResult {
   streams: ProbeStream[];
   format: { duration?: string; format_name?: string; bit_rate?: string; tags?: Record<string, string> };
+  chapters?: Array<{ start_time?: string; end_time?: string; tags?: { title?: string } }>;
 }
 
 function readYaml<T>(file: string): T | undefined {
@@ -95,7 +103,7 @@ export function episodeTitleFromTemplate(template: string | undefined, parsed: {
 
 async function ffprobe(binary: string, file: string): Promise<ProbeResult> {
   return await new Promise((resolve, reject) => {
-    const child = spawn(binary, ['-v', 'error', '-show_format', '-show_streams', '-of', 'json', file], { stdio: ['ignore', 'pipe', 'pipe'] });
+    const child = spawn(binary, ['-v', 'error', '-show_format', '-show_streams', '-show_chapters', '-of', 'json', file], { stdio: ['ignore', 'pipe', 'pipe'] });
     let stdout = '';
     let stderr = '';
     child.stdout.setEncoding('utf8').on('data', (chunk: string) => { stdout += chunk; });
@@ -142,6 +150,32 @@ function discoverSidecars(mediaPath: string, allowed: Set<string>): SubtitleTrac
   return tracks;
 }
 
+function chapterEditorial(probe: ProbeResult): { markers: EditorialMarker[]; breakpoints: Breakpoint[] } {
+  const markers: EditorialMarker[] = [];
+  const breakpoints: Breakpoint[] = [];
+  for (const chapter of probe.chapters ?? []) {
+    const startMs = Math.round(Number(chapter.start_time) * 1000);
+    const endMs = Math.round(Number(chapter.end_time) * 1000);
+    if (!Number.isFinite(startMs) || startMs < 0) continue;
+    const title = chapter.tags?.title?.trim();
+    const normalized = title?.toLocaleLowerCase('de') ?? '';
+    const credits = /credits|end titles|abspann|nachspann|titulky|crédit/.test(normalized);
+    const knownBreak = /werbung|commercial|ad[ -]?break|reklama/.test(normalized);
+    markers.push({ kind: credits ? 'credits' : knownBreak ? 'ad-break' : 'chapter', startMs, ...(Number.isFinite(endMs) && endMs > startMs ? { endMs } : {}), ...(title ? { title } : {}), source: 'embedded', confidence: credits || knownBreak ? .9 : .7 });
+    if (startMs > 0) breakpoints.push(scoreBreakSignal({ atMs: startMs, known: knownBreak, strongChapter: knownBreak || /part|teil|kapit|chapter/.test(normalized), embeddedChapter: true }));
+  }
+  return { markers, breakpoints };
+}
+
+function manualBreakpoints(values: EpisodeMetadata['breakpoints']): Breakpoint[] {
+  return (values ?? []).map((value) => typeof value === 'number'
+    ? scoreBreakSignal({ atMs: value, manual: true })
+    : {
+        atMs: value.atMs, score: value.score ?? 100, confidence: value.confidence ?? 1,
+        reason: value.reason ?? ['manual override'], source: 'manual', enabled: value.enabled ?? true,
+      });
+}
+
 export async function scanMedia(config: AppConfig, onProgress?: (message: string) => void): Promise<MediaItem[]> {
   assertMediaStorage(config);
   const mediaFiles = walk(config.media.root, new Set(config.media.supportedExtensions));
@@ -180,6 +214,16 @@ export async function scanMedia(config: AppConfig, onProgress?: (message: string
     const season = episodeMeta.season ?? parsed.season;
     const episode = episodeMeta.episode ?? parsed.episode;
     const audioLanguage = normalizeLanguage(audio?.tags?.language ?? show.language);
+    const chapters = chapterEditorial(probe);
+    const editorialMarkers = [...chapters.markers, ...(episodeMeta.markers ?? [])].sort((a, b) => a.startMs - b.startMs);
+    const breakpoints = [...chapters.breakpoints, ...manualBreakpoints(episodeMeta.breakpoints)].sort((a, b) => a.atMs - b.atMs);
+    const durationMs = Math.round(durationSeconds * 1000);
+    const effectiveEditorialDurationMs = editorialEnd(editorialMarkers, durationMs);
+    const externalIds = { ...(show.externalIds ?? {}), ...(episodeMeta.externalIds ?? {}) };
+    const qcWarnings: string[] = [];
+    if (!Object.keys(externalIds).length) qcWarnings.push('No IMDb/TMDb/TVDB identifier; external enrichment and subtitle matching are limited');
+    if (!editorialMarkers.some((marker) => marker.kind === 'credits' && marker.confidence >= .7)) qcWarnings.push('No reliable credits marker; automatic credits shortening is disabled');
+    for (const language of allowedLanguages) if (!uniqueSubtitles.some((track) => track.language === language)) qcWarnings.push(`Missing ${language} subtitles`);
     const item: MediaItem = {
       id: episodeMeta.id ?? stableId(showId, episodeMeta.season ?? parsed.season ?? '', episodeMeta.episode ?? parsed.episode ?? '', path.basename(mediaPath)),
       showId,
@@ -192,11 +236,18 @@ export async function scanMedia(config: AppConfig, onProgress?: (message: string
       episodeTitle,
       description,
       mediaPath: path.resolve(mediaPath),
-      durationMs: Math.round(durationSeconds * 1000),
+      durationMs,
       ...(audioLanguage ? { audioLanguage } : {}),
       subtitles: uniqueSubtitles,
-      technical: { format: probe.format, streams: probe.streams },
+      technical: { format: probe.format, streams: probe.streams, chapters: probe.chapters ?? [] },
       enabled: episodeMeta.enabled ?? show.enabled ?? true,
+      externalIds,
+      editorialMarkers,
+      creditsPolicy: episodeMeta.creditsPolicy ?? show.creditsPolicy ?? 'shorten',
+      effectiveEditorialDurationMs,
+      breakpoints,
+      ingestState: qcWarnings.length ? 'review' : 'ready',
+      qcWarnings,
     };
     if (!item.showId || !item.showTitle || !item.episodeTitle) throw new Error(`Incomplete metadata for ${mediaPath}`);
     if (!Number.isFinite(item.weight) || item.weight <= 0) throw new Error(`Show weight must be positive for ${mediaPath}`);

@@ -12,7 +12,7 @@ media:
   generatedRoot: /mnt/lkp-media/LKP/.generated
   ffprobe: ffprobe
   supportedExtensions: [.mkv, .mp4, .mov]
-  subtitleLanguages: [cs, de, sk, en]
+  subtitleLanguages: [cs, de, en]
 
 storage:
   database: ./data/lkp.sqlite
@@ -78,3 +78,15 @@ intermissions:
   manifest: /mnt/lkp-media/LKP/.generated/lkp-pausenfilme/published.json
   boundaryRate: 0.8
   weights: { ident: 70, silent: 20, voiced: 10 }
+
+# Eligible long-form programmes use natural breakpoints, but only every other
+# ordinary airing receives ads. Each ad block is followed by an LKP intermission.
+advertising:
+  enabled: true
+  root: /mnt/lkp-media/LKP/.generated/lkp-ads
+  programmeInterval: 2
+  minEditorialMinutes: 35
+  targetSeconds: { min: 30, max: 60 }
+  searchWindowMinutes: 5
+  minimumBreakpointScore: 12
+  bumperManifest: /mnt/lkp-media/LKP/.generated/lkp-ads/bumpers/published.json

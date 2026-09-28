@@ -61,7 +61,7 @@ export function planIntermissions(entries: ScheduleEntry[], clips: RotationClip[
     if(!next || !isProgramme(e)||!isProgramme(next)||original.endsAtMs<earliest)continue;
     const clip=chooseIntermission(clips,policy,seed,original,e.endsAtMs,previousClip);
     if(!clip || shift+clip.durationMs>slack[i+1]!)continue;
-    const intermission: ScheduleEntry={id:stableId('intermission-after',original.id),sequence:e.sequence+1,mediaId:`intermission-${clip.id}`,showId:intermissionShowId,showTitle:'Lundenburg Kids Premium',episodeTitle:clip.title,description:clip.synopsis,startsAtMs:e.endsAtMs,endsAtMs:e.endsAtMs+clip.durationMs,durationMs:clip.durationMs,mediaPath:clip.mediaPath,audioLanguage:clip.languages.length===1?clip.languages[0]!:'mul',subtitleLanguages:[]};
+    const intermission: ScheduleEntry={id:stableId('intermission-after',original.id),sequence:e.sequence+1,mediaId:`intermission-${clip.id}`,showId:intermissionShowId,showTitle:'Lundenburg Kids Premium',episodeTitle:clip.title,description:clip.synopsis,startsAtMs:e.endsAtMs,endsAtMs:e.endsAtMs+clip.durationMs,durationMs:clip.durationMs,mediaPath:clip.mediaPath,audioLanguage:clip.languages.length===1?clip.languages[0]!:'mul',subtitleLanguages:[],listingVisibility:'hidden'};
     result.push(intermission);inserted.push(intermission);shift+=clip.durationMs;added++;previousClip=clip.id;
   }
   return {entries:result,inserted};

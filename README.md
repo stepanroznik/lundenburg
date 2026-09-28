@@ -64,6 +64,36 @@ Supported video containers are MKV, MP4, and MOV. `show.yaml` supports `id`, `ti
 
 Sidecars must be UTF-8 and use the exact video stem plus `.cs.srt`, `.de.srt`, `.en.srt` (ASS is also indexed). Source files are never rewritten by the scanner.
 
+### Ingest and editorial metadata
+
+A source file remains immutable. Ingest now persists separate show, episode,
+media-asset, subtitle-track and editorial-marker records while keeping the old
+`media_items` compatibility view for existing installations. SQLite migration is
+additive; it does not clear the catalogue or schedule. Episode YAML can add:
+
+```yaml
+externalIds: { imdb: tt1234567, tmdb: '12345', tvdb: '67890' }
+creditsPolicy: shorten # full, shorten, skip
+markers:
+  - { kind: credits, startMs: 3120000, endMs: 3240000, source: manual, confidence: 1 }
+breakpoints:
+  - 1482400
+  - { atMs: 3118700, enabled: true, reason: [manual act boundary] }
+```
+
+Embedded chapters are retained and scored during `media:scan`. Uncertain credits
+are never cut automatically; provider failures become QC warnings. Inspect one
+asset or the whole ingest summary with:
+
+```bash
+npm run lkp -- media show MEDIA_ID
+npm run lkp -- media report
+```
+
+Optional TheIntroDB/ChaptersDB/subtitle services plug into independent ingest
+adapters; the live broadcaster never contacts them. Only Czech, German and
+English subtitle tracks are considered by ordinary library ingest.
+
 ### Important DVB subtitle boundary
 
 SRT, ASS, and MP4 `mov_text` are text; DVB subtitles are bitmap display sets. FFmpeg 7.1.5 can encode bitmap-to-bitmap DVB subtitles but cannot safely perform this text-to-bitmap conversion. LKP therefore never burns captions into video and never labels a text stream as DVB. It indexes text tracks and passes already-prepared `dvb_subtitle` tracks as selectable TV subtitles. A preparation cache using a verified text-to-DVB renderer still needs end-to-end validation before the current Czech SRT tracks can appear on a television. This is intentionally explicit rather than silently compromising subtitle selection.
@@ -73,6 +103,17 @@ SRT, ASS, and MP4 `mov_text` are text; DVB subtitles are bitmap display sets. FF
 The supplied SVG is committed at [assets/logo/lkp-logo.svg](assets/logo/lkp-logo.svg). At broadcast startup it is rasterized once into `runtime/graphics`; the cached transparent PNG is then composited live, so source programmes remain untouched and future graphics can use the same live compositor. Width, position, opacity, transition duration, rotations, and zoom are in `config/lkp.yaml`.
 
 ## Catalogue and schedule
+
+Future events may contain an immutable playout plan: content ranges, shortened
+credits, WERBUNG bumper, one or two ads, an LKP intermission, and resumed content.
+Only programmes longer than 35 editorial minutes qualify, and only every other
+ordinary programme is eligible. Breaks without an acceptable natural marker, a
+ready ad, or a rendered bumper are omitted. Existing future rows are migrated
+only by an explicit backup-first operation:
+
+```bash
+npm run lkp -- schedule replan
+```
 
 ```bash
 npm run media:scan
@@ -99,6 +140,31 @@ less runtime/epg.xml
 ```
 
 TSDuck `eitinject` reorganizes those events into actual present/following and schedule EIT at runtime.
+
+## Advertising inventory
+
+Add one German TV spot to the rotation with:
+
+```bash
+npm run add-ad https://www.youtube.com/watch?v=VIDEO_ID
+npm run lkp -- ads list
+```
+
+`yt-dlp` downloads the source and the ingest service atomically creates a
+1920x1080 H.264/yuv420p 25 fps, AAC 48 kHz playout copy under the generated media
+root. To ingest the six approved initial spots, use `npm run lkp -- ads bootstrap`.
+Prepare the four 2.5-second voiced bumpers cache-only first; permit paid TTS only
+for missing one-word assets:
+
+```bash
+npm run lkp -- ads bumpers
+npm run lkp -- ads bumpers -- --audio tts
+```
+
+Ads, bumpers, intermissions, and other `lkp-*` continuity items remain in the
+authoritative internal schedule but are folded into the preceding public event
+in EPG and XLSX. `lkp-weather` is the explicit visible exception. Embedded ad
+blocks remain inside their parent programme event.
 
 ## Export
 

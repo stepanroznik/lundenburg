@@ -8,6 +8,7 @@ import { LkpDatabase } from './database.js';
 import { writeEpgAtomic } from './epg.js';
 import { ensureSchedule } from './schedule.js';
 import { prepareLogo, type PreparedLogo } from './logo.js';
+import { locatePlayoutPosition } from './editorial.js';
 
 export interface BroadcastOptions {
   dryRun: boolean;
@@ -28,9 +29,9 @@ function seconds(ms: number): string { return (Math.max(0, ms) / 1000).toFixed(3
 
 export function buildFfmpegArgs(
   entry: ScheduleEntry, media: MediaItem | undefined, seekMs: number, remainingMs: number,
-  animate: boolean, config: AppConfig, logo: PreparedLogo,
+  animate: boolean, config: AppConfig, logo: PreparedLogo, outputOffsetMs = seekMs,
 ): string[] {
-  const intermission = entry.showId === 'lkp-intermissions';
+  const intermission = entry.showId === 'lkp-intermissions' || entry.listingVisibility === 'hidden';
   const args = ['-hide_banner', '-loglevel', 'warning', '-nostdin',
     '-filter_complex_threads', String(config.video.filterThreads),
     '-threads', String(config.video.decoderThreads), '-ss', seconds(seekMs), '-i', entry.mediaPath];
@@ -70,7 +71,7 @@ export function buildFfmpegArgs(
     // elementary-stream timestamps monotonic for the long-lived HLS remuxer.
     // Keep the value below MPEG-TS's 33-bit clock wrap. The HLS relay corrects
     // the once-daily discontinuity while preserving continuity between shows.
-    '-output_ts_offset', (((entry.startsAtMs + seekMs) / 1000) % 86_400).toFixed(3),
+    '-output_ts_offset', (((entry.startsAtMs + outputOffsetMs) / 1000) % 86_400).toFixed(3),
   );
   if (bitmapTracks.length) args.push('-c:s', 'dvbsub');
   args.push(
@@ -106,11 +107,11 @@ function stopChild(child: ChildProcess | undefined): void {
 async function transcodeEntry(
   entry: ScheduleEntry, media: MediaItem | undefined, seekMs: number, animate: boolean,
   config: AppConfig, sinks: Writable[], verbose: boolean, stopAtMs: number, pastOffsetMs: number,
-  onChild: (child: ChildProcess | undefined) => void, logo: PreparedLogo,
+  onChild: (child: ChildProcess | undefined) => void, logo: PreparedLogo, outputOffsetMs = seekMs,
 ): Promise<{ code: number | null; endedAtMs: number }> {
   const deadline = Math.min(entry.endsAtMs + pastOffsetMs, stopAtMs);
   const remainingMs = Math.max(1, deadline - Date.now());
-  const ffmpegArgs = buildFfmpegArgs(entry, media, seekMs, remainingMs, animate, config, logo);
+  const ffmpegArgs = buildFfmpegArgs(entry, media, seekMs, remainingMs, animate, config, logo, outputOffsetMs);
   const command = config.video.cpuAffinity ? 'taskset' : 'ffmpeg';
   const args = config.video.cpuAffinity ? ['--cpu-list', config.video.cpuAffinity, 'ffmpeg', ...ffmpegArgs] : ffmpegArgs;
   const child = spawnLogged(command, args,
@@ -123,6 +124,42 @@ async function transcodeEntry(
   clearTimeout(timer);
   for (const sink of sinks) child.stdout!.unpipe(sink);
   return { code, endedAtMs: Date.now() };
+}
+
+async function transcodePlayout(
+  entry: ScheduleEntry, media: MediaItem | undefined, elapsedMs: number, animate: boolean,
+  config: AppConfig, sinks: Writable[], verbose: boolean, stopAtMs: number, pastOffsetMs: number,
+  onChild: (child: ChildProcess | undefined) => void, logo: PreparedLogo,
+): Promise<{ code: number | null; endedAtMs: number }> {
+  const plan = entry.playoutPlan;
+  if (!plan) return transcodeEntry(entry, media, elapsedMs, animate, config, sinks, verbose, stopAtMs, pastOffsetMs, onChild, logo);
+  const position = locatePlayoutPosition(plan, elapsedMs);
+  if (!position) return { code: 0, endedAtMs: Date.now() };
+  const { playoutPlan: _plan, ...baseEntry } = entry;
+  let cumulativeMs = plan.segments.slice(0, position.segmentIndex).reduce((sum, segment) => sum + segment.durationMs, 0);
+  let last = { code: 0 as number | null, endedAtMs: Date.now() };
+  for (let index = position.segmentIndex; index < plan.segments.length; index += 1) {
+    const segment = plan.segments[index]!;
+    const segmentStartMs = entry.startsAtMs + cumulativeMs;
+    const segmentEndMs = segmentStartMs + segment.durationMs;
+    const realSegmentEndMs = segmentEndMs + pastOffsetMs;
+    if (Date.now() >= realSegmentEndMs) { cumulativeMs += segment.durationMs; continue; }
+    const outputOffsetMs = Math.max(0, scheduleTimeForBroadcast(Date.now(), pastOffsetMs) - segmentStartMs);
+    const sourceSeekMs = (segment.type === 'content' || segment.type === 'credits' ? segment.fromMs : 0) + outputOffsetMs;
+    const internal = segment.type !== 'content' && segment.type !== 'credits';
+    const segmentEntry: ScheduleEntry = {
+      ...baseEntry, id: `${entry.id}:${index}`, startsAtMs: segmentStartMs, endsAtMs: segmentEndMs,
+      durationMs: segment.durationMs, mediaPath: segment.mediaPath,
+      ...(internal ? { showId: 'lkp-internal', listingVisibility: 'hidden' as const } : {}),
+    };
+    last = await transcodeEntry(segmentEntry, internal ? undefined : media, sourceSeekMs, animate && index === 0 && outputOffsetMs < 1000,
+      config, sinks, verbose, stopAtMs, pastOffsetMs, onChild, logo, outputOffsetMs);
+    if (stopAtMs < realSegmentEndMs) return last;
+    const earlyByMs = realSegmentEndMs - last.endedAtMs;
+    if (last.code !== 0 && earlyByMs > 1000) throw new Error(`FFmpeg exited ${Math.round(earlyByMs)} ms before playout segment boundary (code ${last.code})`);
+    cumulativeMs += segment.durationMs;
+  }
+  return last;
 }
 
 export function scheduleTimeForBroadcast(realTimeMs: number, pastOffsetMs: number): number {
@@ -271,7 +308,7 @@ export async function runBroadcast(db: LkpDatabase, config: AppConfig, options: 
       });
       log('info', 'Programme playout started', { scheduleEntryId: entry.id, title: `${entry.showTitle}: ${entry.episodeTitle}`, seekMs, coldStartResume });
       try {
-        const result = await transcodeEntry(entry, mediaById.get(entry.mediaId), seekMs, !first && seekMs < 1000, config, sinks, options.verbose, serviceDeadline, pastOffsetMs, (child) => { currentFfmpeg = child; }, logo);
+        const result = await transcodePlayout(entry, mediaById.get(entry.mediaId), seekMs, !first && seekMs < 1000, config, sinks, options.verbose, serviceDeadline, pastOffsetMs, (child) => { currentFfmpeg = child; }, logo);
         if (outputFailure) throw outputFailure;
         const realEntryEndMs = entry.endsAtMs + pastOffsetMs;
         if (serviceDeadline < realEntryEndMs) {

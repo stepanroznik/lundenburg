@@ -3,6 +3,7 @@ import path from 'node:path';
 import { DateTime } from 'luxon';
 import type { AppConfig, ScheduleEntry } from './types.js';
 import { durationClock } from './util.js';
+import { publicSchedule } from './listing.js';
 
 function xml(value: string): string {
   return value.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&apos;');
@@ -18,7 +19,7 @@ function eventDescription(entry: ScheduleEntry): string {
 }
 
 export function generateEpgXml(entries: ScheduleEntry[], config: AppConfig): string {
-  const body = entries.map((entry) => {
+  const body = publicSchedule(entries).map((entry) => {
     const start = DateTime.fromMillis(entry.startsAtMs, { zone: 'utc' }).toFormat('yyyy-LL-dd HH:mm:ss');
     const id = (entry.sequence % 65_535) + 1;
     const description = eventDescription(entry);

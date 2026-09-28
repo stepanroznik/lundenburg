@@ -106,6 +106,20 @@ export function loadConfig(explicitPath?: string): AppConfig {
     result.intermissions={enabled:section.enabled,manifest:resolveFromProject(projectRoot,stringValue(section,'manifest')),boundaryRate:numberValue(section,'boundaryRate'),weights:{ident:numberValue(weights,'ident'),silent:numberValue(weights,'silent'),voiced:numberValue(weights,'voiced')}};
     if(result.intermissions.boundaryRate<0||result.intermissions.boundaryRate>1||Object.values(result.intermissions.weights).some(n=>n<0)||Object.values(result.intermissions.weights).reduce((a,b)=>a+b,0)<=0)throw new Error('Invalid intermission probability/weights');
   }
+  if (raw.advertising !== undefined) {
+    const section = requiredObject(raw.advertising, 'advertising');
+    const target = requiredObject(section.targetSeconds, 'advertising.targetSeconds');
+    if (typeof section.enabled !== 'boolean') throw new Error('advertising.enabled must be boolean');
+    result.advertising = {
+      enabled: section.enabled,
+      root: resolveFromProject(projectRoot, stringValue(section, 'root')),
+      programmeInterval: numberValue(section, 'programmeInterval'), minEditorialMinutes: numberValue(section, 'minEditorialMinutes'),
+      targetSeconds: { min: numberValue(target, 'min'), max: numberValue(target, 'max') },
+      searchWindowMinutes: numberValue(section, 'searchWindowMinutes'), minimumBreakpointScore: numberValue(section, 'minimumBreakpointScore'),
+      bumperManifest: resolveFromProject(projectRoot, stringValue(section, 'bumperManifest')),
+    };
+    if (!Number.isInteger(result.advertising.programmeInterval) || result.advertising.programmeInterval < 1) throw new Error('advertising.programmeInterval must be a positive integer');
+  }
   if (result.broadcast.gainDb < 0 || result.broadcast.gainDb > 30) throw new Error('broadcast.gainDb must be between 0 and 30');
   const generatedRelative = path.relative(result.media.root, result.media.generatedRoot);
   if (generatedRelative.startsWith('..') || path.isAbsolute(generatedRelative)) throw new Error('media.generatedRoot must be inside media.root');

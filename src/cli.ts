@@ -10,8 +10,9 @@ import { writeEpgAtomic } from './epg.js';
 import { exportWorkbook } from './export.js';
 import { scanMedia } from './media.js';
 import { runBroadcast } from './playout.js';
-import { ensureSchedule, validateTimeline } from './schedule.js';
+import { ensureSchedule, reconcilePlayoutPlans, validateTimeline } from './schedule.js';
 import { durationClock, formatLocal, parseDateTime } from './util.js';
+import { AdBumperService, AdIngestService, initialAdUrls } from './ads.js';
 
 const program = new Command();
 program.name('lkp').description('Lundenburg Kids Premium channel control').version('1.0.0');
@@ -34,6 +35,60 @@ media.command('scan').description('scan and probe the source media library')
       for (const item of items) console.log(`${item.id}\t${durationClock(item.durationMs)}\t${item.showTitle} — ${item.episodeTitle}\t${item.subtitles.map((s) => s.language).join(',') || '-'}`);
     } finally { db.close(); }
   });
+
+media.command('show <id>').description('show catalog, ingest, editorial, subtitle, and QC metadata')
+  .action((id: string) => {
+    const { db } = context();
+    try {
+      const item = db.listMedia(false).find((candidate) => candidate.id === id);
+      if (!item) throw new Error(`Unknown media item: ${id}`);
+      console.log(JSON.stringify(item, null, 2));
+    } finally { db.close(); }
+  });
+
+media.command('report').description('summarize catalog ingest and editorial QC')
+  .action(() => {
+    const { db } = context();
+    try {
+      const items = db.listMedia(false);
+      const coverage = Object.fromEntries(['cs', 'de', 'en'].map((language) => [language, items.filter((item) => item.subtitles.some((track) => track.language === language)).length]));
+      const report = {
+        media: items.length, shows: new Set(items.map((item) => item.showId)).size,
+        creditsDetected: items.filter((item) => item.editorialMarkers?.some((marker) => marker.kind === 'credits' && marker.confidence >= .7)).length,
+        breakpoints: items.reduce((sum, item) => sum + (item.breakpoints?.filter((point) => point.enabled).length ?? 0), 0),
+        subtitleCoverage: coverage, unresolved: items.filter((item) => item.ingestState !== 'ready').length,
+        ads: db.listAds(false).map((ad) => ({ id: ad.id, title: ad.title, durationMs: ad.durationMs, enabled: ad.enabled })),
+      };
+      console.log(JSON.stringify(report, null, 2));
+    } finally { db.close(); }
+  });
+
+const ads = program.command('ads').description('advertisement inventory operations');
+ads.command('add <url>').description('download, normalize, QC, and add one YouTube advertisement')
+  .option('-l, --language <language>', 'language', 'de')
+  .option('--advertiser <name>', 'advertiser or product')
+  .option('--tag <tag...>', 'inventory tags')
+  .action(async (url: string, options: { language?: string; advertiser?: string; tag?: string[] }) => {
+    const { config, db } = context();
+    try {
+      const ad = await new AdIngestService(config, db).ingest(url, { ...(options.language ? { language: options.language } : {}), ...(options.advertiser ? { advertiser: options.advertiser } : {}), ...(options.tag ? { tags: options.tag } : {}) });
+      console.log(`${ad.id}\t${durationClock(ad.durationMs)}\t${ad.title}\t${ad.mediaPath}`);
+    } finally { db.close(); }
+  });
+ads.command('bumpers').description('prepare the four permanent voiced WERBUNG bumpers')
+  .addOption(new Option('--audio <mode>', 'cache-only by default; tts permits only missing one-word voice assets').choices(['cache', 'tts']).default('cache'))
+  .action(async (options: { audio: 'cache' | 'tts' }) => {
+    const { config, db } = context();
+    try { console.log(`Published WERBUNG bumpers: ${await new AdBumperService(config).prepare(options.audio)}`); }
+    finally { db.close(); }
+  });
+ads.command('bootstrap').description('ingest the six initial approved TV spots').action(async () => {
+  const { config, db } = context();
+  try {
+    const service = new AdIngestService(config, db);
+    for (const url of initialAdUrls) { const ad = await service.ingest(url, { language: 'de' }); console.log(`${ad.id}\t${durationClock(ad.durationMs)}\t${ad.title}`); }
+  } finally { db.close(); }
+});
 
 const schedule = program.command('schedule').description('persistent programme schedule operations');
 schedule.command('generate').description('create or safely extend the persistent schedule')
@@ -62,6 +117,18 @@ schedule.command('intermissions').description('insert the published skit rotatio
       writeEpgAtomic(db.listSchedule(Date.now()-86400000,Date.now()+config.schedule.epgDays*86400000),config);
       console.log(`Inserted ${added} intermissions. Schedule backup: ${backup}`);
     } finally {db.close();}
+  });
+
+
+schedule.command('replan').description('backup and migrate safe future programmes to immutable editorial/ad playout plans')
+  .action(async () => {
+    const { config, db } = context();
+    try {
+      const backup = `${config.storage.database}.before-playout-plans-${Date.now()}.sqlite`;
+      await db.db.backup(backup);
+      const planned = reconcilePlayoutPlans(db, config);
+      console.log(`Planned ${planned} future programme(s). Schedule backup: ${backup}`);
+    } finally { db.close(); }
   });
 
 schedule.command('show').description('show schedule entries')

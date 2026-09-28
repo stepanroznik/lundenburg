@@ -13,6 +13,7 @@
     "test": "node --import tsx --test test/*.test.ts",
     "lkp": "tsx src/cli.ts",
     "media:scan": "npm run lkp -- media scan",
+    "add-ad": "npm run lkp -- ads add",
     "media:migrate-external": "tsx scripts/migrate-media-to-external.ts",
     "schedule:generate": "npm run lkp -- schedule generate",
     "schedule:show": "npm run lkp -- schedule show",

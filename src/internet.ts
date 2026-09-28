@@ -53,8 +53,16 @@ const fmt=n=>new Intl.DateTimeFormat([], {hour:'2-digit',minute:'2-digit',second
 async function programmes(){try{const r=await fetch('/api/programme',{cache:'no-store'});if(!r.ok)throw Error();const p=await r.json();for(const k of ['now','next']){document.getElementById(k+'-title').textContent=p[k]?p[k].showTitle+' · '+p[k].episodeTitle:'Not scheduled';document.getElementById(k+'-time').textContent=p[k]?fmt(p[k].startsAtMs)+'–'+fmt(p[k].endsAtMs):''}}catch{document.getElementById('now-title').textContent='Schedule unavailable'}}programmes();setInterval(programmes,15000);`;
 
 const database = new Database(config.storage.database, { readonly: true, fileMustExist: true });
-const queryCurrent = database.prepare('SELECT show_title showTitle, episode_title episodeTitle, starts_at_ms startsAtMs, ends_at_ms endsAtMs FROM schedule_entries WHERE starts_at_ms<=? AND ends_at_ms>? ORDER BY starts_at_ms DESC LIMIT 1');
-const queryNext = database.prepare('SELECT show_title showTitle, episode_title episodeTitle, starts_at_ms startsAtMs, ends_at_ms endsAtMs FROM schedule_entries WHERE starts_at_ms>=? ORDER BY starts_at_ms LIMIT 1');
+const queryCurrent = database.prepare(`SELECT s.show_title showTitle, s.episode_title episodeTitle, s.starts_at_ms startsAtMs,
+  COALESCE((SELECT MIN(n.starts_at_ms) FROM schedule_entries n WHERE n.starts_at_ms>s.starts_at_ms AND (n.show_id='lkp-weather' OR (n.listing_visibility!='hidden' AND n.show_id NOT LIKE 'lkp-%'))),s.ends_at_ms) endsAtMs
+  FROM schedule_entries s WHERE s.starts_at_ms<=? AND (s.show_id='lkp-weather' OR (s.listing_visibility!='hidden' AND s.show_id NOT LIKE 'lkp-%')) ORDER BY s.starts_at_ms DESC LIMIT 1`);
+const queryNext = database.prepare(`SELECT show_title showTitle,episode_title episodeTitle,starts_at_ms startsAtMs,ends_at_ms endsAtMs FROM schedule_entries
+  WHERE starts_at_ms>=? AND (show_id='lkp-weather' OR (listing_visibility!='hidden' AND show_id NOT LIKE 'lkp-%')) ORDER BY starts_at_ms LIMIT 1`);
+const queryCatalog = database.prepare(`SELECT id,show_id showId,show_title showTitle,season,episode,episode_title episodeTitle,description,media_path mediaPath,duration_ms durationMs,
+  effective_editorial_duration_ms effectiveEditorialDurationMs,external_ids_json externalIds,editorial_markers_json editorialMarkers,credits_policy creditsPolicy,breakpoints_json breakpoints,
+  subtitles_json subtitles,ingest_state ingestState,qc_warnings_json qcWarnings FROM media_items WHERE enabled=1 ORDER BY show_title,season,episode,episode_title`);
+const queryPlans = database.prepare(`SELECT id,media_id mediaId,show_title showTitle,episode_title episodeTitle,starts_at_ms startsAtMs,ends_at_ms endsAtMs,playout_plan_json playoutPlan
+  FROM schedule_entries WHERE starts_at_ms>=? AND playout_plan_json IS NOT NULL ORDER BY starts_at_ms LIMIT 20`);
 const hlsPattern = /^\/(hls)\/(stream\.m3u8|segment-\d+\.ts)$/;
 
 const server = http.createServer((request, response) => {
@@ -71,7 +79,16 @@ const server = http.createServer((request, response) => {
   }
   if (url.pathname === '/api/programme') {
     const now = Date.now();
-    return send(response, 200, 'application/json; charset=utf-8', JSON.stringify({ now: queryCurrent.get(now, now) ?? null, next: queryNext.get(now + 1) ?? null, serverTime: now }));
+    return send(response, 200, 'application/json; charset=utf-8', JSON.stringify({ now: queryCurrent.get(now) ?? null, next: queryNext.get(now + 1) ?? null, serverTime: now }));
+  }
+  if (url.pathname === '/api/catalog') {
+    const decode = (value: unknown): unknown => JSON.parse(String(value));
+    const items = (queryCatalog.all() as Array<Record<string, unknown>>).map((row) => ({
+      ...row, externalIds: decode(row.externalIds), editorialMarkers: decode(row.editorialMarkers),
+      breakpoints: decode(row.breakpoints), subtitles: decode(row.subtitles), qcWarnings: decode(row.qcWarnings),
+    }));
+    const plans = (queryPlans.all(Date.now()) as Array<Record<string, unknown>>).map((row) => ({ ...row, playoutPlan: decode(row.playoutPlan) }));
+    return send(response, 200, 'application/json; charset=utf-8', JSON.stringify({ items, upcomingPlans: plans, serverTime: Date.now() }));
   }
   const match = hlsPattern.exec(url.pathname);
   if (match) {

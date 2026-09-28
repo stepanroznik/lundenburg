@@ -1,5 +1,28 @@
-export type SubtitleKind = 'sidecar' | 'embedded' | 'dvb-bitmap';
+export type SubtitleKind = 'sidecar' | 'embedded' | 'dvb-bitmap' | 'downloaded';
 export type OutputMode = 'dvb' | 'internet' | 'both';
+export type CreditsPolicy = 'full' | 'shorten' | 'skip';
+export type IngestState = 'ready' | 'review' | 'failed';
+export type EditorialMarkerKind = 'chapter' | 'intro' | 'recap' | 'credits' | 'post-credits' | 'ad-break';
+
+export interface ExternalIds { imdb?: string; tmdb?: string; tvdb?: string }
+
+export interface EditorialMarker {
+  kind: EditorialMarkerKind;
+  startMs: number;
+  endMs?: number;
+  title?: string;
+  source: 'manual' | 'embedded' | 'theintrodb' | 'chaptersdb' | 'local';
+  confidence: number;
+}
+
+export interface Breakpoint {
+  atMs: number;
+  score: number;
+  confidence: number;
+  reason: string[];
+  source: 'manual' | 'known' | 'chapter' | 'local';
+  enabled: boolean;
+}
 
 export interface SubtitleTrack {
   language: string;
@@ -7,6 +30,12 @@ export interface SubtitleTrack {
   path?: string;
   streamIndex?: number;
   codec?: string;
+  provider?: string;
+  providerId?: string;
+  releaseName?: string;
+  sourceFps?: number;
+  hearingImpaired?: boolean;
+  syncStatus?: 'unknown' | 'verified' | 'adjusted' | 'failed';
 }
 
 export interface MediaItem {
@@ -26,6 +55,43 @@ export interface MediaItem {
   subtitles: SubtitleTrack[];
   technical: Record<string, unknown>;
   enabled: boolean;
+  externalIds?: ExternalIds;
+  editorialMarkers?: EditorialMarker[];
+  creditsPolicy?: CreditsPolicy;
+  effectiveEditorialDurationMs?: number;
+  breakpoints?: Breakpoint[];
+  ingestState?: IngestState;
+  qcWarnings?: string[];
+}
+
+export interface AdAsset {
+  id: string;
+  title: string;
+  advertiser?: string;
+  sourceUrl: string;
+  language: string;
+  durationMs: number;
+  mediaPath: string;
+  enabled: boolean;
+  tags: string[];
+  ageSuitability?: string;
+  sourceMetadata: Record<string, unknown>;
+  lastUsedAtMs?: number;
+}
+
+export type PlayoutSegment =
+  | { type: 'content' | 'credits'; mediaPath: string; fromMs: number; toMs: number; durationMs: number }
+  | { type: 'ad-ident'; mediaPath: string; durationMs: number; character: 'knurpsi' | 'sisi' | 'schalinka' | 'haluschka' }
+  | { type: 'ad'; mediaPath: string; durationMs: number; adId: string }
+  | { type: 'intermission'; mediaPath: string; durationMs: number; intermissionId: string };
+
+export interface PlayoutPlan {
+  version: 1;
+  programmeEventId: string;
+  sourceDurationMs: number;
+  durationMs: number;
+  segments: PlayoutSegment[];
+  warnings: string[];
 }
 
 export interface ScheduleEntry {
@@ -44,6 +110,8 @@ export interface ScheduleEntry {
   mediaPath: string;
   audioLanguage?: string;
   subtitleLanguages: string[];
+  listingVisibility?: 'public' | 'hidden';
+  playoutPlan?: PlayoutPlan;
 }
 
 export interface PlaybackEvent {
@@ -64,8 +132,20 @@ export interface IntermissionConfig {
   weights: { ident: number; silent: number; voiced: number };
 }
 
+export interface AdvertisingConfig {
+  enabled: boolean;
+  root: string;
+  programmeInterval: number;
+  minEditorialMinutes: number;
+  targetSeconds: { min: number; max: number };
+  searchWindowMinutes: number;
+  minimumBreakpointScore: number;
+  bumperManifest: string;
+}
+
 export interface AppConfig {
   intermissions?: IntermissionConfig;
+  advertising?: AdvertisingConfig;
   configPath: string;
   projectRoot: string;
   channel: {
