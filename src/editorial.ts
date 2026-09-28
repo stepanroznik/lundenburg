@@ -155,7 +155,7 @@ export function buildPlayoutPlan(input: {
   const breaks = eligible ? chooseBreakpoints(media.breakpoints ?? [], normalEnd, {
     ...(advertising ? { minimumMinutes: advertising.minEditorialMinutes } : {}),
     ...(advertising ? { windowMinutes: advertising.searchWindowMinutes } : {}),
-    ...(advertising ? { minimumScore: advertising.minimumBreakpointScore } : {}),
+    ...(advertising ? { minimumScore: 0 } : {}),
   }) : [];
   const warnings: string[] = [];
   if (eligible && desiredBreakCount(normalEnd, advertising?.minEditorialMinutes) > 0 && !breaks.length) warnings.push('No acceptable editorial breakpoint; advertisements omitted');
