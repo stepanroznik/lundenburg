@@ -1,6 +1,7 @@
 import type { Language, Presenter, Mouth } from '../characters/types.js';
 export type { Language, Presenter, Mouth } from '../characters/types.js';
 export type Edition = 'morning' | 'afternoon' | 'evening';
+export const weatherEditionTitle = (edition: Edition): string => ({ morning: 'Morgen', afternoon: 'Nachmittag', evening: 'Abend' })[edition];
 export type Period = 'current' | 'afternoon' | 'evening' | 'tomorrow';
 export type WeatherState = 'clear' | 'partly-cloudy' | 'cloudy' | 'fog' | 'drizzle' | 'rain' | 'showers' | 'heavy-rain' | 'thunderstorm' | 'snow' | 'windy' | 'hot' | 'cold';
 export interface Fact {

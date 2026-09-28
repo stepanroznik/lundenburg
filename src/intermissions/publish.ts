@@ -6,14 +6,17 @@ import { catalogue } from './catalogue.js';
 import { readFilms, outputRoot } from './render.js';
 import { isCurrentRender, filmRevision } from './revision.js';
 import type { PublishedLibrary, RotationClip } from './rotation.js';
+import { loadConfig } from '../config.js';
+import { assertMediaStorage } from '../media-storage.js';
 
 export function publishLibrary() {
+  assertMediaStorage(loadConfig());
   const films=readFilms([]);
   if(films.length!==catalogue.length)throw new Error('The full set must be prepared before publication');
   const clips:RotationClip[]=[];
   const hash=createHash('sha256');
   for(const film of films){
-    if(film.preview||!isCurrentRender(film))throw new Error(`Final render missing or outdated: ${film.skit.id}. Run intermissions:render first.`);
+    if(film.preview||!isCurrentRender(film,outputRoot))throw new Error(`Final render missing or outdated: ${film.skit.id}. Run intermissions:render first.`);
     const mediaPath=path.join(outputRoot,'videos',`${film.skit.id}.mp4`);
     const probe=JSON.parse(execFileSync('ffprobe',['-v','error','-show_streams','-show_format','-of','json',mediaPath],{encoding:'utf8'}));
     const video=probe.streams.find((s:{codec_type:string})=>s.codec_type==='video');

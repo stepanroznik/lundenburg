@@ -14,7 +14,8 @@ import { renderEpisode } from './render.js';
 import { prepareMap } from './map.js';
 import { publishWeather } from './publish.js';
 import { acquireWeatherLock } from './lock.js';
-import type { Edition, Episode, ProgrammeMetadata } from './model.js';
+import { assertMediaStorage, generatedShowRoot } from '../media-storage.js';
+import { weatherEditionTitle, type Edition, type Episode, type ProgrammeMetadata } from './model.js';
 
 const program = new Command().name('lkp-weather');
 const c = loadWeatherConfig();
@@ -31,13 +32,15 @@ function broadcastTime(options: GenerateOptions): Date {
   return at.toJSDate();
 }
 async function generate(options: GenerateOptions): Promise<string> {
+  const appConfig = loadConfig();
+  assertMediaStorage(appConfig);
   const at = broadcastTime(options);
   const preview = Boolean(options.fixture || options.audio === 'silent' || options.presenter);
   console.log(options.fixture ? `DESIGN PREVIEW: synthetic ${options.fixture} weather, NOT a real forecast.` : 'LIVE WEATHER: fetching a fresh forecast for all four cities.');
   if (options.publish && preview) throw new Error('Preview editions cannot be published');
   if ((options.render || options.publish) && !fs.existsSync('assets/weather/region.json')) throw new Error('Run npm run weather:map before generating speech for a render');
   const date = DateTime.fromJSDate(at, { zone: c.timezone }).toISODate()!;
-  const directory = path.resolve(`runtime/weather/episodes/${date}/${options.edition}${preview ? '-preview' : ''}`);
+  const directory = path.join(generatedShowRoot(appConfig, 'weather'), 'episodes', date, `${options.edition}${preview ? '-preview' : ''}`);
   fs.mkdirSync(directory, { recursive: true });
   const lock = path.join(directory, '.lock');
   const unlock = acquireWeatherLock(lock);
@@ -85,7 +88,7 @@ async function render(directory: string, options: { still?: string; scale?: stri
     const at = new Date(episode.broadcastAt);
     const window = editionWindow(episode.edition, at, c);
     const expires = Math.min(window.until.toMillis(), Date.parse(episode.forecast.fetchedAt) + c.maxForecastAgeMinutes * 60_000);
-    const metadata: ProgrammeMetadata = { id: `weather-${DateTime.fromJSDate(at, { zone: c.timezone }).toISODate()}-${episode.edition}`, title: `Die Wetterfreunde · ${episode.edition}`, edition: episode.edition, generatedAt: new Date().toISOString(), validFrom: at.toISOString(), validUntil: new Date(expires).toISOString(), durationMs: Math.round(await probeDuration(output) * 1000), mediaPath: path.resolve(output), subtitlePath: path.resolve(directory, 'subtitles.vtt'), preview: episode.preview };
+    const metadata: ProgrammeMetadata = { id: `weather-${DateTime.fromJSDate(at, { zone: c.timezone }).toISODate()}-${episode.edition}`, title: `Die Wetterfreunde · ${weatherEditionTitle(episode.edition)}`, edition: episode.edition, generatedAt: new Date().toISOString(), validFrom: at.toISOString(), validUntil: new Date(expires).toISOString(), durationMs: Math.round(await probeDuration(output) * 1000), mediaPath: path.resolve(output), subtitlePath: path.resolve(directory, 'subtitles.vtt'), preview: episode.preview };
     json(path.join(directory, 'programme.json'), metadata);
     const reportFile = path.join(directory, 'generation-report.json');
     const report = fs.existsSync(reportFile) ? JSON.parse(fs.readFileSync(reportFile, 'utf8')) : {};

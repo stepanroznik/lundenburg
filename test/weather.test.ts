@@ -14,12 +14,13 @@ import { publishWeather } from '../src/weather/publish.js';
 import { LkpDatabase } from '../src/database.js';
 import { buildScheduleEntries, validateTimeline } from '../src/schedule.js';
 import { config, item } from './helpers.js';
-import type { Atom, Edition, Language } from '../src/weather/model.js';
+import { weatherEditionTitle, type Atom, type Edition, type Language } from '../src/weather/model.js';
 
 const c = loadWeatherConfig();
 const at = new Date('2026-09-21T07:00:00+02:00');
 const atom: Atom = { id: 'test', presenter: 'sisi', language: 'de', text: 'Hallo!', period: 'current', purpose: 'greeting' };
 test('tomorrow uses explicit future speech and the next local calendar date', () => {
+  assert.equal(weatherEditionTitle('morning'), 'Morgen');
   const fact = mockForecast('rainy', at, 'evening').cities.knurpsi[0]!;
   assert.equal(conditionText('de','evening',fact),'Es regnet.');
   assert.equal(conditionText('de','evening',{...fact,period:'tomorrow'}),'Es wird regnen.');

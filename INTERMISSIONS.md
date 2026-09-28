@@ -52,7 +52,10 @@ npm run intermissions:finish
 
 `INTERMISSION_BROWSER` selects the installed browser executable; on the workstation the compatible binary is `/home/roznik/.cache/ms-playwright/chromium_headless_shell-1187/chrome-linux/headless_shell`. The Pi uses its installed Chromium. `INTERMISSION_CONCURRENCY` defaults to 2.
 
-Outputs are under `runtime/intermissions/`:
+Final outputs are under
+`/mnt/lkp-media/LKP/.generated/lkp-pausenfilme/` on the mounted media drive.
+Preparation manifests and the permanent speech cache remain in the installation's
+local runtime directory:
 
 - `index.html`: browsable gallery, seasonal filters, downloads, optional original-language captions.
 - `videos/*.mp4`: H.264, yuv420p, 1920×1080, 30 fps, AAC stereo at 48 kHz.

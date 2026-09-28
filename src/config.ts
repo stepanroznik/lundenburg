@@ -39,6 +39,9 @@ export function loadConfig(explicitPath?: string): AppConfig {
   const broadcast = requiredObject(raw.broadcast, 'broadcast');
   const internet = requiredObject(raw.internet, 'internet');
   const mediaRoot = process.env.LKP_MEDIA_ROOT ?? stringValue(media, 'root');
+  const resolvedMediaRoot = path.resolve(mediaRoot);
+  const generatedRoot = process.env.LKP_GENERATED_MEDIA_ROOT ??
+    (typeof media.generatedRoot === 'string' && media.generatedRoot ? media.generatedRoot : path.join(resolvedMediaRoot, '.generated'));
   const database = process.env.LKP_DATABASE ?? stringValue(storage, 'database');
 
   const result: AppConfig = {
@@ -50,7 +53,9 @@ export function loadConfig(explicitPath?: string): AppConfig {
       originalNetworkId: numberValue(channel, 'originalNetworkId'),
     },
     media: {
-      root: path.resolve(mediaRoot), ffprobe: stringValue(media, 'ffprobe'),
+      root: resolvedMediaRoot, generatedRoot: path.resolve(generatedRoot),
+      ...(typeof media.mountPoint === 'string' && media.mountPoint ? { mountPoint: path.resolve(media.mountPoint) } : {}),
+      ffprobe: stringValue(media, 'ffprobe'),
       supportedExtensions: (media.supportedExtensions as unknown[]).map(String).map((x) => x.toLowerCase()),
       subtitleLanguages: (media.subtitleLanguages as unknown[]).map(String),
     },
@@ -102,6 +107,12 @@ export function loadConfig(explicitPath?: string): AppConfig {
     if(result.intermissions.boundaryRate<0||result.intermissions.boundaryRate>1||Object.values(result.intermissions.weights).some(n=>n<0)||Object.values(result.intermissions.weights).reduce((a,b)=>a+b,0)<=0)throw new Error('Invalid intermission probability/weights');
   }
   if (result.broadcast.gainDb < 0 || result.broadcast.gainDb > 30) throw new Error('broadcast.gainDb must be between 0 and 30');
+  const generatedRelative = path.relative(result.media.root, result.media.generatedRoot);
+  if (generatedRelative.startsWith('..') || path.isAbsolute(generatedRelative)) throw new Error('media.generatedRoot must be inside media.root');
+  if (result.media.mountPoint) {
+    const mediaRelative = path.relative(result.media.mountPoint, result.media.root);
+    if (mediaRelative.startsWith('..') || path.isAbsolute(mediaRelative)) throw new Error('media.root must be inside media.mountPoint');
+  }
   if (!['dvb', 'internet', 'both'].includes(result.broadcast.mode)) throw new Error('broadcast.mode must be dvb, internet, or both');
   if (!Number.isInteger(result.internet.port) || result.internet.port < 1 || result.internet.port > 65_535) throw new Error('internet.port must be a valid TCP port');
   if (result.internet.bind !== '127.0.0.1' && result.internet.bind !== '::1') throw new Error('internet.bind must remain loopback-only; public HTTPS is provided by Tailscale Funnel');

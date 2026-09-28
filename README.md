@@ -40,10 +40,14 @@ The runtime needs `tsp` only for RF/EIT output. Catalogue, schedule, export, tes
 
 ## Media library
 
-Media stays outside Git. The Pi default is `/home/lundenburg/lkp-media`; override it with `LKP_MEDIA_ROOT` or `media.root` in [config/lkp.yaml](config/lkp.yaml).
+Media stays outside Git on the mounted USB hard drive. The Pi default is
+`/mnt/lkp-media/LKP`; override it with `LKP_MEDIA_ROOT` or `media.root` in
+[config/lkp.yaml](config/lkp.yaml). The configured `mountPoint` makes diagnostics
+fail closed if the drive is absent, preventing accidental writes to the Pi's SD
+card. Generated programmes live below `.generated` on the same drive.
 
 ```text
-/home/lundenburg/lkp-media/
+/mnt/lkp-media/LKP/
   a-show/
     show.yaml
     S01E01 - Episode title.mp4
@@ -51,6 +55,10 @@ Media stays outside Git. The Pi default is `/home/lundenburg/lkp-media`; overrid
     S01E01 - Episode title.cs.srt
     S01E01 - Episode title.de.ass
 ```
+
+Place one `show.yaml` at the root of each show. Nested season or download folders
+inherit that metadata, so they do not become separate shows. Hidden directories,
+including `.generated`, are excluded from the ordinary weighted catalogue.
 
 Supported video containers are MKV, MP4, and MOV. `show.yaml` supports `id`, `title`, `description`, `language`, `weight`, and `enabled`. Episode YAML supports `id`, `title`, `description`, `season`, `episode`, and `enabled`. Obvious season, episode, and title data are parsed from `S01E03 - Title.mp4`; YAML only supplies or overrides what cannot be inferred. See [examples/media-library](examples/media-library) for the live catalogue’s metadata.
 
@@ -232,11 +240,11 @@ npm run weather:generate -- --edition evening --fixture mixed --render
 # No API charges: visual-only timeline, then render one representative frame.
 npm run weather:preview -- --edition evening
 npm run weather:render -- \
-  --episode runtime/weather/episodes/YYYY-MM-DD/evening-preview --still 150
+  --episode /mnt/lkp-media/LKP/.generated/lkp-wetterfreunde/episodes/YYYY-MM-DD/evening-preview --still 150
 
 # Re-render cached speech without regenerating any narration:
 npm run weather:render -- \
-  --episode runtime/weather/episodes/YYYY-MM-DD/evening-preview
+  --episode /mnt/lkp-media/LKP/.generated/lkp-wetterfreunde/episodes/YYYY-MM-DD/evening-preview
 ```
 
 The generation command prints the exact episode directory. Do not run the
@@ -304,7 +312,7 @@ npm run weather:generate -- \
 
 # Explicitly insert the completed edition into the authoritative schedule:
 npm run weather:publish -- \
-  --episode runtime/weather/episodes/YYYY-MM-DD/afternoon
+  --episode /mnt/lkp-media/LKP/.generated/lkp-wetterfreunde/episodes/YYYY-MM-DD/afternoon
 
 # Or prepare, render and publish the due edition near a future boundary:
 npm run weather:auto

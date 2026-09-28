@@ -7,7 +7,9 @@ channel:
   originalNetworkId: 65281
 
 media:
-  root: /home/lundenburg/lkp-media
+  root: /mnt/lkp-media/LKP
+  mountPoint: /mnt/lkp-media
+  generatedRoot: /mnt/lkp-media/LKP/.generated
   ffprobe: ffprobe
   supportedExtensions: [.mkv, .mp4, .mov]
   subtitleLanguages: [cs, de, sk, en]
@@ -73,6 +75,6 @@ internet:
 # Available after the intermission render/publish command completes.
 intermissions:
   enabled: true
-  manifest: /home/lundenburg/lkp-intermissions/runtime/intermissions/published.json
+  manifest: /mnt/lkp-media/LKP/.generated/lkp-pausenfilme/published.json
   boundaryRate: 0.8
   weights: { ident: 70, silent: 20, voiced: 10 }

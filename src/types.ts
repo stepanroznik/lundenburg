@@ -73,7 +73,8 @@ export interface AppConfig {
     serviceId: number; transportStreamId: number; originalNetworkId: number;
   };
   media: {
-    root: string; ffprobe: string; supportedExtensions: string[]; subtitleLanguages: string[];
+    root: string; generatedRoot: string; mountPoint?: string;
+    ffprobe: string; supportedExtensions: string[]; subtitleLanguages: string[];
   };
   storage: { database: string; runtimeDirectory: string };
   schedule: { horizonDays: number; extendWhenBelowDays: number; epgDays: number; seed: string };

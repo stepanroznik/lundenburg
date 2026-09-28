@@ -10,8 +10,10 @@ import { filmRevision, isCurrentRender } from './revision.js';
 import { Logo } from './video/Logo.js';
 import { manifestRoot } from './prepare.js';
 import type { Film } from './model.js';
+import { loadConfig } from '../config.js';
+import { assertMediaStorage, generatedShowRoot } from '../media-storage.js';
 
-export const outputRoot = path.resolve('runtime/intermissions');
+export const outputRoot = generatedShowRoot(loadConfig(), 'intermissions');
 export function readFilms(ids: string[], preview = false): Film[] {
   const files = fs.readdirSync(manifestRoot).filter(f => f.endsWith(preview?'.preview.json':'.json') && (preview||!f.endsWith('.preview.json')));
   const films = files.map(f=>JSON.parse(fs.readFileSync(path.join(manifestRoot,f),'utf8')) as Film).filter(f=>!ids.length||ids.includes(f.skit.id)).sort((a,b)=>a.skit.id.localeCompare(b.skit.id));
@@ -42,6 +44,7 @@ export function writeCaptions(film: Film) {
 }
 
 export async function renderSet(ids: string[], options: { stills?: boolean; preview?: boolean; scale?: number; skipExisting?: boolean; seconds?: number[] } = {}) {
+  assertMediaStorage(loadConfig());
   const films = readFilms(ids,options.preview);
   prepareBrand();
   if (!options.stills) for(const film of films) { mixAudio(film); writeCaptions(film); }
@@ -66,7 +69,7 @@ export async function renderSet(ids: string[], options: { stills?: boolean; prev
         console.log(`Stills: ${stem}`); continue;
       }
       const output=path.join(outputRoot,'videos',`${stem}.mp4`);
-      if(options.skipExisting && !partialPreview && isCurrentRender(film)) {console.log(`Existing: ${stem}`);continue;}
+      if(options.skipExisting && !partialPreview && isCurrentRender(film,outputRoot)) {console.log(`Existing: ${stem}`);continue;}
       const began=Date.now(); let step=-1;
       const partial=output.replace(/\.mp4$/,'.partial.mp4');
       await renderMedia({...common,outputLocation:partial,codec:'h264',audioCodec:'aac',audioBitrate:'192k',videoBitrate:'3800k',pixelFormat:'yuv420p',x264Preset:'fast',concurrency:Number(process.env.INTERMISSION_CONCURRENCY)||2,scale:options.scale??1,

@@ -3,11 +3,14 @@ import path from 'node:path';
 import { isCurrentRender } from './revision.js';
 import { catalogue } from './catalogue.js';
 import { outputRoot, readFilms } from './render.js';
+import { loadConfig } from '../config.js';
+import { assertMediaStorage } from '../media-storage.js';
 
 const html = (s: string) => s.replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]!));
 export function writeGallery() {
+  assertMediaStorage(loadConfig());
   const films = readFilms([]).filter(f=>!f.preview);
-  const entries = films.map(f=>({ready:isCurrentRender(f),id:f.skit.id,title:f.skit.title,kind:f.skit.kind,season:f.skit.season??'all',durationSeconds:f.durationInFrames/f.fps,video:`videos/${f.skit.id}.mp4`,captions:`videos/${f.skit.id}.vtt`,manifest:`manifests/${f.skit.id}.json`,synopsis:f.skit.synopsis,cast:f.skit.cast,languages:[...new Set(f.skit.lines.map(l=>l.language))],sources:f.skit.sources??[]}));
+  const entries = films.map(f=>({ready:isCurrentRender(f,outputRoot),id:f.skit.id,title:f.skit.title,kind:f.skit.kind,season:f.skit.season??'all',durationSeconds:f.durationInFrames/f.fps,video:`videos/${f.skit.id}.mp4`,captions:`videos/${f.skit.id}.vtt`,manifest:`manifests/${f.skit.id}.json`,synopsis:f.skit.synopsis,cast:f.skit.cast,languages:[...new Set(f.skit.lines.map(l=>l.language))],sources:f.skit.sources??[]}));
   fs.writeFileSync(path.join(outputRoot,'catalogue.json'),JSON.stringify({version:1,timezone:'Europe/Prague',seasonPolicy:'meteorological: March–May, June–August, September–November, December–February',entries},null,2));
   const cards=entries.map(e=>`<article data-kind="${e.kind}" data-season="${e.season}">${e.ready?`<video controls preload="none" poster="stills/${e.id}-${e.kind==='ident'?4:2}.png"><source src="${e.video}" type="video/mp4">${e.kind==='silent'?'':`<track kind="captions" label="Original dialogue" src="${e.captions}">`}</video>`:`<img class="poster" alt="${html(e.title)} preview" src="stills/${e.id}-${e.kind==='ident'?4:2}.png">`}<div class="copy"><div class="meta">${e.kind==='silent'?html(e.season):e.kind==='ident'?'CHANNEL IDENT':'DIALOGUE'} · ${e.durationSeconds.toFixed(1)} s</div><h2>${html(e.title)}</h2><p>${html(e.synopsis)}</p>${e.ready?`<a href="${e.video}" download>Download MP4 ↗</a>`:'<span>Final render pending</span>'}${e.kind==='silent'?'':` · <a href="videos/${e.id}.srt" download>Dialogue</a>`}</div></article>`).join('\n');
   fs.writeFileSync(path.join(outputRoot,'index.html'),`<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>LKP · Intermissions, Set 1</title><style>

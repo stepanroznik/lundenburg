@@ -1,12 +1,39 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { parseEpisodeFilename } from '../src/media.js';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import { episodeTitleFromTemplate, findShowMetadataFile, isDiscoverableMediaFile, parseEpisodeFilename } from '../src/media.js';
 import { buildFfmpegArgs, internetFfmpegArgs, scheduleTimeForBroadcast, shiftScheduleForBroadcast } from '../src/playout.js';
 import { buildScheduleEntries } from '../src/schedule.js';
 import { config, item } from './helpers.js';
 
 test('conventional episode filenames are parsed without duplicating metadata', () => {
   assert.deepEqual(parseEpisodeFilename('S01E03 - Tělesná stráž.mp4'), { season: 1, episode: 3, title: 'Tělesná stráž' });
+});
+
+test('nested media inherits metadata from its show root', () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'lkp-show-root-'));
+  try {
+    const nested = path.join(root, 'Bluey', 'download-folder', 'season-1');
+    fs.mkdirSync(nested, { recursive: true });
+    fs.writeFileSync(path.join(root, 'Bluey', 'show.yaml'), 'id: bluey\ntitle: Bluey\n');
+    assert.equal(findShowMetadataFile(root, nested), path.join(root, 'Bluey', 'show.yaml'));
+    assert.equal(findShowMetadataFile(root, root), undefined);
+    assert.throws(() => findShowMetadataFile(root, path.dirname(root)), /outside media root/);
+  } finally { fs.rmSync(root, { recursive: true, force: true }); }
+});
+
+test('incomplete conversion files are excluded from media discovery', () => {
+  const extensions = new Set(['.mp4', '.mkv']);
+  assert.equal(isDiscoverableMediaFile('Folge 1.mp4', extensions), true);
+  assert.equal(isDiscoverableMediaFile('Folge 1.mp4.lkp-partial.mp4', extensions), false);
+  assert.equal(isDiscoverableMediaFile('Folge 1.partial.mp4', extensions), false);
+});
+
+test('show templates provide German catalogue titles without renaming source media', () => {
+  assert.equal(episodeTitleFromTemplate('Staffel {season}, Folge {episode}', { season: 1, episode: 7, title: 'release-name' }), 'Staffel 1, Folge 7');
+  assert.equal(episodeTitleFromTemplate('Folge {episode}', { episode: 42, title: 'source title' }), 'Folge 42');
 });
 
 test('cold start can use static logo while real transition uses three rotations', () => {

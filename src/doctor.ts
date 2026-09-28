@@ -3,6 +3,7 @@ import { spawnSync } from 'node:child_process';
 import type { AppConfig } from './types.js';
 import { LkpDatabase } from './database.js';
 import { generateEpgXml } from './epg.js';
+import { assertMediaStorage } from './media-storage.js';
 
 export interface DoctorCheck { name: string; ok: boolean; detail: string; required: boolean }
 
@@ -19,7 +20,12 @@ export function runDoctor(db: LkpDatabase, config: AppConfig, rf: boolean): Doct
   const checks: DoctorCheck[] = [];
   const needsRf = rf || config.broadcast.mode === 'dvb' || config.broadcast.mode === 'both';
   const needsInternet = config.broadcast.mode === 'internet' || config.broadcast.mode === 'both';
-  checks.push({ name: 'media root', ok: fs.existsSync(config.media.root), detail: config.media.root, required: true });
+  try {
+    assertMediaStorage(config);
+    checks.push({ name: 'media root', ok: true, detail: config.media.root, required: true });
+  } catch (error) {
+    checks.push({ name: 'media root', ok: false, detail: error instanceof Error ? error.message : String(error), required: true });
+  }
   checks.push({ name: 'database', ok: db.db.open, detail: config.storage.database, required: true });
   checks.push({ name: 'logo', ok: isFile(config.logo.path), detail: config.logo.path, required: true });
   checks.push(commandCheck('FFmpeg', 'ffmpeg', ['-version']));

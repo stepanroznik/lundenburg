@@ -5,7 +5,7 @@ export function config(root: string): AppConfig {
   return {
     configPath: path.join(root, 'lkp.yaml'), projectRoot: root,
     channel: { name: 'LKP', provider: 'Lundenburg', timezone: 'Europe/Prague', serviceId: 4097, transportStreamId: 4097, originalNetworkId: 65281 },
-    media: { root: path.join(root, 'media'), ffprobe: 'ffprobe', supportedExtensions: ['.mp4', '.mkv'], subtitleLanguages: ['cs', 'de', 'en'] },
+    media: { root: path.join(root, 'media'), generatedRoot: path.join(root, 'media/.generated'), ffprobe: 'ffprobe', supportedExtensions: ['.mp4', '.mkv'], subtitleLanguages: ['cs', 'de', 'en'] },
     storage: { database: path.join(root, 'lkp.sqlite'), runtimeDirectory: path.join(root, 'runtime') },
     schedule: { horizonDays: 365, extendWhenBelowDays: 90, epgDays: 7, seed: 'test-seed' },
     video: { width: 1920, height: 1080, fps: 30, bitrate: '3800k', codec: 'libx264', preset: 'veryfast', decoderThreads: 2, filterThreads: 1, encoderThreads: 2, cpuAffinity: '0,1', audioBitrate: '192k', muxRate: 4976471 },

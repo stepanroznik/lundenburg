@@ -4,6 +4,7 @@ import { spawn } from 'node:child_process';
 import { parse } from 'yaml';
 import type { AppConfig, MediaItem, SubtitleTrack } from './types.js';
 import { normalizeLanguage, stableId } from './util.js';
+import { assertMediaStorage } from './media-storage.js';
 
 interface ShowMetadata {
   id?: string;
@@ -12,6 +13,7 @@ interface ShowMetadata {
   language?: string;
   weight?: number;
   enabled?: boolean;
+  episodeTitleTemplate?: string;
 }
 
 interface EpisodeMetadata {
@@ -49,6 +51,19 @@ function readYaml<T>(file: string): T | undefined {
   return value;
 }
 
+export function findShowMetadataFile(mediaRoot: string, mediaDirectory: string): string | undefined {
+  const root = path.resolve(mediaRoot);
+  let current = path.resolve(mediaDirectory);
+  const relative = path.relative(root, current);
+  if (relative.startsWith('..') || path.isAbsolute(relative)) throw new Error(`Media directory is outside media root: ${mediaDirectory}`);
+  while (true) {
+    const candidate = path.join(current, 'show.yaml');
+    if (fs.existsSync(candidate)) return candidate;
+    if (current === root) return undefined;
+    current = path.dirname(current);
+  }
+}
+
 function titleFromSlug(input: string): string {
   return input.replace(/[-_.]+/g, ' ').replace(/\s+/g, ' ').trim().replace(/\b\p{L}/gu, (m) => m.toLocaleUpperCase('cs-CZ'));
 }
@@ -58,6 +73,24 @@ export function parseEpisodeFilename(filename: string): { season?: number; episo
   const match = /^S(\d{1,3})E(\d{1,4})\s*(?:[-–—:]\s*)?(.+)$/iu.exec(stem);
   if (!match) return { title: titleFromSlug(stem) };
   return { season: Number(match[1]), episode: Number(match[2]), title: match[3]!.trim() };
+}
+
+function episodeFromFilename(filename: string): { season?: number; episode?: number; title: string } {
+  const conventional = parseEpisodeFilename(filename);
+  if (conventional.season !== undefined) return conventional;
+  const stem = filename.replace(path.extname(filename), '');
+  const embedded = /S(\d{1,3})E(\d{1,4})\b/iu.exec(stem);
+  if (embedded) return { season: Number(embedded[1]), episode: Number(embedded[2]), title: conventional.title };
+  const dotted = /^(\d{1,3})\.(\d{1,4})\b/u.exec(stem);
+  if (dotted) return { season: Number(dotted[1]), episode: Number(dotted[2]), title: conventional.title };
+  const numbered = /^(\d{1,4})\b/u.exec(stem);
+  if (numbered) return { episode: Number(numbered[1]), title: conventional.title };
+  return conventional;
+}
+
+export function episodeTitleFromTemplate(template: string | undefined, parsed: { season?: number; episode?: number; title: string }): string {
+  if (!template || parsed.episode === undefined) return parsed.title;
+  return template.replaceAll('{season}', String(parsed.season ?? 1)).replaceAll('{episode}', String(parsed.episode));
 }
 
 async function ffprobe(binary: string, file: string): Promise<ProbeResult> {
@@ -81,9 +114,17 @@ function walk(root: string, extensions: Set<string>): string[] {
     if (entry.name.startsWith('.')) continue;
     const full = path.join(root, entry.name);
     if (entry.isDirectory()) result.push(...walk(full, extensions));
-    else if (entry.isFile() && extensions.has(path.extname(entry.name).toLowerCase())) result.push(full);
+    else if (entry.isFile() && isDiscoverableMediaFile(entry.name, extensions)) result.push(full);
   }
   return result.sort((a, b) => a.localeCompare(b, 'cs'));
+}
+
+export function isDiscoverableMediaFile(filename: string, extensions: Set<string>): boolean {
+  const lower = filename.toLowerCase();
+  return extensions.has(path.extname(lower)) &&
+    !lower.endsWith('.lkp-partial.mp4') &&
+    !lower.endsWith('.partial.mp4') &&
+    !lower.endsWith('.rendering.mp4');
 }
 
 function discoverSidecars(mediaPath: string, allowed: Set<string>): SubtitleTrack[] {
@@ -102,7 +143,7 @@ function discoverSidecars(mediaPath: string, allowed: Set<string>): SubtitleTrac
 }
 
 export async function scanMedia(config: AppConfig, onProgress?: (message: string) => void): Promise<MediaItem[]> {
-  if (!fs.existsSync(config.media.root)) throw new Error(`Media root does not exist: ${config.media.root}`);
+  assertMediaStorage(config);
   const mediaFiles = walk(config.media.root, new Set(config.media.supportedExtensions));
   if (mediaFiles.length === 0) throw new Error(`No supported media found below ${config.media.root}`);
   const allowedLanguages = new Set(config.media.subtitleLanguages);
@@ -111,17 +152,19 @@ export async function scanMedia(config: AppConfig, onProgress?: (message: string
   for (const mediaPath of mediaFiles) {
     onProgress?.(`Probing ${path.relative(config.media.root, mediaPath)}`);
     const directory = path.dirname(mediaPath);
-    const relativeDirectory = path.relative(config.media.root, directory);
-    const show = readYaml<ShowMetadata>(path.join(directory, 'show.yaml')) ?? {};
+    const showFile = findShowMetadataFile(config.media.root, directory);
+    const showDirectory = showFile ? path.dirname(showFile) : directory;
+    const relativeDirectory = path.relative(config.media.root, showDirectory);
+    const show = showFile ? readYaml<ShowMetadata>(showFile) ?? {} : {};
     const stem = mediaPath.slice(0, -path.extname(mediaPath).length);
     const episodeMeta = readYaml<EpisodeMetadata>(`${stem}.yaml`) ?? {};
-    const parsed = parseEpisodeFilename(path.basename(mediaPath));
+    const parsed = episodeFromFilename(path.basename(mediaPath));
     const probe = await ffprobe(config.media.ffprobe, mediaPath);
     const durationSeconds = Number(probe.format.duration);
     if (!Number.isFinite(durationSeconds) || durationSeconds <= 0) throw new Error(`No valid duration detected for ${mediaPath}`);
     const showId = show.id ?? (relativeDirectory.split(path.sep).filter(Boolean).join('-') || 'uncategorized');
-    const showTitle = show.title ?? titleFromSlug(path.basename(directory === config.media.root ? showId : directory));
-    const episodeTitle = episodeMeta.title ?? parsed.title;
+    const showTitle = show.title ?? titleFromSlug(path.basename(showDirectory === config.media.root ? showId : showDirectory));
+    const episodeTitle = episodeMeta.title ?? episodeTitleFromTemplate(show.episodeTitleTemplate, parsed);
     const description = episodeMeta.description ?? show.description ?? '';
     const subtitles = discoverSidecars(mediaPath, allowedLanguages);
     for (const stream of probe.streams.filter((s) => s.codec_type === 'subtitle')) {
