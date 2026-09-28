@@ -237,7 +237,7 @@ function startInternetPipeline(config: AppConfig): { sink: Writable; relay: Chil
 
 export async function runBroadcast(db: LkpDatabase, config: AppConfig, options: BroadcastOptions): Promise<void> {
   const pastOffsetMs = options.pastOffsetMs ?? 0;
-  if (!Number.isSafeInteger(pastOffsetMs) || pastOffsetMs < 0) throw new Error('pastOffsetMs must be a non-negative safe integer');
+  if (!Number.isSafeInteger(pastOffsetMs)) throw new Error('pastOffsetMs must be a non-negative safe integer');
   const epgOffsetMs = options.dryRun ? 0 : pastOffsetMs;
   const logo = prepareLogo(config);
   ensureSchedule(db, config);

@@ -206,17 +206,20 @@ broadcast.command('start').description('start scheduled playout using broadcast.
   .option('--max-seconds <seconds>', 'stop after a bounded preview', Number)
   .option('--past-hours <hours>', 'play the schedule from this many hours ago', Number)
   .option('--past-minutes <minutes>', 'play the schedule from this many minutes ago', Number)
+  .option('--future-hours <hours>', 'play the schedule from this many hours ahead', Number)
+  .option('--future-minutes <minutes>', 'play the schedule from this many minutes ahead', Number)
   .option('--gain <dB>', 'override HackRF TX gain for this run (0-30 dB)', Number)
   .option('--i-understand-rf', 'required acknowledgement for --rf')
   .option('-v, --verbose', 'show child-process diagnostics')
-  .action(async (options: { rf?: boolean; mode?: 'dvb'|'internet'|'both'; dryRun?: boolean; once?: boolean; output?: string; maxSeconds?: number; pastHours?: number; pastMinutes?: number; gain?: number; iUnderstandRf?: boolean; verbose?: boolean }) => {
+  .action(async (options: { rf?: boolean; mode?: 'dvb'|'internet'|'both'; dryRun?: boolean; once?: boolean; output?: string; maxSeconds?: number; pastHours?: number; pastMinutes?: number; futureHours?: number; futureMinutes?: number; gain?: number; iUnderstandRf?: boolean; verbose?: boolean }) => {
     const { config, db } = context();
     try {
-      for (const [flag, value] of [['--past-hours', options.pastHours], ['--past-minutes', options.pastMinutes]] as const) {
+      for (const [flag, value] of [['--past-hours', options.pastHours], ['--past-minutes', options.pastMinutes], ['--future-hours', options.futureHours], ['--future-minutes', options.futureMinutes]] as const) {
         if (value !== undefined && (!Number.isFinite(value) || value < 0)) throw new Error(`${flag} must be a non-negative number`);
       }
-      const pastOffsetMs = Math.round(((options.pastHours ?? 0) * 60 + (options.pastMinutes ?? 0)) * 60_000);
-      if (!Number.isSafeInteger(pastOffsetMs)) throw new Error('The requested past offset is too large');
+      if ((options.pastHours !== undefined || options.pastMinutes !== undefined) && (options.futureHours !== undefined || options.futureMinutes !== undefined)) throw new Error('Use either past or future clock options, not both');
+      const pastOffsetMs = Math.round((((options.pastHours ?? 0) * 60 + (options.pastMinutes ?? 0)) - ((options.futureHours ?? 0) * 60 + (options.futureMinutes ?? 0))) * 60_000);
+      if (!Number.isSafeInteger(pastOffsetMs)) throw new Error('The requested clock offset is too large');
       if (options.gain !== undefined) {
         if (!Number.isFinite(options.gain) || options.gain < 0 || options.gain > 30) {
           throw new Error('--gain must be a number between 0 and 30 dB');
