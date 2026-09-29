@@ -91,17 +91,18 @@ export function AdvertisingBumper({ film }: BumperProps) {
       <path d="M816 222Q1190 183 1775 246L1748 475Q1270 437 804 473Z" fill="#fffdf1"/>
       {'WERBUNG'.split('').map((letter,i)=>{
         const p = smooth((frame-6-i*2)/12);
-        return <text key={i} x={875+i*126} y={402-(1-p)*36} opacity={p} textAnchor="middle" fontSize="142" fontWeight="650"
+        return <text key={i} x={910+i*126} y={402-(1-p)*36} opacity={p} textAnchor="middle" fontSize="142" fontWeight="650"
           fill={brandColors[[5,4,3,2,1,0,5][i]!]!} stroke="#fffdf1" strokeWidth="5" paintOrder="stroke"
-          transform={`rotate(${[-3,2,-2,3,-2,2,-2][i]} ${875+i*126} 365)`}>{letter}</text>;
+          transform={`rotate(${[-3,2,-2,3,-2,2,-2][i]} ${910+i*126} 365)`}>{letter}</text>;
       })}
       <Actor film={film} frame={frame} id={id} x={465} y={548} scale={1.25} look={id === 'haluschka' && frame > end+8 ? 7 : frame < 40 ? 3 : 0}
         tilt={speakNod} bend={id === 'knurpsi' && frame <32 ? -smooth(frame/12)*2 : 0}
-        leftHand={leftHand} rightHand={rightHand} rightProp={prop}
+        leftHand={leftHand} rightHand={rightHand} rightProp={prop} foregroundHands={id !== 'sisi'}
         emotion={id === 'haluschka' && frame > end+8 && frame < end+26 ? 'surprised' : 'happy'}/>
       {/* The actor remains visible beside the same animated logo used by the channel ident. */}
       {frame >= film.logoFrom && <svg x="785" y="477" width="1070" height="560" viewBox="0 0 1920 1080">
-        <Logo frame={frame-film.logoFrom} starts={[0,10,20]}/>
+        <path d="M210 242C147 113 499 110 728 157S1298 68 1558 200S1832 550 1650 752S1094 862 826 897S202 822 159 635S273 371 210 242Z" fill="#fffdf1"/>
+        <Logo frame={frame-film.logoFrom} starts={[0,10,20]} background={false}/>
       </svg>}
       <path d="M279 976l373-8 14 71-379 13Z" fill="#ffe6a1" stroke="#debc72" strokeWidth="2"/>
       <circle cx="300" cy="991" r="7" fill="#fb1143"/>

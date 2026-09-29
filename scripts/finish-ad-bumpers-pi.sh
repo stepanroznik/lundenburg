@@ -13,4 +13,5 @@ printf "refreshing future schedule plans\n" > "$status_file"
 npm run lkp -- schedule replan --refresh-bumpers
 npm run lkp -- epg generate
 npm run lkp -- schedule export
+node scripts/cleanup-old-ad-bumpers.mjs
 printf "complete\n" > "$status_file"

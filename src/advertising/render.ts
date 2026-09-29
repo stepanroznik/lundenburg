@@ -53,7 +53,7 @@ export async function renderBumpers(films: Film[], outputRoot: string, ffprobe: 
       }
       const output=path.join(outputRoot,`${film.skit.cast[0]}-animated-v2.mp4`);
       const partial=output.replace(/\.mp4$/,'.partial.mp4');
-      const normalized=partial.replace(/.mp4$/,'.normalized.mp4');
+      const normalized=partial.replace(/\.mp4$/,'.normalized.mp4');
       await renderMedia({...common,outputLocation:partial,codec:'h264',audioCodec:'aac',audioBitrate:'192k',videoBitrate:'3800k',
         pixelFormat:'yuv420p',x264Preset:'fast',concurrency:Number(process.env.AD_BUMPER_CONCURRENCY)||1});
       execFileSync('ffmpeg',['-y','-i',partial,'-map','0:v:0','-map','0:a:0','-t',String(film.durationInFrames/film.fps),

@@ -172,7 +172,7 @@ npm run lkp -- schedule replan --refresh-bumpers
 On the Pi, `bash scripts/finish-ad-bumpers-pi.sh` renders all four cached-voice
 masters, validates 1080p30 H.264/AAC, refreshes future plans (with a database
 backup), and writes EPG/Excel exports. Review frames are in `bumpers/review-animated-v2`;
-the original static files remain available to old/current plans. New files and
+superseded static files are removed once no current/future plans reference them. New files and
 the published manifest are activated only when every render succeeds.
 
 Ads, bumpers, intermissions, and other `lkp-*` continuity items remain in the

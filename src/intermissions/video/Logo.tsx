@@ -5,12 +5,12 @@ const clamp = (x: number) => Math.max(0, Math.min(1, x));
 const ease = (x: number) => 1 - (1 - clamp(x)) ** 3;
 const back = (x: number) => { const t = clamp(x) - 1; return 1 + 2.70158 * t ** 3 + 1.70158 * t ** 2; };
 
-export function Logo({ frame = 999, starts = [0, 42, 66], fact }: { frame?: number; starts?: number[]; fact?: string }) {
+export function Logo({ frame = 999, starts = [0, 42, 66], fact, background = true }: { frame?: number; starts?: number[]; fact?: string; background?: boolean }) {
   const a = ease((frame - starts[0]!) / 15), b = back((frame - starts[1]!) / 14), c = back((frame - starts[2]!) / 18);
   return <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1920 1080" width="100%" height="100%" style={{ fontFamily: 'Fredoka, sans-serif' }}>
-    <rect width="1920" height="1080" fill="#fffcf4"/>
+    {background && <><rect width="1920" height="1080" fill="#fffcf4"/>
     <circle cx="83" cy="1050" r="260" fill="#fdbf11" opacity=".06"/>
-    <circle cx="1845" cy="-70" r="300" fill="#02aafd" opacity=".045"/>
+    <circle cx="1845" cy="-70" r="300" fill="#02aafd" opacity=".045"/></>}
     <g transform={`translate(${240 - (1 - a) * 1050} 237) rotate(${(1 - a) * -150} 260 275)`} opacity={a}>
       <g transform="scale(.418)">{channelIconPaths.map((p, i) => <path key={i} d={p.d} fill={p.fill} fillRule="evenodd"/>)}</g>
     </g>
