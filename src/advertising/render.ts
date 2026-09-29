@@ -57,7 +57,7 @@ export async function renderBumpers(films: Film[], outputRoot: string, ffprobe: 
       await renderMedia({...common,outputLocation:partial,codec:'h264',audioCodec:'aac',audioBitrate:'192k',videoBitrate:'3800k',
         pixelFormat:'yuv420p',x264Preset:'fast',concurrency:Number(process.env.AD_BUMPER_CONCURRENCY)||1});
       execFileSync('ffmpeg',['-y','-i',partial,'-map','0:v:0','-map','0:a:0','-t',String(film.durationInFrames/film.fps),
-        '-c:v','libx264','-preset','fast','-crf','18','-pix_fmt','yuv420p','-r','30','-c:a','aac','-b:a','192k','-ar','48000','-ac','2',
+        '-vf','scale=in_range=pc:out_range=tv,format=yuv420p','-c:v','libx264','-preset','fast','-crf','18','-pix_fmt','yuv420p','-r','30','-c:a','aac','-b:a','192k','-ar','48000','-ac','2',
         '-movflags','+faststart',normalized],{stdio:'ignore'});
       fs.renameSync(normalized,partial);
       const probe=JSON.parse(execFileSync(ffprobe,['-v','error','-show_format','-show_streams','-of','json',partial],{encoding:'utf8'})) as
