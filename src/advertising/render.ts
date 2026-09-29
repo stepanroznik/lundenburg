@@ -53,14 +53,19 @@ export async function renderBumpers(films: Film[], outputRoot: string, ffprobe: 
       }
       const output=path.join(outputRoot,`${film.skit.cast[0]}-animated-v2.mp4`);
       const partial=output.replace(/\.mp4$/,'.partial.mp4');
+      const normalized=partial.replace(/.mp4$/,'.normalized.mp4');
       await renderMedia({...common,outputLocation:partial,codec:'h264',audioCodec:'aac',audioBitrate:'192k',videoBitrate:'3800k',
         pixelFormat:'yuv420p',x264Preset:'fast',concurrency:Number(process.env.AD_BUMPER_CONCURRENCY)||1});
+      execFileSync('ffmpeg',['-y','-i',partial,'-map','0:v:0','-map','0:a:0','-t',String(film.durationInFrames/film.fps),
+        '-c:v','libx264','-preset','fast','-crf','18','-pix_fmt','yuv420p','-r','30','-c:a','aac','-b:a','192k','-ar','48000','-ac','2',
+        '-movflags','+faststart',normalized],{stdio:'ignore'});
+      fs.renameSync(normalized,partial);
       const probe=JSON.parse(execFileSync(ffprobe,['-v','error','-show_format','-show_streams','-of','json',partial],{encoding:'utf8'})) as
-        {format:{duration:string};streams:Array<{codec_type:string;codec_name:string;width?:number;height?:number;pix_fmt?:string;avg_frame_rate?:string;sample_rate?:string;channels?:number}>};
+        {format:{duration:string};streams:Array<{codec_type:string;codec_name:string;width?:number;height?:number;pix_fmt?:string;avg_frame_rate?:string;sample_rate?:string;channels?:number;duration?:string}>};
       const video=probe.streams.find(s=>s.codec_type==='video'),audio=probe.streams.find(s=>s.codec_type==='audio');
       const durationMs=Math.round(Number(probe.format.duration)*1000);
       if(video?.codec_name!=='h264'||video.width!==1920||video.height!==1080||video.pix_fmt!=='yuv420p'||video.avg_frame_rate!=='30/1'||
-        audio?.codec_name!=='aac'||audio.sample_rate!=='48000'||audio.channels!==2||Math.abs(durationMs-5000)>40) throw new Error(`Bumper QC failed: ${film.skit.cast[0]}`);
+        audio?.codec_name!=='aac'||audio.sample_rate!=='48000'||audio.channels!==2||Math.abs(Number(video.duration)*1000-5000)>1||Math.abs(durationMs-5000)>100) throw new Error(`Bumper QC failed: ${film.skit.cast[0]}`);
       staged.push({partial,output,bumper:{character:film.skit.cast[0]!,mediaPath:output,durationMs}});
       console.log(`Rendered animated bumper: ${film.skit.cast[0]}`);
     }
