@@ -77,9 +77,10 @@ ads.command('add <url>').description('download, normalize, QC, and add one YouTu
   });
 ads.command('bumpers').description('prepare the four permanent voiced WERBUNG bumpers')
   .addOption(new Option('--audio <mode>', 'cache-only by default; tts permits only missing one-word voice assets').choices(['cache', 'tts']).default('cache'))
-  .action(async (options: { audio: 'cache' | 'tts' }) => {
+  .option('--stills', 'render action frames for visual review without publishing masters')
+  .action(async (options: { audio: 'cache' | 'tts'; stills?: boolean }) => {
     const { config, db } = context();
-    try { console.log(`Published WERBUNG bumpers: ${await new AdBumperService(config).prepare(options.audio)}`); }
+    try { console.log(`${options.stills ? 'Bumper review frames' : 'Published animated WERBUNG bumpers'}: ${await new AdBumperService(config).prepare(options.audio, Boolean(options.stills))}`); }
     finally { db.close(); }
   });
 ads.command('bootstrap').description('ingest the six initial approved TV spots').action(async () => {
@@ -121,12 +122,13 @@ schedule.command('intermissions').description('insert the published skit rotatio
 
 
 schedule.command('replan').description('backup and migrate safe future programmes to immutable editorial/ad playout plans')
-  .action(async () => {
+  .option('--refresh-bumpers', 'replace future ad idents with the current published animated masters')
+  .action(async (options: { refreshBumpers?: boolean }) => {
     const { config, db } = context();
     try {
       const backup = `${config.storage.database}.before-playout-plans-${Date.now()}.sqlite`;
       await db.db.backup(backup);
-      const planned = reconcilePlayoutPlans(db, config);
+      const planned = reconcilePlayoutPlans(db, config, Date.now() + 60_000, Boolean(options.refreshBumpers));
       console.log(`Planned ${planned} future programme(s). Schedule backup: ${backup}`);
     } finally { db.close(); }
   });

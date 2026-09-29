@@ -4,7 +4,7 @@ import { execFileSync } from 'node:child_process';
 import type { Film } from './model.js';
 
 export const publicRoot = path.resolve('runtime/weather/public');
-type Effect = { at: number; duration: number; frequency: number; level: number; noise?: number; bend?: number; texture?: 'water'|'leaves'|'wind'|'snow'|'rubber'|'soil'|'wood' };
+export type Effect = { at: number; duration: number; frequency: number; level: number; noise?: number; bend?: number; texture?: 'water'|'leaves'|'wind'|'snow'|'rubber'|'soil'|'wood' };
 
 export function effectsFor(f: Film): Effect[] {
   const effects: Effect[] = [];
@@ -30,14 +30,13 @@ export function effectsFor(f: Film): Effect[] {
 }
 
 // Original procedural Foley. Silent clips use no network, voice, or speech cache.
-export function writeEffects(film: Film): string {
+export function writeEffects(film: Film, effects = effectsFor(film)): string {
   const rate = 48000, samples = Math.ceil(film.durationInFrames / film.fps * rate);
   const buffer = Buffer.alloc(44 + samples * 4);
   buffer.write('RIFF'); buffer.writeUInt32LE(buffer.length - 8, 4); buffer.write('WAVEfmt ', 8);
   buffer.writeUInt32LE(16,16); buffer.writeUInt16LE(1,20); buffer.writeUInt16LE(2,22);
   buffer.writeUInt32LE(rate,24); buffer.writeUInt32LE(rate*4,28); buffer.writeUInt16LE(4,32); buffer.writeUInt16LE(16,34);
   buffer.write('data',36); buffer.writeUInt32LE(samples*4,40);
-  const effects = effectsFor(film);
   let seed = [...film.skit.id].reduce((n,c)=>Math.imul(n,31)+c.charCodeAt(0),12877)>>>0;
   let previous = 0, low = 0, lastNoise = 0;
   for (let i = 0; i < samples; i++) {
@@ -72,8 +71,8 @@ export function writeEffects(film: Film): string {
   return output;
 }
 
-export function mixAudio(film: Film): string {
-  const sfx = writeEffects(film);
+export function mixAudio(film: Film, effects?: Effect[]): string {
+  const sfx = writeEffects(film, effects);
   const output = path.join(publicRoot, `intermissions/audio/${film.skit.id}${film.preview?'.preview':''}.wav`);
   fs.mkdirSync(path.dirname(output),{recursive:true});
   const args = ['-v','error','-nostdin','-y','-i',sfx];

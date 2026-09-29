@@ -107,8 +107,9 @@ The supplied SVG is committed at [assets/logo/lkp-logo.svg](assets/logo/lkp-logo
 Future events may contain an immutable playout plan: content ranges, shortened
 credits, WERBUNG bumper, one or two ads, an LKP intermission, and resumed content.
 Only programmes longer than 35 editorial minutes qualify, and only every other
-ordinary programme is eligible. Breaks without an acceptable natural marker, a
-ready ad, or a rendered bumper are omitted. Existing future rows are migrated
+ordinary programme is eligible. Enabled low-confidence markers are accepted; timed fallback points are used
+when preferred editorial markers are missing. A ready ad and a rendered bumper
+are required before inserting any ad block. Existing future rows are migrated
 only by an explicit backup-first operation:
 
 ```bash
@@ -154,13 +155,25 @@ npm run lkp -- ads list
 1920x1080 H.264/yuv420p 25 fps, AAC 48 kHz playout copy under the generated media
 root. To ingest the six approved initial spots, use `npm run lkp -- ads bootstrap`.
 The CLI automatically uses `runtime/tools/yt-dlp/bin/yt-dlp` when present, so the Pi can keep the downloader project-local without a system package installation.
-Prepare the four 2.5-second voiced bumpers cache-only first; permit paid TTS only
-for missing one-word assets:
+The four five-second bumpers use the weather/intermission character rig, cached
+alignment-driven lip sync, a held prop for each presenter, original Foley, the
+pale weather-stage palette and the animated channel-ident logo. Characters stay
+visible throughout. Review action frames before rendering masters. Speech is
+cache-only by default; TTS is only needed if a one-word voice is missing:
 
 ```bash
+npm run lkp -- ads bumpers --stills
 npm run lkp -- ads bumpers
-npm run lkp -- ads bumpers -- --audio tts
+npm run lkp -- ads bumpers --audio tts
+# Back up and retime only future entries when replacing ident masters/durations:
+npm run lkp -- schedule replan --refresh-bumpers
 ```
+
+On the Pi, `bash scripts/finish-ad-bumpers-pi.sh` renders all four cached-voice
+masters, validates 1080p30 H.264/AAC, refreshes future plans (with a database
+backup), and writes EPG/Excel exports. Review frames are in `bumpers/review-animated-v2`;
+the original static files remain available to old/current plans. New files and
+the published manifest are activated only when every render succeeds.
 
 Ads, bumpers, intermissions, and other `lkp-*` continuity items remain in the
 authoritative internal schedule but are folded into the preceding public event

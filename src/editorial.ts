@@ -152,13 +152,22 @@ export function buildPlayoutPlan(input: {
   const ranges = creditAwareRanges(media.durationMs, markers, policy);
   const normalEnd = media.effectiveEditorialDurationMs ?? editorialEnd(markers, media.durationMs);
   const eligible = Boolean(advertising?.enabled) && programmeOrdinal % (advertising?.programmeInterval ?? 2) === 1;
-  const breaks = eligible ? chooseBreakpoints(media.breakpoints ?? [], normalEnd, {
+  let breaks = eligible ? chooseBreakpoints(media.breakpoints ?? [], normalEnd, {
     ...(advertising ? { minimumMinutes: advertising.minEditorialMinutes } : {}),
     ...(advertising ? { windowMinutes: advertising.searchWindowMinutes } : {}),
     ...(advertising ? { minimumScore: 0 } : {}),
   }) : [];
   const warnings: string[] = [];
-  if (eligible && desiredBreakCount(normalEnd, advertising?.minEditorialMinutes) > 0 && !breaks.length) warnings.push('No acceptable editorial breakpoint; advertisements omitted');
+  const desired = eligible ? desiredBreakCount(normalEnd, advertising?.minEditorialMinutes) : 0;
+  if (breaks.length < desired) {
+    for (let index = 1; index <= desired && breaks.length < desired; index += 1) {
+      const atMs = Math.round(normalEnd * index / (desired + 1));
+      if (breaks.some(point => Math.abs(point.atMs - atMs) < 5 * 60_000)) continue;
+      breaks.push({ atMs, score: 0, confidence: 0, reason: ['timed fallback pending editorial review'], source: 'local', enabled: true });
+    }
+    breaks.sort((a,b)=>a.atMs-b.atMs);
+    warnings.push('Using timed fallback because preferred editorial markers are missing');
+  }
   const result: PlayoutSegment[] = [];
   let previousAdId: string | undefined;
   let breakIndex = 0;

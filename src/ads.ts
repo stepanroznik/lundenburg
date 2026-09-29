@@ -6,7 +6,10 @@ import type { AdAsset, AppConfig } from './types.js';
 import type { LkpDatabase } from './database.js';
 import { SpeechCache } from './weather/speech.js';
 import { loadWeatherConfig } from './weather/config.js';
-import type { Atom, Presenter } from './weather/model.js';
+import type { Atom } from './weather/model.js';
+import { bumperDefinitions, bumperFilm } from './advertising/model.js';
+import { renderBumpers } from './advertising/render.js';
+import { assertMediaStorage } from './media-storage.js';
 
 const run = promisify(execFile);
 
@@ -105,47 +108,19 @@ export class AdIngestService {
   }
 }
 
-const bumperCharacters: Array<{ presenter: Presenter; language: 'de' | 'cs' | 'sk'; text: string }> = [
-  { presenter: 'knurpsi', language: 'de', text: 'Werbung' },
-  { presenter: 'sisi', language: 'de', text: 'Werbung' },
-  { presenter: 'schalinka', language: 'cs', text: 'Reklama' },
-  { presenter: 'haluschka', language: 'sk', text: 'Reklama' },
-];
-
 export class AdBumperService {
   constructor(private readonly config: AppConfig) {}
 
-  async prepare(mode: 'cache' | 'tts' = 'cache'): Promise<string> {
+  async prepare(mode: 'cache' | 'tts' = 'cache', stills = false): Promise<string> {
     if (!this.config.advertising) throw new Error('Advertising is not configured');
-    const outputRoot = path.join(this.config.advertising.root, 'bumpers');
-    fs.mkdirSync(outputRoot, { recursive: true });
+    assertMediaStorage(this.config);
     const speech = new SpeechCache(loadWeatherConfig(), mode);
-    const bumpers: Array<{ character: Presenter; mediaPath: string; durationMs: number }> = [];
-    for (const definition of bumperCharacters) {
-      const atom: Atom = { id: `ad-bumper-${definition.presenter}`, presenter: definition.presenter, language: definition.language, text: definition.text, purpose: 'greeting', period: 'current' };
-      const asset = await speech.get(atom, { stability: .72, style: .28 });
-      const audio = path.resolve('runtime/weather/public', asset.audio);
-      const output = path.join(outputRoot, `${definition.presenter}.mp4`);
-      const partial = `${output}.partial.mp4`;
-      const font = path.join(this.config.projectRoot, 'assets/weather/fonts/Fredoka.ttf');
-      try {
-        await execute('ffmpeg', [
-          '-hide_banner', '-loglevel', 'warning', '-y',
-          '-f', 'lavfi', '-i', `color=c=0x004f4f:s=${this.config.video.width}x${this.config.video.height}:r=25:d=2.5`, '-i', audio,
-          '-filter_complex', `[0:v]drawbox=x=180:y=320:w=1560:h=440:color=0xfffcf4:t=fill,drawbox=x=200:y=340:w=1520:h=400:color=0xfb1143:t=8,drawtext=fontfile=${font}:text=WERBUNG:fontcolor=0x004f4f:fontsize=210:x=(w-text_w)/2:y=(h-text_h)/2[v];[1:a]adelay=550|550,apad=pad_dur=2.5[a]`,
-          '-map', '[v]', '-map', '[a]', '-t', '2.5', '-c:v', 'libx264', '-preset', 'medium', '-crf', '18', '-pix_fmt', 'yuv420p', '-g', '50',
-          '-c:a', 'aac', '-b:a', '192k', '-ar', '48000', '-ac', '2', '-movflags', '+faststart', partial,
-        ]);
-        fs.renameSync(partial, output);
-      } finally {
-        if (fs.existsSync(partial)) fs.unlinkSync(partial);
-      }
-      bumpers.push({ character: definition.presenter, mediaPath: output, durationMs: 2_500 });
+    const films = [];
+    for (const definition of bumperDefinitions) {
+      const atom: Atom = { id: `ad-bumper-${definition.presenter}`, presenter: definition.presenter,
+        language: definition.language, text: definition.text, purpose: 'greeting', period: 'current' };
+      films.push(bumperFilm(definition, await speech.get(atom, { stability: .72, style: .28 })));
     }
-    const manifest = path.join(outputRoot, 'published.json');
-    const temporary = `${manifest}.tmp`;
-    fs.writeFileSync(temporary, JSON.stringify({ version: 1, bumpers }, null, 2));
-    fs.renameSync(temporary, manifest);
-    return manifest;
+    return renderBumpers(films, path.join(this.config.advertising.root, 'bumpers'), this.config.media.ffprobe, stills);
   }
 }

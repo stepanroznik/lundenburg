@@ -85,7 +85,7 @@ export function buildScheduleEntries(
   return result;
 }
 
-export function reconcilePlayoutPlans(db: LkpDatabase, config: AppConfig, earliestMs = Date.now() + 60_000): number {
+export function reconcilePlayoutPlans(db: LkpDatabase, config: AppConfig, earliestMs = Date.now() + 60_000, refreshBumpers = false): number {
   const bounds = db.scheduleBounds();
   if (!bounds) return 0;
   const entries = db.listSchedule(earliestMs, bounds.lastMs + 1).filter((entry) => entry.startsAtMs >= earliestMs);
@@ -98,9 +98,20 @@ export function reconcilePlayoutPlans(db: LkpDatabase, config: AppConfig, earlie
   let changed = 0;
   const planned = entries.map((entry) => {
     let plan = entry.playoutPlan;
+    if (plan && refreshBumpers) {
+      const segments = plan.segments.map((part) => {
+        if (part.type !== 'ad-ident') return part;
+        const bumper = planning.bumpers.find((candidate) => candidate.character === part.character);
+        return bumper ? { ...part, mediaPath: bumper.mediaPath, durationMs: bumper.durationMs } : part;
+      });
+      if (segments.some((part, i) => part !== plan!.segments[i] && JSON.stringify(part) !== JSON.stringify(plan!.segments[i]))) {
+        plan = { ...plan, segments, durationMs: segments.reduce((sum, part) => sum + part.durationMs, 0) };
+        changed += 1;
+      }
+    }
     if (isProgramme(entry)) {
       const media = mediaById.get(entry.mediaId);
-      if (media && !plan) {
+      if (media && (!plan || (refreshBumpers && !plan.segments.some(part => part.type === 'ad')))) {
         plan = buildPlayoutPlan({ eventId: entry.id, eventStartMs: cursor, media, ...(config.advertising ? { advertising: config.advertising } : {}), ads: planning.ads, bumpers: planning.bumpers, intermissions: planning.clips, seed: config.schedule.seed, programmeOrdinal });
         changed += 1;
       }
