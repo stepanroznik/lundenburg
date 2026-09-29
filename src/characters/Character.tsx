@@ -14,8 +14,9 @@ export interface CharacterProps {
   rightHand?: [number, number]; leftHand?: [number, number];
   rightPropAngle?: number; leftPropAngle?: number;
   foregroundHands?: boolean;
+  foregroundRightHand?: boolean;
 }
-export function Character({ id, frame, mouth = 'rest', outfit = 'everyday', prop = 'none', pointing = false, target = [400, -100], ambient, look, tilt, arm, leftArm = 0, emotion = 'happy', rightProp, leftProp, walk = false, grounded = false, crouch = 0, bend = 0, stride, rightHand, leftHand, rightPropAngle = 0, leftPropAngle = 0, foregroundHands = false }: CharacterProps) {
+export function Character({ id, frame, mouth = 'rest', outfit = 'everyday', prop = 'none', pointing = false, target = [400, -100], ambient, look, tilt, arm, leftArm = 0, emotion = 'happy', rightProp, leftProp, walk = false, grounded = false, crouch = 0, bend = 0, stride, rightHand, leftHand, rightPropAngle = 0, leftPropAngle = 0, foregroundHands = false, foregroundRightHand = false }: CharacterProps) {
   const p = presenter(id);
   const style = { outfit, prop };
   const blink = frame % 137 > 130;
@@ -62,7 +63,7 @@ export function Character({ id, frame, mouth = 'rest', outfit = 'everyday', prop
     {!['bathing', 'swimsuit'].includes(outfit) && id === 'knurpsi' && <><path d="M-40 100v113h80V100" fill="#5f8892"/><rect x="-27" y="156" width="54" height="43" rx="9" fill="#87b1ba"/></>}
     {!['bathing', 'swimsuit'].includes(outfit) && id === 'schalinka' && <path d="M-26 107L8 147-4 163l34 43-4-44 17-11-30-47" fill="#ffe8ac" stroke="none"/>}
     {!['bathing', 'swimsuit'].includes(outfit) && id === 'haluschka' && <path d="M-52 100Q0 145 56 100L72 147Q0 189-71 147Z" fill="#ded4ea"/>}
-    {rightHand ? !foregroundHands && heldArm(1, rightHand, rightProp, rightPropAngle) : <g transform={`translate(67 115) rotate(${angle})`}>
+    {rightHand ? !(foregroundHands || foregroundRightHand) && heldArm(1, rightHand, rightProp, rightPropAngle) : <g transform={`translate(67 115) rotate(${angle})`}>
       <path d="M0 0Q38-12 79 0" fill="none" stroke="#334c49" strokeWidth="38" strokeLinecap="round"/>
       <path d="M0 0Q38-12 79 0" fill="none" stroke={fur} strokeWidth="32" strokeLinecap="round"/>
       <ellipse cx="90" cy="0" rx="21" ry="19" fill={fur}/>
@@ -97,7 +98,7 @@ export function Character({ id, frame, mouth = 'rest', outfit = 'everyday', prop
     {id === 'sisi' && <path d="M-29-85l-5-25 21 11 14-20 13 20 21-11-5 25Z" fill="#edc86d"/>}
     {style.outfit === 'summer' && id !== 'sisi' && <><ellipse cy="-80" rx="106" ry="13" fill="#ecdca4"/><path d="M-63-84q4-74 65-57 54-16 61 57" fill="#f1e3b5"/></>}
     </g>
-    {foregroundHands && rightHand && heldArm(1, rightHand, rightProp, rightPropAngle)}
+    {(foregroundHands || foregroundRightHand) && rightHand && heldArm(1, rightHand, rightProp, rightPropAngle)}
     {foregroundHands && leftHand && heldArm(-1, leftHand, leftProp, leftPropAngle)}
     </g>
     {ambient === 'snow' && [0, 1, 2, 3].map(i => <g key={i} transform={`translate(${-155+i*95} ${-180+(frame*1.3+i*93)%380}) rotate(${frame/2+i*17})`} stroke="#3098bc" strokeWidth="2.4" strokeLinecap="round"><path d="M-9 0H9M-4.5-8l9 16M-4.5 8l9-16"/><circle r="2" fill="white" strokeWidth="1"/></g>)}

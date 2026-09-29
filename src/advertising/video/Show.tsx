@@ -97,7 +97,7 @@ export function AdvertisingBumper({ film }: BumperProps) {
       })}
       <Actor film={film} frame={frame} id={id} x={465} y={548} scale={1.25} look={id === 'haluschka' && frame > end+8 ? 7 : frame < 40 ? 3 : 0}
         tilt={speakNod} bend={id === 'knurpsi' && frame <32 ? -smooth(frame/12)*2 : 0}
-        leftHand={leftHand} rightHand={rightHand} rightProp={prop} foregroundHands={id !== 'sisi'}
+        leftHand={leftHand} rightHand={rightHand} rightProp={prop} foregroundHands={id !== 'sisi' && id !== 'haluschka'} foregroundRightHand={id === 'haluschka'}
         emotion={id === 'haluschka' && frame > end+8 && frame < end+26 ? 'surprised' : 'happy'}/>
       {/* The actor remains visible beside the same animated logo used by the channel ident. */}
       {frame >= film.logoFrom && <svg x="785" y="477" width="1070" height="560" viewBox="0 0 1920 1080">
