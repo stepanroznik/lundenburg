@@ -4,12 +4,32 @@ import path from 'node:path';
 import { DateTime } from 'luxon';
 import type { AdAsset, AppConfig, MediaItem, ScheduleEntry } from './types.js';
 import { LkpDatabase } from './database.js';
-import { reconcileIntermissions, isProgramme, readRotationLibrary, type RotationClip } from './intermissions/rotation.js';
+import { chooseIntermission, reconcileIntermissions, isProgramme, readRotationLibrary, intermissionShowId, type RotationClip } from './intermissions/rotation.js';
 import { buildPlayoutPlan, type AdBumper } from './editorial.js';
 import { stableId } from './util.js';
 
 interface ShowBucket { id: string; weight: number; episodes: MediaItem[] }
 interface SchedulePlanning { config: AppConfig; ads: AdAsset[]; clips: RotationClip[]; bumpers: AdBumper[] }
+
+// Feature films get one Saturday-evening premiere and the same film on Sunday
+// morning. The next ordinary programme boundary starts the film, so no show is
+// cut short to hit a wall-clock minute.
+export const featureMinimumDurationMs = 60 * 60_000;
+const DAY_MS = 86_400_000;
+
+function featureWindow(atMs: number, zone: string): { date: string; week: string; weekday: number } | undefined {
+  const local = DateTime.fromMillis(atMs, { zone });
+  const inWindow = local.weekday === 6 ? local.hour >= 18 && local.hour < 20
+    : local.weekday === 7 && local.hour >= 9 && local.hour < 11;
+  if (!inWindow) return undefined;
+  return { date: local.toISODate()!, week: local.startOf('week').toISODate()!, weekday: local.weekday };
+}
+
+function filmForWeek(films: MediaItem[], monday: string): MediaItem {
+  // Calendar dates in UTC keep weekly rotation stable across Prague DST changes.
+  const weekIndex = Math.floor(DateTime.fromISO(monday, { zone: 'UTC' }).toMillis() / (7 * DAY_MS));
+  return films[((weekIndex % films.length) + films.length) % films.length]!;
+}
 
 function deterministicUnit(seed: string, sequence: number, showId: string): number {
   const bytes = crypto.createHash('sha256').update(`${seed}\0${sequence}\0${showId}`).digest();
@@ -45,8 +65,24 @@ export function buildScheduleEntries(
     bucket.episodes.push(item);
     byShow.set(item.showId, bucket);
   }
-  const shows = [...byShow.values()].sort((a, b) => a.id.localeCompare(b.id));
+  const films = enabled.filter((item) => item.durationMs >= featureMinimumDurationMs)
+    .sort((a, b) => a.id.localeCompare(b.id));
+  const filmById = new Map(films.map((film) => [film.id, film]));
+  const shows = [...byShow.values()]
+    .map((show) => ({ ...show, episodes: show.episodes.filter((item) => item.durationMs < featureMinimumDurationMs) }))
+    .filter((show) => show.episodes.length)
+    .sort((a, b) => a.id.localeCompare(b.id));
+  if (!shows.length) throw new Error('At least one programme shorter than an hour is required between weekend films');
   for (const show of shows) show.episodes.sort((a, b) => (a.season ?? 0) - (b.season ?? 0) || (a.episode ?? 0) - (b.episode ?? 0) || a.id.localeCompare(b.id));
+  const zone = planning?.config.channel.timezone ?? 'Europe/Prague';
+  const featuredDates = new Set<string>();
+  const saturdayFilmByWeek = new Map<string, string>();
+  for (const entry of previousEntries) {
+    if (!filmById.has(entry.mediaId)) continue;
+    const local = DateTime.fromMillis(entry.startsAtMs, { zone });
+    featuredDates.add(local.toISODate()!);
+    if (local.weekday === 6) saturdayFilmByWeek.set(local.startOf('week').toISODate()!, entry.mediaId);
+  }
   const playedByShow = new Map<string, number>();
   for (const entry of previousEntries.filter(isProgramme)) playedByShow.set(entry.showId, (playedByShow.get(entry.showId) ?? 0) + 1);
 
@@ -54,11 +90,17 @@ export function buildScheduleEntries(
   let sequence = initialSequence;
   let programmeOrdinal = previousEntries.filter(isProgramme).length;
   let previousShow = previousEntries.filter(isProgramme).at(-1)?.showId;
+  let previousClip = previousEntries.filter((entry) => entry.showId === intermissionShowId).at(-1)?.mediaId.replace(/^intermission-/, '');
   const result: ScheduleEntry[] = [];
   while (cursor < targetEndMs) {
-    const show = chooseShow(shows, seed, sequence, previousShow);
-    const playCount = playedByShow.get(show.id) ?? 0;
-    const media = show.episodes[playCount % show.episodes.length]!;
+    const slot = films.length ? featureWindow(cursor, zone) : undefined;
+    const selectedFilm = slot && !featuredDates.has(slot.date)
+      ? slot.weekday === 7 ? filmById.get(saturdayFilmByWeek.get(slot.week) ?? '') ?? filmForWeek(films, slot.week)
+        : filmForWeek(films, slot.week)
+      : undefined;
+    const show = selectedFilm ? undefined : chooseShow(shows, seed, sequence, previousShow);
+    const playCount = playedByShow.get((selectedFilm ?? show!.episodes[0]!).showId) ?? 0;
+    const media = selectedFilm ?? show!.episodes[playCount % show!.episodes.length]!;
     const startsAtMs = cursor;
     const id = stableId(seed, sequence, media.id, startsAtMs);
     const playoutPlan = planning ? buildPlayoutPlan({
@@ -67,7 +109,7 @@ export function buildScheduleEntries(
     }) : undefined;
     const durationMs = playoutPlan?.durationMs ?? media.durationMs;
     const endsAtMs = startsAtMs + durationMs;
-    result.push({
+    const entry: ScheduleEntry = {
       id, sequence, mediaId: media.id, showId: media.showId,
       showTitle: media.showTitle, ...(media.season !== undefined ? { season: media.season } : {}),
       ...(media.episode !== undefined ? { episode: media.episode } : {}), episodeTitle: media.episodeTitle,
@@ -75,12 +117,35 @@ export function buildScheduleEntries(
       ...(media.audioLanguage ? { audioLanguage: media.audioLanguage } : {}),
       subtitleLanguages: [...new Set(media.subtitles.map((subtitle) => subtitle.language))].sort(),
       listingVisibility: 'public', ...(playoutPlan ? { playoutPlan } : {}),
-    });
-    playedByShow.set(show.id, playCount + 1);
-    previousShow = show.id;
+    };
+    result.push(entry);
+    if (selectedFilm && slot) {
+      featuredDates.add(slot.date);
+      if (slot.weekday === 6) saturdayFilmByWeek.set(slot.week, selectedFilm.id);
+    }
+    playedByShow.set(media.showId, playCount + 1);
+    previousShow = media.showId;
     cursor = endsAtMs;
     sequence += 1;
     programmeOrdinal += 1;
+    // Account for intermissions while choosing wall-clock feature slots. A
+    // later bulk insertion would shift Saturday/Sunday films out of them.
+    const policy = planning?.config.intermissions;
+    if (policy && planning.clips.length && cursor < targetEndMs) {
+      const clip = chooseIntermission(planning.clips, policy, seed, entry, cursor, previousClip);
+      if (clip) {
+        result.push({ id: stableId('intermission-after', entry.id), sequence,
+          mediaId: `intermission-${clip.id}`, showId: intermissionShowId,
+          showTitle: 'Lundenburg Kids Premium', episodeTitle: clip.title,
+          description: clip.synopsis, startsAtMs: cursor, endsAtMs: cursor + clip.durationMs,
+          durationMs: clip.durationMs, mediaPath: clip.mediaPath,
+          audioLanguage: clip.languages.length === 1 ? clip.languages[0]! : 'mul',
+          subtitleLanguages: [], listingVisibility: 'hidden' });
+        cursor += clip.durationMs;
+        sequence += 1;
+        previousClip = clip.id;
+      }
+    }
   }
   return result;
 }
@@ -169,6 +234,36 @@ export function ensureSchedule(
   const intermissions = reconcileIntermissions(db, config);
   const bounds = db.scheduleBounds()!;
   return { added: entries.length + intermissions, firstMs: bounds.firstMs, lastMs: bounds.lastMs };
+}
+
+export function rebuildFutureSchedule(
+  db: LkpDatabase, config: AppConfig, earliestMs = Date.now() + 2 * 60_000,
+): { removed: number; added: number; startMs: number; lastMs: number } {
+  const bounds = db.scheduleBounds();
+  if (!bounds) throw new Error('No schedule to rebuild');
+  let boundary = db.nextAfter(earliestMs);
+  while (boundary && !isProgramme(boundary)) boundary = db.nextAfter(boundary.endsAtMs);
+  if (!boundary) throw new Error('No safe future programme boundary');
+  const prefix = db.listSchedule(bounds.firstMs, boundary.startsAtMs);
+  const future = db.listSchedule(boundary.startsAtMs, bounds.lastMs + 1);
+  if (future.some((entry) => entry.showId === 'lkp-weather')) {
+    throw new Error('Future weather programmes are published; move them before rebuilding the schedule');
+  }
+  const planning: SchedulePlanning = { config, ads: db.listAds(), clips: readRotationLibrary(config), bumpers: readBumpers(config) };
+  const generated = buildScheduleEntries(db.listMedia(), config.schedule.seed,
+    boundary.startsAtMs, bounds.lastMs, boundary.sequence, prefix, planning);
+  const errors = validateTimeline([...prefix.slice(-1), ...generated]);
+  if (errors.length) throw new Error(`Rebuilt timeline is invalid: ${errors.slice(0, 3).join('; ')}`);
+  db.db.transaction(() => {
+    const current = db.nextAfter(boundary.startsAtMs);
+    if (current?.id !== boundary.id || current.startsAtMs !== boundary.startsAtMs) {
+      throw new Error('Schedule changed during rebuild');
+    }
+    db.db.prepare('DELETE FROM schedule_entries WHERE sequence >= ?').run(boundary.sequence);
+    db.insertSchedule(generated);
+  }).immediate();
+  return { removed: future.length, added: generated.length,
+    startMs: boundary.startsAtMs, lastMs: generated.at(-1)!.endsAtMs };
 }
 
 export function validateTimeline(entries: ScheduleEntry[]): string[] {

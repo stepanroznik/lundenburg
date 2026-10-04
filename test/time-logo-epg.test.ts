@@ -27,7 +27,21 @@ test('EPG represents canonical full event times and descriptions', () => {
   const entry = buildScheduleEntries([item('a', 1, 1_470_500)], 'seed', Date.UTC(2026, 8, 19, 16), Date.UTC(2026, 8, 19, 16, 25))[0]!;
   const xml = generateEpgXml([entry], c);
   assert.match(xml, /start_time="2026-09-19 16:00:00"/);
-  assert.match(xml, /duration="00:24:31"/);
+  assert.match(xml, /duration="00:24:30"/);
   assert.match(xml, /Show a: Episode 1/);
   assert.match(xml, /Episode 1 description/);
+});
+
+test('fractional boundaries and hidden continuity produce a contiguous DVB guide', () => {
+  const c = config('/tmp/lkp-test');
+  const start = Date.UTC(2026, 8, 19, 16) + 700;
+  const entries = buildScheduleEntries([item('a', 1, 1_470_500), item('b', 1, 1_362_300)], 'seed', start, start + 4_000_000);
+  const first = entries[0]!;
+  const hidden = { ...first, id: 'ident', showId: 'lkp-intermissions', startsAtMs: first.endsAtMs, endsAtMs: first.endsAtMs + 5056, durationMs: 5056, listingVisibility: 'hidden' as const };
+  const later = entries.slice(1).map((e) => ({ ...e, startsAtMs: e.startsAtMs + 5056, endsAtMs: e.endsAtMs + 5056 }));
+  const xml = generateEpgXml([first, hidden, ...later], c);
+  const events = [...xml.matchAll(/start_time="([^"]+)" duration="(\d+):(\d+):(\d+)"/g)].map((m) => ({ start: Date.parse(m[1]!.replace(' ', 'T') + 'Z'), duration: (Number(m[2]) * 3600 + Number(m[3]) * 60 + Number(m[4])) * 1000 }));
+  assert.equal(events.length, entries.length);
+  for (let i = 1; i < events.length; i++) assert.equal(events[i]!.start, events[i - 1]!.start + events[i - 1]!.duration);
+  assert.doesNotMatch(xml, /running_status="running"/);
 });

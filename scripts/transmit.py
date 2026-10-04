@@ -12,7 +12,7 @@ import pmt
 SAMPLE_RATE = 64_000_000 / 7
 HACKRF_SAMPLE_RATE = 10_000_000
 MAX_TX_GAIN_DB = 30
-DEFAULT_TX_GAIN_DB = 14
+DEFAULT_TX_GAIN_DB = 21
 
 
 class Transmitter(gr.top_block):
@@ -66,7 +66,7 @@ def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--source", default=str(pathlib.Path.home() / "lundenburg/runtime/lkp.ts"))
     parser.add_argument("--frequency", type=float, default=634e6, help="center frequency in Hz")
-    parser.add_argument("--gain", type=float, default=DEFAULT_TX_GAIN_DB, help="HackRF TX gain (service default: 14 dB)")
+    parser.add_argument("--gain", type=float, default=DEFAULT_TX_GAIN_DB, help=f"HackRF TX gain (service default: {DEFAULT_TX_GAIN_DB} dB)")
     parser.add_argument("--amplitude", type=float, default=0.8, help="complex sample multiplier")
     parser.add_argument("--seconds", type=float, default=0, help="RF duration; 0 means until interrupted")
     parser.add_argument("--i-understand-rf", action="store_true", help="required acknowledgement")

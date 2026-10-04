@@ -97,6 +97,8 @@ export interface PlayoutPlan {
 export interface ScheduleEntry {
   id: string;
   sequence: number;
+  // DVB identity survives sequence renumbering when continuity is inserted.
+  epgEventId?: number;
   mediaId: string;
   showId: string;
   showTitle: string;

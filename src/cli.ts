@@ -10,7 +10,8 @@ import { writeEpgAtomic } from './epg.js';
 import { exportWorkbook } from './export.js';
 import { scanMedia } from './media.js';
 import { runBroadcast } from './playout.js';
-import { ensureSchedule, reconcilePlayoutPlans, validateTimeline } from './schedule.js';
+import { readPlayoutStatus, timingLabel } from './playout-status.js';
+import { ensureSchedule, rebuildFutureSchedule, reconcilePlayoutPlans, validateTimeline } from './schedule.js';
 import { durationClock, formatLocal, parseDateTime } from './util.js';
 import { AdBumperService, AdIngestService, initialAdUrls } from './ads.js';
 
@@ -107,6 +108,19 @@ schedule.command('generate').description('create or safely extend the persistent
     } finally { db.close(); }
   });
 
+schedule.command('rebuild-features').description('back up and rebuild future programmes with weekend feature-film slots')
+  .action(async () => {
+    const { config, db } = context();
+    try {
+      const backup = `${config.storage.database}.before-weekend-features-${Date.now()}.sqlite`;
+      await db.db.backup(backup);
+      const result = rebuildFutureSchedule(db, config);
+      writeEpgAtomic(db.listSchedule(Date.now() - 86_400_000,
+        Date.now() + config.schedule.epgDays * 86_400_000), config);
+      console.log(`Rebuilt ${result.removed} future entries as ${result.added} entries from ${formatLocal(result.startMs, config.channel.timezone)}. Backup: ${backup}`);
+    } finally { db.close(); }
+  });
+
 schedule.command('intermissions').description('insert the published skit rotation at safe future programme boundaries')
   .action(async () => {
     const {config,db}=context();
@@ -198,7 +212,26 @@ program.command('doctor').description('check runtime, media, schedule, and broad
     } finally { db.close(); }
   });
 
-const broadcast = program.command('broadcast').description('wall-clock-authoritative playout');
+const broadcast = program.command('broadcast').description('scheduled playout and continuity');
+broadcast.command('status').description('show live schedule timing and next-piece readiness')
+  .option('--watch', 'refresh every second until Ctrl-C')
+  .option('--json', 'return structured status')
+  .action((options: { watch?: boolean; json?: boolean }) => {
+    const config = loadConfig(program.opts<{ config?: string }>().config);
+    const show = (): void => {
+      const status = readPlayoutStatus(path.join(config.storage.runtimeDirectory, 'playout-status.json'));
+      if (options.json) console.log(JSON.stringify(status));
+      else if (!status || status.stale) console.log('Live playout status unavailable');
+      else if (status.state === 'stopped') console.log('Broadcast stopped');
+      else console.log(`${new Date(status.updatedAtMs).toLocaleTimeString()} · ${timingLabel(status)} · ${status.current?.title ?? 'Preparing playout'} · Next ${status.next?.ready ? 'ready' : 'preparing'}`);
+    };
+    show();
+    if (options.watch) {
+      const timer = setInterval(show, 1000);
+      const stop = (): void => { clearInterval(timer); };
+      process.once('SIGINT', stop); process.once('SIGTERM', stop);
+    }
+  });
 broadcast.command('start').description('start scheduled playout using broadcast.mode from configuration')
   .addOption(new Option('--rf', 'send DVB-T to the HackRF; regulated spectrum').conflicts('dryRun'))
   .addOption(new Option('--mode <mode>', 'override configured output mode').choices(['dvb', 'internet', 'both']))
@@ -230,7 +263,7 @@ broadcast.command('start').description('start scheduled playout using broadcast.
       }
       await runBroadcast(db, config, {
         dryRun: Boolean(options.dryRun),
-        ...((options.rf || options.mode) ? { mode: options.rf ? 'dvb' as const : options.mode! } : {}),
+        ...((options.rf || options.mode) ? { mode: options.mode ?? 'dvb' } : {}),
         once: Boolean(options.once), ...(options.output ? { output: options.output } : {}),
         ...(options.maxSeconds ? { maxSeconds: options.maxSeconds } : {}),
         ...(pastOffsetMs ? { pastOffsetMs } : {}),

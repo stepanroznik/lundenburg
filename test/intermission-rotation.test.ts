@@ -48,9 +48,10 @@ test('persistent insertion is idempotent and cold-start lookup finds the exact s
     const manifest=path.join(root,'published.json');fs.writeFileSync(manifest,JSON.stringify({version:1,revision:'test',clips:localClips}));
     c.intermissions={...policy,manifest,boundaryRate:1};
     const rows=buildScheduleEntries([item('a',1,120000),item('b',1,120000)],'s',now,now+120000*12);db.insertSchedule(rows);
+    const firstStored=db.currentAt(now);
     assert.equal(reconcileIntermissions(db,c,now),11);
     const after=db.listSchedule(now,now+10000000);
-    assert.deepEqual(after[0],rows[0]);
+    assert.deepEqual(after[0],firstStored);
     assert.equal(reconcileIntermissions(db,c,now),0);
     assert.deepEqual(db.listSchedule(now,now+10000000),after);
     const skit=after[1]!;assert.equal(skit.showId,'lkp-intermissions');

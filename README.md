@@ -1,8 +1,8 @@
 # Lundenburg Kids Premium
 
-LKP is a wall-clock-authoritative television playout service. Its SQLite schedule, not process uptime, decides what is on air. Starting at 18:31 during an event scheduled for 18:24:30 seeks 6:30 into that event, retains its original EPG times, and switches at the next stored boundary.
+LKP uses its SQLite schedule as the reference television timeline. A cold start at 18:31 during an event scheduled for 18:24:30 seeks 6:30 into that event. During continuous playout, EOF advances to the next piece without replaying or freezing the ending. Early running is carried forward and recovered with suitable longer or shorter published intermissions; the stored schedule remains unchanged.
 
-The application is TypeScript. FFmpeg/ffprobe handle media. The same encoded H.264/MP2 transport stream can feed TSDuck/GNU Radio for DVB-T, a lightweight HLS relay for Internet viewing, or both. RF is never used by tests and requires an explicit acknowledgement. The configured and transmitter-level default gain is **14 dB**.
+The application is TypeScript. FFmpeg/ffprobe handle media. The same encoded H.264/MP2 transport stream can feed TSDuck/GNU Radio for DVB-T, a lightweight HLS relay for Internet viewing, or both. RF is never used by tests and requires an explicit acknowledgement. The configured and transmitter-level default gain is **21 dB**.
 
 The default Raspberry Pi 5 playout profile is 1920×1080 at 30 fps and 3.8 Mb/s. FFmpeg uses the `ultrafast` x264 preset and is pinned to CPU cores 0–1, leaving cores 2–3 available to GNU Radio and the HackRF path. The logo remains a live overlay, but LKP rasterizes the committed SVG once into a size- and opacity-specific transparent PNG cache before playout; it never renders the SVG for every programme frame.
 
@@ -96,7 +96,38 @@ English subtitle tracks are considered by ordinary library ingest.
 
 ### Important DVB subtitle boundary
 
-SRT, ASS, and MP4 `mov_text` are text; DVB subtitles are bitmap display sets. FFmpeg 7.1.5 can encode bitmap-to-bitmap DVB subtitles but cannot safely perform this text-to-bitmap conversion. LKP therefore never burns captions into video and never labels a text stream as DVB. It indexes text tracks and passes already-prepared `dvb_subtitle` tracks as selectable TV subtitles. A preparation cache using a verified text-to-DVB renderer still needs end-to-end validation before the current Czech SRT tracks can appear on a television. This is intentionally explicit rather than silently compromising subtitle selection.
+SRT, ASS, and MP4 `mov_text` are text; DVB subtitles are bitmap display sets.
+LKP prepares text tracks offline with libass and FFmpeg's native DVB encoder,
+then decodes and validates the bitmap payload before publishing its cache.
+The original programme files remain immutable; captions are never burned in.
+Prepared tracks live under `/mnt/lkp-media/LKP/.generated/lkp-subtitles` and
+are mapped as separate, selectable DVB streams during playout. Czech, German,
+English and Slovak have stable PIDs and explicit language descriptors.
+HD display sets advertise DVB subtitling type `0x14` (HDTV), with matching
+composition/ancillary page IDs; software decoding alone is not a receiver test.
+Caption regions use 16-colour/4-bit encoding for receiver compatibility, with
+white glyphs, black outlines and transparency validated after decoding.
+Large or widely positioned ASS captions are split into cropped regions no larger
+than 256×64 pixels, avoiding oversized DVB objects and transparent pixel buffers.
+Text is rendered at 65% of the source font size (including inline size overrides),
+preserving cue timing and alignment; original subtitle files remain unchanged.
+Missing or unfinished caches do not appear on air. Caption display sets repeat once per
+second to support tuning and cold-start seeks; editorial content ranges seek
+the original subtitle timeline, while ads/intermissions have no inherited captions.
+
+```bash
+# Build locally without replacing system packages (Pi / FFmpeg 7.1).
+bash scripts/build-subtitle-renderer.sh
+# Prepare available captions; sources and programme timing are unchanged.
+npm run subtitles:prepare
+npm run subtitles:prepare -- --id MEDIA_ID
+npm run subtitles:prepare -- --weather-only
+```
+
+Run preparation after new library ingest. Weather generation automatically
+prepares its original-language caption tracks when the optional converter is
+installed. This implements DVB subtitles, not teletext page 888. Internet HLS
+currently carries video/audio only and does not expose these DVB tracks.
 
 ## Logo
 
@@ -216,7 +247,7 @@ npm run broadcast:start -- --dry-run --max-seconds 15 --output runtime/preview.t
 ffprobe runtime/preview.ts
 ```
 
-Long-running dry-run omits `--once`. At startup the service locates the stored current event, seeks by `now - startsAt`, and shows a static logo. Later scheduled boundaries receive the transition animation. Each actual attempt and its initial seek/result are stored in `playback_log`.
+Long-running dry-run omits `--once`. At startup the service locates the stored current event, seeks by `now - startsAt`, and shows a static logo. Later scheduled boundaries receive the transition animation. Transport output is paced at the configured mux rate in every mode. The next programme or editorial segment opens and starts encoding as soon as the current piece starts, held in a bounded memory buffer until the switch. A clean EOF immediately advances the sequence without holding the final frame or reopening the same item. Known early running can replace an upcoming short intermission with a whole, season-appropriate longer published clip that fits the recovery time. Late running can use a suitable shorter whole clip. Programmes, ads and sketches are never cut for timing recovery. If none fits, the timing difference carries forward. A newly discovered shortfall may be recovered at a later intermission so an already-prepared next piece can start immediately. Prepared transport timestamps are shifted at acquisition to match the actual handoff time. Transport counters remain continuous across encoders. Live signed timing (positive lead means ahead, negative means behind), current piece and next-piece readiness update once per second in `runtime/playout-status.json`. Use `npm run lkp -- broadcast status --watch` or the authenticated player’s timing line; `/api/playout` provides JSON. Stale status is explicitly reported. Dry-runs use a separate preview status file. Each actual attempt and its initial seek/result are stored in `playback_log`.
 
 For debugging, shift the broadcast clock into the past. Hours and minutes may be used separately or together; the stored schedule is not changed. Programme boundaries remain aligned with real playback time. A dry-run leaves the live EPG on its normal clock; an RF run shifts its generated EPG to match the replay:
 
@@ -259,7 +290,7 @@ journalctl -u lkp.service -u lkp-internet.service -u lkp-funnel.service -f
 The player binds only to `127.0.0.1`; Tailscale Funnel is the public TLS
 boundary. HTTP Basic authentication is enforced before the HTML, schedule API,
 HLS playlist, and every media segment. Review `/etc/lkp.env`, especially the RF
-acknowledgement and 14 dB gain, before enabling a mode containing DVB-T. Services
+acknowledgement and 21 dB gain, before enabling a mode containing DVB-T. Services
 restart after failure and terminate supervised children cleanly on stop. See
 [`INTERNET_STREAMING.md`](INTERNET_STREAMING.md) for installation and checks.
 
@@ -288,6 +319,19 @@ Automated coverage includes determinism, persistence, extension, episode order, 
 - `data` and `runtime` — ignored mutable state
 
 ## Weather show
+
+The isolated Pi renderer at `/home/lundenburg/lkp-weather` must publish to
+`/home/lundenburg/lundenburg/data/lkp.sqlite` and update the main
+`runtime/epg.xml`. Its installer writes absolute paths; `--configure-only`
+repairs them without reinstalling dependencies. The supplied weather service
+also pins `LKP_DATABASE` and `LKP_EPG_OUTPUT`. An empty schedule is an error,
+not a successful skipped edition. Weather videos stay on the external drive
+under `/mnt/lkp-media/LKP/.generated/lkp-wetterfreunde`.
+
+DVB event identities are persisted independently of schedule sequence numbers,
+so weather/intermission insertion does not rename existing TV guide events.
+EPG boundaries use consistent whole-second timestamps and hide continuity
+items inside the preceding programme.
 
 The weather module prepares standalone 1080p30 H.264/AAC MP4 programmes. It
 does not start DVB or RF. Four layered SVG presenters share a recurring studio

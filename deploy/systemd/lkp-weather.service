@@ -8,6 +8,9 @@ Type=oneshot
 User=lundenburg
 WorkingDirectory=/home/lundenburg/lkp-weather
 EnvironmentFile=-/etc/lkp-weather.env
+# Keep the isolated renderer attached to the authoritative playout timeline.
+Environment=LKP_DATABASE=/home/lundenburg/lundenburg/data/lkp.sqlite
+Environment=LKP_EPG_OUTPUT=/home/lundenburg/lundenburg/runtime/epg.xml
 Environment=WEATHER_RENDER_CONCURRENCY=1
 ExecStart=/usr/bin/npm run weather:auto
 TimeoutStartSec=5400

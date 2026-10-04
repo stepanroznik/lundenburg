@@ -4,6 +4,7 @@ import path from 'node:path';
 import http, { type IncomingMessage, type ServerResponse } from 'node:http';
 import { timingSafeEqual } from 'node:crypto';
 import Database from 'better-sqlite3';
+import { readPlayoutStatus } from './playout-status.js';
 import { loadConfig } from './config.js';
 
 const config = loadConfig();
@@ -37,7 +38,7 @@ function send(response: ServerResponse, status: number, type: string, body: stri
 
 const player = `<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>LKP Live</title><style>
 @font-face{font-family:Fredoka;src:url('/font.ttf')}*{box-sizing:border-box}body{margin:0;min-height:100vh;background:#fffcf4;color:#004f4f;font-family:Fredoka,system-ui,sans-serif}header,main{width:min(1120px,calc(100% - 30px));margin:auto}header{display:flex;align-items:center;gap:18px;padding:22px 0 15px}header img{width:74px;height:76px;object-fit:contain}h1{margin:0;font-size:clamp(25px,5vw,42px)}header p{margin:3px 0;color:#52716c}.live{color:#fb1143;font-size:13px;letter-spacing:2px}.frame{overflow:hidden;border:4px solid #004f4f;border-radius:18px;background:#001514;box-shadow:0 18px 50px #004f4f26}video{display:block;width:100%;aspect-ratio:16/9;background:#001514}.info{display:grid;grid-template-columns:1fr 1fr;gap:15px;padding:18px 0 36px}.card{background:#fff;border:1px solid #d6e2d9;border-radius:14px;padding:17px}.label{text-transform:uppercase;letter-spacing:2px;font-size:12px;color:#6e8580}.title{font-size:clamp(18px,3vw,27px);margin:7px 0}.time{color:#647a75}.status{padding:11px 0;color:#647a75}@media(max-width:650px){.info{grid-template-columns:1fr}header img{width:58px}}</style>
-<header><img src="/brand.svg" alt="LKP"><div><div class="live">● LIVE</div><h1>Lundenburg Kids Premium</h1><p>Our little channel, live from Lundenburg.</p></div></header><main><div class="frame"><video id="video" controls autoplay muted playsinline></video></div><div id="status" class="status">Connecting to the live stream…</div><section class="info"><div class="card"><div class="label">Now</div><div class="title" id="now-title">Loading…</div><div class="time" id="now-time"></div></div><div class="card"><div class="label">Next</div><div class="title" id="next-title">Loading…</div><div class="time" id="next-time"></div></div></section></main><script src="/hls.min.js"></script><script src="/player.js"></script></html>`;
+<header><img src="/brand.svg" alt="LKP"><div><div class="live">● LIVE</div><h1>Lundenburg Kids Premium</h1><p>Our little channel, live from Lundenburg.</p></div></header><main><div class="frame"><video id="video" controls autoplay muted playsinline></video></div><div id="status" class="status">Connecting to the live stream…</div><div id="timing" class="time" aria-live="polite">Schedule timing unavailable</div><section class="info"><div class="card"><div class="label">Now</div><div class="title" id="now-title">Loading…</div><div class="time" id="now-time"></div></div><div class="card"><div class="label">Next</div><div class="title" id="next-title">Loading…</div><div class="time" id="next-time"></div></div></section></main><script src="/hls.min.js"></script><script src="/player.js"></script></html>`;
 const playerJs = `const video=document.getElementById('video'),status=document.getElementById('status');
 const source='/hls/stream.m3u8';
 let hls,restartTimer,failures=0,lastMediaRecovery=0,nativeMode=false,lastProgress=Date.now(),lastTime=0;
@@ -50,7 +51,8 @@ video.addEventListener('waiting',()=>{status.textContent='Buffering live video�
 video.addEventListener('timeupdate',()=>{if(video.currentTime>lastTime+.05){lastTime=video.currentTime;lastProgress=Date.now()}});setInterval(()=>{if(!video.paused&&Date.now()-lastProgress>12000){lastProgress=Date.now();status.textContent='Playback stalled; reconnecting…';nativeMode?restartNative():rebuild()}},3000);
 if(video.canPlayType('application/vnd.apple.mpegurl'))native();else if(window.Hls&&Hls.isSupported())rebuild();else status.textContent='This browser cannot play HLS video.';
 const fmt=n=>new Intl.DateTimeFormat([], {hour:'2-digit',minute:'2-digit',second:'2-digit'}).format(new Date(n));
-async function programmes(){try{const r=await fetch('/api/programme',{cache:'no-store'});if(!r.ok)throw Error();const p=await r.json();for(const k of ['now','next']){document.getElementById(k+'-title').textContent=p[k]?p[k].showTitle+' · '+p[k].episodeTitle:'Not scheduled';document.getElementById(k+'-time').textContent=p[k]?fmt(p[k].startsAtMs)+'–'+fmt(p[k].endsAtMs):''}}catch{document.getElementById('now-title').textContent='Schedule unavailable'}}programmes();setInterval(programmes,15000);`;
+async function programmes(){try{const r=await fetch('/api/programme',{cache:'no-store'});if(!r.ok)throw Error();const p=await r.json();for(const k of ['now','next']){document.getElementById(k+'-title').textContent=p[k]?p[k].showTitle+' · '+p[k].episodeTitle:'Not scheduled';document.getElementById(k+'-time').textContent=p[k]?fmt(p[k].startsAtMs)+'–'+fmt(p[k].endsAtMs):''}}catch{document.getElementById('now-title').textContent='Schedule unavailable'}}programmes();setInterval(programmes,15000);
+async function timing(){try{const r=await fetch('/api/playout',{cache:'no-store'});const s=await r.json();let label='Live playout status unavailable';if(s&&!s.stale){if(s.state==='stopped')label='Broadcast stopped';else{label=Math.abs(s.leadMs)<250?'On schedule':(Math.abs(s.leadMs)/1000).toFixed(1)+' s '+(s.leadMs>0?'ahead of':'behind')+' schedule';label+=' · Next piece '+(s.next&&s.next.ready?'ready':'preparing');if(s.current)document.getElementById('now-title').textContent=s.current.title}}document.getElementById('timing').textContent=label}catch{document.getElementById('timing').textContent='Schedule timing unavailable'}}timing();setInterval(timing,2000);`;
 
 const database = new Database(config.storage.database, { readonly: true, fileMustExist: true });
 const queryCurrent = database.prepare(`SELECT s.show_title showTitle, s.episode_title episodeTitle, s.starts_at_ms startsAtMs,
@@ -77,6 +79,7 @@ const server = http.createServer((request, response) => {
     if (!fs.existsSync(file)) return send(response, 503, 'text/plain; charset=utf-8', 'Web player dependency unavailable');
     return send(response, 200, 'text/javascript; charset=utf-8', fs.readFileSync(file), 'public, max-age=86400');
   }
+  if (url.pathname === '/api/playout') return send(response, 200, 'application/json; charset=utf-8', JSON.stringify(readPlayoutStatus(path.join(config.storage.runtimeDirectory, 'playout-status.json'))));
   if (url.pathname === '/api/programme') {
     const now = Date.now();
     return send(response, 200, 'application/json; charset=utf-8', JSON.stringify({ now: queryCurrent.get(now) ?? null, next: queryNext.get(now + 1) ?? null, serverTime: now }));

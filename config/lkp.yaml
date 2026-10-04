@@ -58,7 +58,7 @@ broadcast:
   # dvb = HackRF only; internet = authenticated HLS only; both = shared encode to both.
   mode: internet
   frequencyHz: 634000000
-  gainDb: 14
+  gainDb: 21
   amplitude: 0.8
   fifo: ./runtime/lkp.ts
   transmitter: ./scripts/transmit.py

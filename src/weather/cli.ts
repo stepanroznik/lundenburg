@@ -16,6 +16,7 @@ import { publishWeather } from './publish.js';
 import { acquireWeatherLock } from './lock.js';
 import { assertMediaStorage, generatedShowRoot } from '../media-storage.js';
 import { weatherEditionTitle, type Edition, type Episode, type ProgrammeMetadata } from './model.js';
+import { prepareSubtitle, textSubtitleTracks } from '../subtitles.js';
 
 const program = new Command().name('lkp-weather');
 const c = loadWeatherConfig();
@@ -63,7 +64,17 @@ async function generate(options: GenerateOptions): Promise<string> {
     json(path.join(directory, 'generation-report.json'), { edition: options.edition, provider: result.forecast.provider, fetchedAt: result.forecast.fetchedAt, staleWeather: result.forecast.stale, speech: speech.stats, llmUsed: false, preview, generationMs: Date.now() - started, renderSuccess: false });
     console.log(`Prepared ${atoms.length} speech atoms; ${speech.stats.hits} cached, ${speech.stats.misses} generated.\n${directory}`);
     if (options.render || options.publish) await render(directory, {});
-    if (options.publish) publish(directory, at.getTime());
+    if (options.publish) {
+      const entry = publish(directory, at.getTime());
+      // The standalone renderer may be deployed without the optional DVB tool.
+      // Publication remains valid; subtitle preparation is independently cached.
+      if (fs.existsSync(path.join(appConfig.storage.runtimeDirectory, 'tools/dvb-subtitles/render'))) {
+        for (const track of textSubtitleTracks(entry)) {
+          try { await prepareSubtitle(entry, track, appConfig, entry.durationMs); }
+          catch (error) { console.warn(`Subtitle preparation failed (${track.language}): ${error instanceof Error ? error.message : String(error)}`); }
+        }
+      }
+    }
     return directory;
   } catch (error) {
     json(path.join(directory, 'failure.json'), { at: new Date().toISOString(), message: error instanceof Error ? error.message : String(error), speech: speech.stats });
@@ -104,6 +115,7 @@ function publish(directory: string, atMs: number) {
     const entry = publishWeather(meta, db, config, atMs);
     writeEpgAtomic(db.listSchedule(Date.now() - 86400000, Date.now() + config.schedule.epgDays * 86400000), config);
     console.log(`Scheduled ${entry.episodeTitle} at ${new Date(entry.startsAtMs).toISOString()}`);
+    return entry;
   } finally { db.close(); }
 }
 program.command('map').description('download a reusable real OSM railway/river snapshot').action(prepareMap);
@@ -120,7 +132,7 @@ program.command('generate').addOption(new Option('--edition <edition>').choices(
   .option('--publish', 'render and insert at a future schedule boundary, shifting later programmes')
   .action(async (options: GenerateOptions) => { await generate(options); });
 program.command('render').requiredOption('--episode <directory>').option('--still <frame>').option('--scale <factor>').option('--frames <start-end>').action(async (o: { episode: string; still?: string; scale?: string; frames?: string }) => render(path.resolve(o.episode), o));
-program.command('publish').requiredOption('--episode <directory>').action((o: { episode: string }) => publish(path.resolve(o.episode), Date.now() + 60_000));
+program.command('publish').requiredOption('--episode <directory>').action((o: { episode: string }) => { publish(path.resolve(o.episode), Date.now() + 60_000); });
 program.command('fetch').addOption(new Option('--edition <edition>').choices(['morning', 'afternoon', 'evening']).default('morning')).requiredOption('--at <time>').action(async (o: GenerateOptions) => {
   const result = await new OpenMeteoProvider(c, 'runtime/weather/forecast').getForecast(broadcastTime(o), o.edition);
   console.log(JSON.stringify(result.forecast, null, 2));
@@ -129,6 +141,7 @@ program.command('auto').description('generate the due edition using fresh weathe
   const config = loadConfig(), db = new LkpDatabase(config.storage.database);
   let next: { edition: Edition; at: string } | undefined;
   try {
+    if (!db.lastScheduleEntry()) throw new Error(`Weather cannot publish: schedule is empty in ${config.storage.database}`);
     for (const edition of ['morning', 'afternoon', 'evening'] as const) {
       const window = editionWindow(edition, new Date(), c);
       if (Date.now() < window.from.toMillis() - c.generationLeadMinutes * 60_000 || Date.now() >= window.until.toMillis()) continue;

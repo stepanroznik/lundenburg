@@ -83,7 +83,7 @@ export function loadConfig(explicitPath?: string): AppConfig {
       transitionZoom: numberValue(logo, 'transitionZoom'),
     },
     epg: {
-      output: resolveFromProject(projectRoot, stringValue(epg, 'output')), language: stringValue(epg, 'language'),
+      output: resolveFromProject(projectRoot, process.env.LKP_EPG_OUTPUT ?? stringValue(epg, 'output')), language: stringValue(epg, 'language'),
       refreshSeconds: numberValue(epg, 'refreshSeconds'),
     },
     broadcast: {

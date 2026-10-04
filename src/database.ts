@@ -117,6 +117,9 @@ export class LkpDatabase {
     this.ensureColumn('media_items', 'qc_warnings_json', "TEXT NOT NULL DEFAULT '[]'");
     this.ensureColumn('schedule_entries', 'listing_visibility', "TEXT NOT NULL DEFAULT 'public'");
     this.ensureColumn('schedule_entries', 'playout_plan_json', 'TEXT');
+    this.ensureColumn('schedule_entries', 'epg_event_id', 'INTEGER');
+    this.db.prepare('UPDATE schedule_entries SET epg_event_id=(sequence % 65535)+1 WHERE epg_event_id IS NULL').run();
+    this.db.exec('CREATE INDEX IF NOT EXISTS schedule_epg_identity ON schedule_entries(epg_event_id, starts_at_ms)');
     this.db.prepare('INSERT OR IGNORE INTO schema_migrations(version, applied_at_ms) VALUES(2, ?)').run(Date.now());
   }
 
@@ -222,15 +225,26 @@ export class LkpDatabase {
   insertSchedule(entries: ScheduleEntry[]): void {
     const insert = this.db.prepare(`INSERT INTO schedule_entries (
       id, sequence, media_id, show_id, show_title, season, episode, episode_title, description,
-      starts_at_ms, ends_at_ms, duration_ms, media_path, audio_language, subtitle_languages_json, listing_visibility, playout_plan_json, created_at_ms
+      starts_at_ms, ends_at_ms, duration_ms, media_path, audio_language, subtitle_languages_json, listing_visibility, playout_plan_json, epg_event_id, created_at_ms
     ) VALUES (@id,@sequence,@mediaId,@showId,@showTitle,@season,@episode,@episodeTitle,@description,
-      @startsAtMs,@endsAtMs,@durationMs,@mediaPath,@audioLanguage,@subtitleLanguagesJson,@listingVisibility,@playoutPlanJson,@createdAtMs)`);
+      @startsAtMs,@endsAtMs,@durationMs,@mediaPath,@audioLanguage,@subtitleLanguagesJson,@listingVisibility,@playoutPlanJson,@epgEventId,@createdAtMs)`);
+    // Reuse the 16-bit namespace only well outside the rolling EPG window.
+    const collision = this.db.prepare('SELECT 1 FROM schedule_entries WHERE epg_event_id=? AND starts_at_ms BETWEEN ? AND ? LIMIT 1');
     this.db.transaction((rows: ScheduleEntry[]) => {
-      for (const row of rows) insert.run({
-        ...row, season: row.season ?? null, episode: row.episode ?? null, audioLanguage: row.audioLanguage ?? null,
-        subtitleLanguagesJson: JSON.stringify(row.subtitleLanguages), createdAtMs: Date.now(),
-        listingVisibility: row.listingVisibility ?? 'public', playoutPlanJson: row.playoutPlan ? JSON.stringify(row.playoutPlan) : null,
-      });
+      for (const row of rows) {
+        let epgEventId = row.epgEventId ?? (row.sequence % 65535) + 1;
+        const first = epgEventId;
+        while (collision.get(epgEventId, row.startsAtMs - 32 * 86400000, row.startsAtMs + 32 * 86400000)) {
+          epgEventId = epgEventId % 65535 + 1;
+          if (epgEventId === first) throw new Error('DVB event ID namespace exhausted near this programme');
+        }
+        insert.run({
+          ...row, season: row.season ?? null, episode: row.episode ?? null, audioLanguage: row.audioLanguage ?? null,
+          epgEventId,
+          subtitleLanguagesJson: JSON.stringify(row.subtitleLanguages), createdAtMs: Date.now(),
+          listingVisibility: row.listingVisibility ?? 'public', playoutPlanJson: row.playoutPlan ? JSON.stringify(row.playoutPlan) : null,
+        });
+      }
     })(entries);
   }
 
@@ -302,6 +316,7 @@ export class LkpDatabase {
   private mapSchedule(r: Record<string, unknown>): ScheduleEntry {
     return {
       id: String(r.id), sequence: Number(r.sequence), mediaId: String(r.media_id), showId: String(r.show_id),
+      ...(r.epg_event_id !== null && r.epg_event_id !== undefined ? { epgEventId: Number(r.epg_event_id) } : {}),
       showTitle: String(r.show_title), ...(r.season !== null ? { season: Number(r.season) } : {}),
       ...(r.episode !== null ? { episode: Number(r.episode) } : {}), episodeTitle: String(r.episode_title),
       description: String(r.description), startsAtMs: Number(r.starts_at_ms), endsAtMs: Number(r.ends_at_ms),

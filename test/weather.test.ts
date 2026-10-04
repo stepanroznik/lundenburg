@@ -108,6 +108,7 @@ test('publication inserts once at a future boundary, keeps programmes whole and 
     const start = Date.now() + 300000;
     const entries = buildScheduleEntries([item('a', 1), item('b', 1)], 'seed', start, start + 60000);
     db.insertSchedule(entries);
+    const identities = new Map(db.listSchedule(start, start + 600000).map((e) => [e.id, e.epgEventId]));
     const mediaPath = path.join(root, 'weather.mp4'), subtitlePath = path.join(root, 'subtitles.vtt');
     fs.writeFileSync(mediaPath, 'fixture'); fs.writeFileSync(subtitlePath, 'WEBVTT');
     const meta = { id: 'weather-test', title: 'Test', edition: 'morning' as const, generatedAt: new Date().toISOString(), validFrom: new Date(start).toISOString(), validUntil: new Date(start + 600000).toISOString(), durationMs: 5000, mediaPath, subtitlePath, preview: false };
@@ -119,6 +120,9 @@ test('publication inserts once at a future boundary, keeps programmes whole and 
     assert.deepEqual(validateTimeline(after), []);
     assert.equal(after[1]!.durationMs, entries[0]!.durationMs);
     assert.equal(after[1]!.startsAtMs, entries[0]!.startsAtMs + 5000);
+    assert.ok(after[0]!.epgEventId);
+    assert.ok(after.every((e, i) => !i || e.epgEventId !== after[0]!.epgEventId));
+    for (const e of after.slice(1)) assert.equal(e.epgEventId, identities.get(e.id));
     assert.throws(() => publishWeather(meta, db, cfg, start));
   } finally { db.close(); fs.rmSync(root, { recursive: true, force: true }); }
 });
