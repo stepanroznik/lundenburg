@@ -138,6 +138,23 @@ Successful manual imports remove the incoming copy only after the canonical
 catalogue commit and a final size/mtime check. Duplicates and ambiguous incoming
 files are moved to quarantine; existing library files are retained in place.
 
+## Explicit quality repair downloads
+
+`scripts/redownload-quality.mjs PLAN ACTIVE_RELEASE` runs an explicitly requested
+quality-repair batch from an audited JSON plan (`file`, `show`, `sourceId`,
+`targetHeight`). It checks source identity against the acquired provenance and
+approved channel, requires at least the planned resolution, and uses the shared
+acquisition lease, broadcast guards, storage reserve, bandwidth and progress
+watchdogs. Launch it at idle CPU/I/O priority on cores 0–1. Partial transfers resume;
+transient failures receive up to three passes. Only safe status categories leave
+the downloader process.
+
+Validated source downloads remain under `.acquisition/staging/quality-ID/`.
+Original videos, catalogue entries and schedules remain intact. Progress is saved
+in the Pi checkout's `runtime/quality-redownload/status.json`; restarting the same
+plan checks completed files before downloading again. This operation downloads
+replacement sources; importing or swapping them is a separate operation.
+
 ## Sources and curation
 
 An optional Hide.me login helper is `scripts/login-hide-vpn.sh`. The prepared
