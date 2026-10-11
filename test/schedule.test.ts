@@ -86,7 +86,7 @@ test('future feature rebuild preserves past entries and a gapless timeline', () 
   const c = config(root); const db = new LkpDatabase(c.storage.database);
   try {
     const catalogue = [item('short-a', 1, 20 * 60_000), item('short-b', 1, 25 * 60_000),
-      item('film', 1, 80 * 60_000)];
+      {...item('film', 1, 80 * 60_000),technical:{catalogue:{kind:'movie'}}}];
     db.replaceMedia(catalogue);
     const start = DateTime.fromISO('2026-10-22T00:00', { zone: 'Europe/Prague' }).toMillis();
     const original = buildScheduleEntries(catalogue, 'weekend', start, start + 10 * 86_400_000);

@@ -7,6 +7,7 @@ import { LkpDatabase } from './database.js';
 import { chooseIntermission, reconcileIntermissions, isProgramme, readRotationLibrary, intermissionShowId, type RotationClip } from './intermissions/rotation.js';
 import { buildPlayoutPlan, type AdBumper } from './editorial.js';
 import { stableId } from './util.js';
+import { ordinaryProgramme, programmeOrder, programmeRotation } from './acquisition/programming.js';
 
 interface ShowBucket { id: string; weight: number; episodes: MediaItem[] }
 interface SchedulePlanning { config: AppConfig; ads: AdAsset[]; clips: RotationClip[]; bumpers: AdBumper[] }
@@ -65,15 +66,15 @@ export function buildScheduleEntries(
     bucket.episodes.push(item);
     byShow.set(item.showId, bucket);
   }
-  const films = enabled.filter((item) => item.durationMs >= featureMinimumDurationMs)
+  const films = enabled.filter((item) => !ordinaryProgramme(item, featureMinimumDurationMs))
     .sort((a, b) => a.id.localeCompare(b.id));
   const filmById = new Map(films.map((film) => [film.id, film]));
   const shows = [...byShow.values()]
-    .map((show) => ({ ...show, episodes: show.episodes.filter((item) => item.durationMs < featureMinimumDurationMs) }))
+    .map((show) => ({ ...show, episodes: show.episodes.filter((item) => ordinaryProgramme(item, featureMinimumDurationMs)) }))
     .filter((show) => show.episodes.length)
     .sort((a, b) => a.id.localeCompare(b.id));
   if (!shows.length) throw new Error('At least one programme shorter than an hour is required between weekend films');
-  for (const show of shows) show.episodes.sort((a, b) => (a.season ?? 0) - (b.season ?? 0) || (a.episode ?? 0) - (b.episode ?? 0) || a.id.localeCompare(b.id));
+  for (const show of shows) show.episodes.sort(programmeOrder);
   const zone = planning?.config.channel.timezone ?? 'Europe/Prague';
   const featuredDates = new Set<string>();
   const saturdayFilmByWeek = new Map<string, string>();
@@ -86,6 +87,12 @@ export function buildScheduleEntries(
   const playedByShow = new Map<string, number>();
   for (const entry of previousEntries.filter(isProgramme)) playedByShow.set(entry.showId, (playedByShow.get(entry.showId) ?? 0) + 1);
 
+  const spokenMs = new Map<string, number>();
+  const languageByMedia = new Map(enabled.map(m => [m.id, m.audioLanguage ?? m.defaultLanguage]));
+  for (const entry of previousEntries) {
+    const language = languageByMedia.get(entry.mediaId) ?? entry.audioLanguage;
+    if (language && ['de','en','cs'].includes(language)) spokenMs.set(language,(spokenMs.get(language) ?? 0)+entry.durationMs);
+  }
   let cursor = startMs;
   let sequence = initialSequence;
   let programmeOrdinal = previousEntries.filter(isProgramme).length;
@@ -93,12 +100,30 @@ export function buildScheduleEntries(
   let previousClip = previousEntries.filter((entry) => entry.showId === intermissionShowId).at(-1)?.mediaId.replace(/^intermission-/, '');
   const result: ScheduleEntry[] = [];
   while (cursor < targetEndMs) {
+    const availableShows = shows.map(show => ({ ...show, episodes: programmeRotation(show.episodes, cursor, zone) })).filter(show => show.episodes.length);
+    if (!availableShows.length) throw new Error('No season-appropriate ordinary programmes');
     const slot = films.length ? featureWindow(cursor, zone) : undefined;
     const selectedFilm = slot && !featuredDates.has(slot.date)
       ? slot.weekday === 7 ? filmById.get(saturdayFilmByWeek.get(slot.week) ?? '') ?? filmForWeek(films, slot.week)
         : filmForWeek(films, slot.week)
       : undefined;
-    const show = selectedFilm ? undefined : chooseShow(shows, seed, sequence, previousShow);
+    let show = selectedFilm ? undefined : chooseShow(availableShows, seed, sequence, previousShow);
+    const targets = planning?.config.schedule.spokenLanguageTargets;
+    if (show && targets && Object.hasOwn(targets, show.episodes[0]!.audioLanguage ?? show.episodes[0]!.defaultLanguage ?? '')) {
+      const eligible = availableShows.length > 1 ? availableShows.filter(s => s.id !== previousShow) : availableShows;
+      const total = [...spokenMs.values()].reduce((a,b)=>a+b,0);
+      const languages = Object.keys(targets).filter(language => availableShows.some(s => (s.episodes[0]!.audioLanguage ?? s.episodes[0]!.defaultLanguage) === language));
+      const chosen = languages.sort((a,b) => {
+        const debt = (l:string) => (total + 10*60_000)*targets[l as keyof typeof targets] - (spokenMs.get(l) ?? 0);
+        return debt(b)-debt(a) || a.localeCompare(b);
+      })[0];
+      if (chosen) {
+        const matching = eligible.filter(s => (s.episodes[0]!.audioLanguage ?? s.episodes[0]!.defaultLanguage) === chosen);
+        const neutral = eligible.filter(s => (s.episodes[0]!.audioLanguage ?? s.episodes[0]!.defaultLanguage) === 'zxx');
+        // A neutral programme separates repeat shows when the desired language has only one show.
+        if (matching.length || neutral.length) show = chooseShow(matching.length ? matching : neutral,seed,sequence);
+      }
+    }
     const playCount = playedByShow.get((selectedFilm ?? show!.episodes[0]!).showId) ?? 0;
     const media = selectedFilm ?? show!.episodes[playCount % show!.episodes.length]!;
     const startsAtMs = cursor;
@@ -126,6 +151,8 @@ export function buildScheduleEntries(
     playedByShow.set(media.showId, playCount + 1);
     previousShow = media.showId;
     cursor = endsAtMs;
+    const language = media.audioLanguage ?? media.defaultLanguage;
+    if (language && ['de', 'en', 'cs'].includes(language)) spokenMs.set(language, (spokenMs.get(language) ?? 0) + durationMs);
     sequence += 1;
     programmeOrdinal += 1;
     // Account for intermissions while choosing wall-clock feature slots. A

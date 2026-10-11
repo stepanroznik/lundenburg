@@ -28,7 +28,12 @@ test('recovery uses a whole seasonal intermission which fits, otherwise carries 
 });
 
 test('a twelve-second shortfall starts the next piece immediately and recovers with a longer whole intermission',
-  { skip: !ffmpegAvailable, timeout: 90_000 }, async () => {
+  { skip: !ffmpegAvailable, timeout: 90_000 }, async (t) => {
+    // WSL host clock corrections can jump Date.now while monotonic time keeps
+    // advancing normally. Exercise the same strict timing checks on a stable
+    // wall-clock projection so the fixture measures encoder/pacer continuity.
+    const wallStart = Date.now(), monotonicStart = performance.now();
+    t.mock.method(Date, 'now', () => Math.floor(wallStart + performance.now() - monotonicStart));
     const root = fs.mkdtempSync(path.join(os.tmpdir(), 'lkp-boundaries-'));
     const c = config(root);
     c.video = { ...c.video, width: 1920, height: 1080, cpuAffinity: '0,1', preset: 'ultrafast', bitrate: '3800k', muxRate: 4976471 };

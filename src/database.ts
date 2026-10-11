@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import Database from 'better-sqlite3';
 import type { AdAsset, MediaItem, PlaybackEvent, ScheduleEntry } from './types.js';
+import { normalizeCatalogue } from './catalogue.js';
 
 type Db = InstanceType<typeof Database>;
 
@@ -13,6 +14,7 @@ export class LkpDatabase {
     this.db = new Database(file);
     this.db.pragma('journal_mode = WAL');
     this.db.pragma('foreign_keys = ON');
+    this.db.pragma('busy_timeout = 1500');
     this.migrate();
   }
 
@@ -128,7 +130,8 @@ export class LkpDatabase {
     if (!columns.some((item) => item.name === column)) this.db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${declaration}`);
   }
 
-  replaceMedia(items: MediaItem[]): void {
+  replaceMedia(items: MediaItem[], disableMissing = true): void {
+    items = normalizeCatalogue(items, this.listMedia(false));
     const upsert = this.db.prepare(`
       INSERT INTO media_items (
         id, show_id, show_title, show_description, default_language, weight, season, episode,
@@ -185,12 +188,14 @@ export class LkpDatabase {
         deleteMarkers.run(row.id);
         (row.editorialMarkers ?? []).forEach((marker, ordinal) => insertMarker.run(row.id, ordinal, marker.kind, marker.startMs, marker.endMs ?? null, marker.source, marker.confidence, JSON.stringify(marker)));
       }
-      for (const existing of this.db.prepare('SELECT id FROM media_items').all() as Array<{ id: string }>) {
+      if (disableMissing) for (const existing of this.db.prepare('SELECT id FROM media_items').all() as Array<{ id: string }>) {
         if (!ids.has(existing.id)) this.db.prepare('UPDATE media_items SET enabled=0 WHERE id=?').run(existing.id);
       }
     });
     transaction(items);
   }
+
+  upsertMedia(items: MediaItem[]): void { this.replaceMedia(items, false); }
 
   listMedia(enabledOnly = true): MediaItem[] {
     const rows = this.db.prepare(`SELECT * FROM media_items ${enabledOnly ? 'WHERE enabled=1' : ''} ORDER BY show_title, season, episode, episode_title`).all() as Array<Record<string, unknown>>;
@@ -258,6 +263,12 @@ export class LkpDatabase {
   nextAfter(atMs: number): ScheduleEntry | undefined {
     const row = this.db.prepare('SELECT * FROM schedule_entries WHERE starts_at_ms >= ? ORDER BY starts_at_ms LIMIT 1').get(atMs) as Record<string, unknown> | undefined;
     return row ? this.mapSchedule(row) : undefined;
+  }
+
+  nextPublicEntries(afterMs: number, count = 4): ScheduleEntry[] {
+    return (this.db.prepare(`SELECT * FROM schedule_entries WHERE starts_at_ms >= ? AND
+      (show_id = 'lkp-weather' OR (listing_visibility != 'hidden' AND substr(show_id, 1, 4) != 'lkp-'))
+      ORDER BY starts_at_ms LIMIT ?`).all(afterMs, count) as Array<Record<string, unknown>>).map(r => this.mapSchedule(r));
   }
 
   listSchedule(fromMs: number, toMs: number): ScheduleEntry[] {

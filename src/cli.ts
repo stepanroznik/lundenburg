@@ -1,5 +1,7 @@
 #!/usr/bin/env node
 import path from 'node:path';
+import fs from 'node:fs';
+import { registerContent } from './acquisition/cli.js';
 import { Command, Option } from 'commander';
 import { DateTime } from 'luxon';
 import { loadConfig } from './config.js';
@@ -9,6 +11,7 @@ import { runDoctor } from './doctor.js';
 import { writeEpgAtomic } from './epg.js';
 import { exportWorkbook } from './export.js';
 import { scanMedia } from './media.js';
+import { catalogueChanges, writeCatalogue } from './catalogue-maintenance.js';
 import { runBroadcast } from './playout.js';
 import { readPlayoutStatus, timingLabel } from './playout-status.js';
 import { ensureSchedule, rebuildFutureSchedule, reconcilePlayoutPlans, validateTimeline } from './schedule.js';
@@ -18,6 +21,7 @@ import { AdBumperService, AdIngestService, initialAdUrls } from './ads.js';
 const program = new Command();
 program.name('lkp').description('Lundenburg Kids Premium channel control').version('1.0.0');
 program.option('-c, --config <file>', 'configuration YAML');
+registerContent(program);
 
 function context(): { config: ReturnType<typeof loadConfig>; db: LkpDatabase } {
   const config = loadConfig(program.opts<{ config?: string }>().config);
@@ -25,6 +29,25 @@ function context(): { config: ReturnType<typeof loadConfig>; db: LkpDatabase } {
 }
 
 const media = program.command('media').description('media catalogue operations');
+media.command('normalize').description('preview consistent titles and episode numbering without probing media')
+  .option('--write', 'back up the database and update catalogue metadata')
+  .action(async (options: { write?: boolean }) => {
+    const { config, db } = context();
+    try {
+      const { items, changes } = catalogueChanges(db);
+      let result: ReturnType<typeof writeCatalogue> | undefined;
+      let backup: string | undefined;
+      if (options.write) {
+        backup = `${config.storage.database}.before-catalogue-${Date.now()}.sqlite`;
+        await db.db.backup(backup);
+        fs.chmodSync(backup, 0o600);
+        result = writeCatalogue(db, backup);
+        writeEpgAtomic(db.listSchedule(Date.now() - 86_400_000, Date.now() + config.schedule.epgDays * 86_400_000), config);
+      }
+      console.log(JSON.stringify({ mode: options.write ? 'written' : 'preview', media: items.length, changed: changes.length, backup, result,
+        samples: changes.slice(0, 12).map(item => ({ show: item.showTitle, title: item.episodeTitle, season: item.season, episode: item.episode, catalogue: item.technical.catalogue })) }, null, 2));
+    } finally { db.close(); }
+  });
 media.command('scan').description('scan and probe the source media library')
   .option('--dry-run', 'probe without updating the database')
   .action(async (options: { dryRun?: boolean }) => {

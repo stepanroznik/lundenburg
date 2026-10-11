@@ -1,4 +1,5 @@
 import { Transform, type TransformCallback } from 'node:stream';
+import { performance } from 'node:perf_hooks';
 import { shiftTransportClocks } from './continuity.js';
 
 // Pace the constant-bitrate TS in every output mode, including HLS and previews.
@@ -7,11 +8,14 @@ export class TransportPacer extends Transform {
   private bytes = 0;
   private remainder = Buffer.alloc(0);
   private timer: NodeJS.Timeout | undefined;
+  private readonly startsAtMonotonicMs: number;
 
   constructor(private readonly bitrate: number, private readonly startsAtMs: number,
     private readonly continuity = new Map<number, number>(), private readonly timestampOffsetMs = 0) {
     super({ highWaterMark: 188 * 64 });
     if (!Number.isFinite(bitrate) || bitrate <= 0) throw new Error('Invalid transport bitrate');
+    // NTP or host clock corrections must never interrupt constant-rate output.
+    this.startsAtMonotonicMs = performance.now() + startsAtMs - Date.now();
   }
 
   override _transform(chunk: Buffer, _encoding: BufferEncoding, callback: TransformCallback): void {
@@ -39,7 +43,7 @@ export class TransportPacer extends Transform {
         this.push(packets);
         next();
       };
-      const delayMs = this.startsAtMs + this.bytes * 8000 / this.bitrate - Date.now();
+      const delayMs = this.startsAtMonotonicMs + this.bytes * 8000 / this.bitrate - performance.now();
       if (delayMs <= 0) emit();
       else this.timer = setTimeout(() => { this.timer = undefined; emit(); }, delayMs);
     };
@@ -48,7 +52,7 @@ export class TransportPacer extends Transform {
 
   override _flush(callback: TransformCallback): void {
     if (this.remainder.length) { callback(new Error('Incomplete MPEG-TS packet at EOF')); return; }
-    const tailMs = this.startsAtMs + this.bytes * 8000 / this.bitrate - Date.now();
+    const tailMs = this.startsAtMonotonicMs + this.bytes * 8000 / this.bitrate - performance.now();
     if (tailMs <= 0) callback();
     else this.timer = setTimeout(() => { this.timer = undefined; callback(); }, tailMs);
   }

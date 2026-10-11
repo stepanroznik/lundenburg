@@ -23,6 +23,7 @@ schedule:
   extendWhenBelowDays: 90
   epgDays: 7
   seed: lkp-v1
+  spokenLanguageTargets: { de: 0.55, en: 0.30, cs: 0.15 }
 
 video:
   # Full HD target. Validate sustained throughput with the complete RF pipeline.
@@ -48,6 +49,13 @@ logo:
   transitionDurationMs: 1100
   transitionRotations: 3
   transitionZoom: 1.08
+
+# Live German programme strip; no schedule rows or programme files are changed.
+comingUp:
+  enabled: true
+  minProgrammeMinutes: 16
+  leadSeconds: 60
+  durationSeconds: 20
 
 epg:
   output: ./runtime/epg.xml

@@ -1,0 +1,5 @@
+interface:
+  display_name: "LKP Show Production"
+  short_description: "Create polished LKP animated programmes"
+  brand_color: "#004F4F"
+  default_prompt: "Use $lkp-show-production to design and produce a polished LKP animated segment."

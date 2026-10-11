@@ -1,0 +1,167 @@
+# Acquisition policy overlay. Episode targets are balanced by programme length.
+# Existing files are retained when a target is reduced.
+classificationModel: gpt-4.1-mini
+aiProvider: chatgpt
+storagePolicy: free-space
+reserveBytes: 80000000000
+maxNewBytes: null
+subscriptions:
+  - id: byl-jednou-jeden-zivot
+    priority: 80
+    defaultSeason: 1
+  - id: teletubbies
+    source: youtube
+    urls:
+      - https://www.youtube.com/playlist?list=PLmdZ3yaBIVIW-OxGcVRCtD63thztEGK4_
+    channelId: UCOk55dAgB8VnMlhaTEMeX5A
+    targetEpisodes: 200
+    maxEpisodes: 200
+    maxTotalDuration: 360000
+    priority: 70
+    minDuration: 600
+    maxDuration: 1800
+  - id: miss-josi
+    title: Miss Josi – Lernen für Kleine
+    aliases:
+      - Miss Josi
+      - Lernen für Kleine
+    description: Miss Josi lädt kleine Kinder zum Sprechen, Singen, Bewegen und
+      spielerischen Lernen ein.
+    language: de
+    source: youtube
+    editorialClassification: true
+    forbidRecycledContent: true
+    channelId: UC2NKVbtgZEaJNBflx5bwHAg
+    urls:
+      - https://www.youtube.com/channel/UC2NKVbtgZEaJNBflx5bwHAg/videos
+      - https://www.youtube.com/channel/UC2NKVbtgZEaJNBflx5bwHAg/streams
+      - https://www.youtube.com/channel/UC2NKVbtgZEaJNBflx5bwHAg/shorts
+    queries: []
+    targetEpisodes: 1000000
+    maxEpisodes: 1000000
+    maxTotalDuration: 1000000000
+    priority: 75
+    minDuration: 1
+    maxDuration: 86400
+    preferredEras: []
+    preferredSeasons: []
+    preferredFormats:
+      - episode
+      - interstitial
+      - compilation
+    include: []
+    exclude: []
+    replacementPolicy: none
+    allowCompilations: false
+    allowShortClips: true
+  - id: ms-rachel
+    title: Ms Rachel / Songs for Littles
+    aliases:
+      - Ms Rachel
+      - Songs for Littles
+    description: Ms Rachel unterstützt kleine Kinder mit englischen Wörtern, Liedern
+      und Lernspielen.
+    language: en
+    source: youtube
+    editorialClassification: true
+    minimumEditorialRank: A
+    forbidRecycledContent: true
+    channelId: UCG2CL6EUjG8TVT1Tpl9nJdg
+    urls:
+      - https://www.youtube.com/channel/UCG2CL6EUjG8TVT1Tpl9nJdg/videos
+      - https://www.youtube.com/channel/UCG2CL6EUjG8TVT1Tpl9nJdg/streams
+      - https://www.youtube.com/channel/UCG2CL6EUjG8TVT1Tpl9nJdg/shorts
+    queries: []
+    targetEpisodes: 1000000
+    maxEpisodes: 1000000
+    maxTotalDuration: 1000000000
+    priority: 75
+    minDuration: 1
+    maxDuration: 86400
+    preferredEras: []
+    preferredSeasons: []
+    preferredFormats:
+      - episode
+      - interstitial
+      - compilation
+    include: []
+    exclude: []
+    replacementPolicy: none
+    allowCompilations: false
+    allowShortClips: true
+  - id: sendung-mit-dem-elefanten
+    targetEpisodes: 50
+    maxEpisodes: 50
+    maxTotalDuration: 90000
+  - id: bobo-siebenschlaefer
+    targetEpisodes: 50
+    maxEpisodes: 50
+    maxTotalDuration: 30000
+  - id: kikaninchen
+    targetEpisodes: 75
+    maxEpisodes: 75
+    maxTotalDuration: 135000
+  - id: unser-sandmaennchen
+    targetEpisodes: 100
+    maxEpisodes: 100
+    maxTotalDuration: 72000
+  - id: peppa-wutz
+    targetEpisodes: 60
+    maxEpisodes: 60
+    maxTotalDuration: 28800
+  - id: sesamstrasse
+    targetEpisodes: 50
+    maxEpisodes: 50
+    maxTotalDuration: 90000
+  - id: bing
+    targetEpisodes: 50
+    maxEpisodes: 50
+    maxTotalDuration: 30000
+  - id: servus-kasperl
+    targetEpisodes: 40
+    maxEpisodes: 40
+    maxTotalDuration: 72000
+  - id: abc-baer
+    targetEpisodes: 40
+    maxEpisodes: 40
+    maxTotalDuration: 60000
+  - id: tolle-tiere
+    targetEpisodes: 40
+    maxEpisodes: 40
+    maxTotalDuration: 60000
+  - id: sarah-and-duck
+    targetEpisodes: 50
+    maxEpisodes: 50
+    maxTotalDuration: 36000
+  - id: puffin-rock
+    targetEpisodes: 50
+    maxEpisodes: 50
+    maxTotalDuration: 36000
+  - id: kipper
+    targetEpisodes: 50
+    maxEpisodes: 50
+    maxTotalDuration: 36000
+  - id: bob-a-bobek
+    targetEpisodes: 40
+    maxEpisodes: 40
+    maxTotalDuration: 28800
+  - id: maxipes-fik
+    targetEpisodes: 26
+    maxEpisodes: 26
+    maxTotalDuration: 18720
+  - id: rakosnicek
+    targetEpisodes: 40
+    maxEpisodes: 40
+    maxTotalDuration: 28800
+  - id: pat-a-mat
+    targetEpisodes: 40
+    maxEpisodes: 40
+    maxTotalDuration: 28800
+  - id: pingu
+    targetEpisodes: 50
+    maxEpisodes: 50
+    maxTotalDuration: 36000
+  - id: timmy-time
+    targetEpisodes: 30
+    maxEpisodes: 30
+    maxTotalDuration: 21600

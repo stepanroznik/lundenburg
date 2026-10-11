@@ -146,6 +146,7 @@ export interface AdvertisingConfig {
 }
 
 export interface AppConfig {
+  comingUp?: ComingUpConfig;
   intermissions?: IntermissionConfig;
   advertising?: AdvertisingConfig;
   configPath: string;
@@ -159,7 +160,7 @@ export interface AppConfig {
     ffprobe: string; supportedExtensions: string[]; subtitleLanguages: string[];
   };
   storage: { database: string; runtimeDirectory: string };
-  schedule: { horizonDays: number; extendWhenBelowDays: number; epgDays: number; seed: string };
+  schedule: { horizonDays: number; extendWhenBelowDays: number; epgDays: number; seed: string; spokenLanguageTargets?: { de: number; en: number; cs: number } };
   video: {
     width: number; height: number; fps: number; bitrate: string; codec: string;
     preset: string; decoderThreads: number; filterThreads: number; encoderThreads: number; cpuAffinity: string; audioBitrate: string; muxRate: number;
@@ -177,4 +178,11 @@ export interface AppConfig {
     bind: string; port: number; hlsDirectory: string; segmentSeconds: number;
     playlistSegments: number; audioBitrate: string;
   };
+}
+
+export interface ComingUpConfig {
+  enabled: boolean;
+  minProgrammeMinutes: number;
+  leadSeconds: number;
+  durationSeconds: number;
 }

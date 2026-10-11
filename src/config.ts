@@ -3,6 +3,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parse } from 'yaml';
 import type { AppConfig, OutputMode } from './types.js';
+import { defaultComingUpConfig, validateComingUpConfig } from './coming-up.js';
 
 const sourceRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
@@ -99,6 +100,21 @@ export function loadConfig(explicitPath?: string): AppConfig {
       audioBitrate: stringValue(internet, 'audioBitrate'),
     },
   };
+  const comingUp = raw.comingUp === undefined ? {} : requiredObject(raw.comingUp, 'comingUp');
+  if (comingUp.enabled !== undefined && typeof comingUp.enabled !== 'boolean') throw new Error('comingUp.enabled must be boolean');
+  result.comingUp = {
+    enabled: comingUp.enabled as boolean | undefined ?? defaultComingUpConfig.enabled,
+    minProgrammeMinutes: comingUp.minProgrammeMinutes === undefined ? defaultComingUpConfig.minProgrammeMinutes : numberValue(comingUp, 'minProgrammeMinutes'),
+    leadSeconds: comingUp.leadSeconds === undefined ? defaultComingUpConfig.leadSeconds : numberValue(comingUp, 'leadSeconds'),
+    durationSeconds: comingUp.durationSeconds === undefined ? defaultComingUpConfig.durationSeconds : numberValue(comingUp, 'durationSeconds'),
+  };
+  validateComingUpConfig(result.comingUp);
+  if (schedule.spokenLanguageTargets !== undefined) {
+    const targets = requiredObject(schedule.spokenLanguageTargets, 'schedule.spokenLanguageTargets');
+    const values = { de: numberValue(targets, 'de'), en: numberValue(targets, 'en'), cs: numberValue(targets, 'cs') };
+    if (Object.values(values).some(n => n <= 0) || Math.abs(Object.values(values).reduce((a,b)=>a+b,0)-1) > .001) throw new Error('Spoken language targets must be positive and sum to one');
+    result.schedule.spokenLanguageTargets = values;
+  }
   if (raw.intermissions !== undefined) {
     const section=requiredObject(raw.intermissions,'intermissions');
     const weights=requiredObject(section.weights,'intermissions.weights');

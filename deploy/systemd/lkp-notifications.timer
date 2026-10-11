@@ -1,0 +1,11 @@
+[Unit]
+Description=Check LKP actionable alerts once per minute
+
+[Timer]
+OnBootSec=2min
+OnUnitInactiveSec=60s
+AccuracySec=5s
+Unit=lkp-notifications.service
+
+[Install]
+WantedBy=timers.target

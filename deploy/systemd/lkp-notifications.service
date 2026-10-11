@@ -1,0 +1,21 @@
+[Unit]
+Description=LKP quiet phone alerts and VPN renewal reminder
+After=network-online.target
+
+[Service]
+Type=oneshot
+User=lundenburg
+WorkingDirectory=/home/lundenburg/lkp-content/current
+ExecStart=/usr/bin/node dist/src/notifications/main.js check
+TimeoutStartSec=25s
+Nice=19
+CPUWeight=1
+IOWeight=1
+MemoryMax=128M
+StandardInput=null
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=read-only
+ReadWritePaths=/home/lundenburg/lundenburg/runtime/notifications

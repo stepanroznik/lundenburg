@@ -1,0 +1,39 @@
+[Unit]
+Description=LKP unattended bounded content acquisition and ingestion
+After=network-online.target
+Wants=network-online.target
+RequiresMountsFor=/mnt/lkp-media
+ConditionPathIsMountPoint=/mnt/lkp-media
+
+[Service]
+Type=oneshot
+User=lundenburg
+WorkingDirectory=/home/lundenburg/lkp-content/current
+ExecStart=/usr/bin/node dist/src/acquisition/main.js content run --scheduled
+# Batch duration is soft. Transfer/processing progress watchdogs catch stalls.
+TimeoutStartSec=infinity
+Nice=19
+CPUSchedulingPolicy=idle
+CPUWeight=1
+CPUQuota=25%
+CPUAffinity=0 1
+AllowedCPUs=0-1
+IOWeight=1
+IOSchedulingClass=idle
+IOReadBandwidthMax=/mnt/lkp-media 8M
+IOWriteBandwidthMax=/mnt/lkp-media 4M
+MemoryHigh=384M
+MemoryMax=768M
+MemorySwapMax=0
+OOMPolicy=stop
+KillMode=control-group
+TimeoutStopSec=15
+StandardInput=null
+UMask=0027
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=read-only
+ReadWritePaths=/mnt/lkp-media/LKP /home/lundenburg/lundenburg/data /home/lundenburg/lundenburg/runtime
+# Playout is independent. There is deliberately no PartOf/BindsTo relationship,
+# broadcaster control command, or stream-credential EnvironmentFile.

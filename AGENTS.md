@@ -17,3 +17,5 @@ The root-owned `/etc/lkp-stream.env` holds Internet-stream credentials for syste
 ## Operating rule
 
 Read `README.md`, `INTERMISSIONS.md`, and the `$lkp-show-production` skill for production work. Do not start, stop, publish, schedule, or render broadcast assets unless the current request explicitly asks for it.
+
+The maintained production skill is `skills/lkp-show-production/SKILL.md`. Before implementation, compare and pull/merge newer features from the PC, Pi checkout, and active acquisition release, preserving dirty work. After implementation, test the merged features and push/synchronize source, tests, policy, and skill changes to both machines before reporting deployment complete. Never overwrite private runtime credentials or media.

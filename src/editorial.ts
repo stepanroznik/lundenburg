@@ -92,17 +92,36 @@ export function chooseBreakpoints(
 
 interface SourceRange { type: 'content' | 'credits'; fromMs: number; toMs: number }
 
+function trustedCreditIntervals(markers: EditorialMarker[], durationMs: number): Array<{ start: number; end: number }> {
+  const post = markers.filter(m => m.kind === 'post-credits' && m.confidence >= .7)
+    .map(m => ({start:m.startMs,end:m.endMs ?? durationMs}));
+  const intervals = markers.filter(m => m.kind === 'credits' && m.confidence >= .7)
+    .flatMap(m => {
+      let ranges = [{start:Math.max(0,m.startMs),end:Math.min(durationMs,m.endMs ?? durationMs)}];
+      for (const scene of post) ranges = ranges.flatMap(r => {
+        if (scene.end <= r.start || scene.start >= r.end) return [r];
+        return [{start:r.start,end:Math.min(r.end,scene.start)},{start:Math.max(r.start,scene.end),end:r.end}].filter(p => p.end > p.start);
+      });
+      return ranges;
+    }).filter(r => Number.isFinite(r.start) && Number.isFinite(r.end) && r.end > r.start)
+    .sort((a,b) => a.start-b.start);
+  const merged: Array<{start:number;end:number}> = [];
+  for (const interval of intervals) {
+    const previous = merged.at(-1);
+    if (previous && interval.start <= previous.end) previous.end = Math.max(previous.end,interval.end);
+    else merged.push({...interval});
+  }
+  return merged;
+}
+
 export function editorialEnd(markers: EditorialMarker[], durationMs: number): number {
-  return markers.filter((marker) => marker.kind === 'credits' && marker.confidence >= .7).sort((a, b) => a.startMs - b.startMs)[0]?.startMs ?? durationMs;
+  // Effective programme runtime excludes all credits, while retaining every post-credit scene.
+  return durationMs - trustedCreditIntervals(markers,durationMs).reduce((sum,r) => sum+r.end-r.start,0);
 }
 
 export function creditAwareRanges(durationMs: number, markers: EditorialMarker[], policy: CreditsPolicy, keepMs = 15_000): SourceRange[] {
   if (policy === 'full') return [{ type: 'content', fromMs: 0, toMs: durationMs }];
-  const credits = markers
-    .filter((marker) => marker.kind === 'credits' && marker.confidence >= .7)
-    .map((marker) => ({ start: Math.max(0, marker.startMs), end: Math.min(durationMs, marker.endMs ?? durationMs) }))
-    .filter((marker) => marker.end > marker.start)
-    .sort((a, b) => a.start - b.start);
+  const credits = trustedCreditIntervals(markers,durationMs);
   if (!credits.length) return [{ type: 'content', fromMs: 0, toMs: durationMs }];
   const ranges: SourceRange[] = [];
   let cursor = 0;

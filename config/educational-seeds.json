@@ -1,0 +1,384 @@
+{
+  "version": 1,
+  "note": "Source identities resolved through pinned official channel inventories on 2026-10-08. Suggested ranks are user editorial hints, not admission decisions. The versioned classifier makes the persisted decision.",
+  "programmes": [
+    {
+      "showId": "miss-josi",
+      "channelId": "UC2NKVbtgZEaJNBflx5bwHAg",
+      "videos": [
+        {
+          "sourceId": "BY5f7KKCne8",
+          "title": "Trailer for the new Miss Josi video - Play and learn with Miss Josi",
+          "durationMs": 25000,
+          "suggestedRank": "X"
+        },
+        {
+          "sourceId": "LGJkJND9GYc",
+          "title": "Discover the Kindergarten | Fun, Games & Adventures with Miss Josi | Treasure Hunt in the Drushba...",
+          "durationMs": 1710000,
+          "suggestedRank": "B"
+        },
+        {
+          "sourceId": "burNMQ5_AHs",
+          "title": "Pony farm, playground, adventure - learn with Miss Josi at the Familotel \"Elldus Resort\" in Oberw...",
+          "durationMs": 2537000,
+          "suggestedRank": "B/C"
+        },
+        {
+          "sourceId": "bo_V75GD4yc",
+          "title": "Fun and games at the interactive park | Discover and learn at Irrlandia | Miss Josi - Learning fo...",
+          "durationMs": 2004000,
+          "suggestedRank": "B/C"
+        },
+        {
+          "sourceId": "Bh8UyONRmbQ",
+          "title": "Erste Worte spielerisch lernen in Deutsch & Englisch | Lernen für Kleine mit Miss Josi",
+          "durationMs": 755000,
+          "suggestedRank": "A"
+        },
+        {
+          "sourceId": "DTFABPEkpEs",
+          "title": "Spiel und Spaß in der Kinderspielstadt - Erkunde, spiele und lerne mit Miss Josi - Lernen für Kleine",
+          "durationMs": 1189000,
+          "suggestedRank": "A"
+        },
+        {
+          "sourceId": "NEv0X0p41b8",
+          "title": "Lernvideos für Kleinkinder | Farben, Zahlen, Tiere, ABC & Sprachentwicklung |  60 Min. mit Miss Josi",
+          "durationMs": 3764000,
+          "suggestedRank": "C"
+        },
+        {
+          "sourceId": "QAwcj1_Ph_s",
+          "title": "Lernen für Kleine mit Spiel & Spaß | Entdecke Outdoor- & Indoor-Spielplätze mit Miss Josi",
+          "durationMs": 1116000,
+          "suggestedRank": "A"
+        },
+        {
+          "sourceId": "sZ9Wkiunc9M",
+          "title": "Sommerrodelbahn, Indoorspielplatz, Murmelbahn und mehr! Lernen für Kleine mit Miss Josi",
+          "durationMs": 1014000,
+          "suggestedRank": "B"
+        },
+        {
+          "sourceId": "E76i8HuO70Y",
+          "title": "Entdecke den Wasserpark | Wasserspaß für Kinder | Lernen für Kleine mit Miss Josi",
+          "durationMs": 556000,
+          "suggestedRank": "B"
+        },
+        {
+          "sourceId": "K5kiGoKQuuQ",
+          "title": "Überraschung! Was ist in der Box? Lern sprechen mit Miss Josi - Videos für Babys und Kleinkinder",
+          "durationMs": 1002000,
+          "suggestedRank": "A+"
+        },
+        {
+          "sourceId": "bOkoekYtMmU",
+          "title": "Lerne sprechen mit Miss Josi | Spielen & Lernen auf dem Spielplatz | Videos für Babys & Kleinkinder",
+          "durationMs": 1102000,
+          "suggestedRank": "A+"
+        },
+        {
+          "sourceId": "nmN-s_0vm6o",
+          "title": "Tiere für Kleinkinder - Part 3 | Tiere für Kinder | Lernen für Kleine mit Miss Josi",
+          "durationMs": 541000,
+          "suggestedRank": "A"
+        },
+        {
+          "sourceId": "A3edk75_xMU",
+          "title": "Spiel und Spaß und Zählen | Lernen für Kleine mit Miss Josi | Lass uns singen, spielen und zählen",
+          "durationMs": 868000,
+          "suggestedRank": "A"
+        },
+        {
+          "sourceId": "Gzgs6Fz8ZCQ",
+          "title": "Die Jahreszeiten und das Jahreszeitenlied | Erste Worte lernen mit Miss Josi",
+          "durationMs": 1264000,
+          "suggestedRank": "A"
+        },
+        {
+          "sourceId": "ligCgq_1gVE",
+          "title": "Tiere für Kleinkinder - Part 2 | Tiere für Kinder | Lernen für Kleine mit Miss Josi",
+          "durationMs": 582000,
+          "suggestedRank": "A"
+        },
+        {
+          "sourceId": "fjGTFiKfTsw",
+          "title": "Tiere für Kleinkinder - Part 1 | Tiere für Kinder | Lernen für Kleine mit Miss Josi",
+          "durationMs": 732000,
+          "suggestedRank": "A"
+        },
+        {
+          "sourceId": "z7KDRVI01-4",
+          "title": "Babyzeichen und erste Worte lernen mit Miss Josi - Part 2  | Zeichensprache für Babys | Babygebärden",
+          "durationMs": 594000,
+          "suggestedRank": "A+"
+        },
+        {
+          "sourceId": "sTgPIRxskDI",
+          "title": "Babyzeichen und erste Worte lernen mit Miss Josi | Zeichensprache für Babys | Lernen für Kleine",
+          "durationMs": 702000,
+          "suggestedRank": "A+"
+        },
+        {
+          "sourceId": "ak6cO7Qf76M",
+          "title": "Ein Eis Video für Kinder | Miss Josi spielt mit Spieleis und singt ein Eislied | Lernen für Kleine",
+          "durationMs": 379000,
+          "suggestedRank": "B"
+        },
+        {
+          "sourceId": "1lJPAMRv9L8",
+          "title": "Bewegung und Sport für Kinder | Fitness zum Mitmachen | Spielerisch lernen mit Miss Josi",
+          "durationMs": 568000,
+          "suggestedRank": "A"
+        },
+        {
+          "sourceId": "aU1pbTxfm68",
+          "title": "\"Ich sehe was, was du nicht siehst\" | Lernen mit Miss Josi | Lernvideos für Babys und Kleinkinder",
+          "durationMs": 372000,
+          "suggestedRank": "A"
+        },
+        {
+          "sourceId": "n_yt5weWLnc",
+          "title": "Lernen für Kleine mit Miss Josi | Spielen macht Spass | Lernvideos für Babys  & Kleinkinder",
+          "durationMs": 787000,
+          "suggestedRank": "A"
+        },
+        {
+          "sourceId": "qWhyIw9ysSQ",
+          "title": "Bubble Pop Zahlenlied | Nummern 1-10 | Erste Worte und Zahlen spielerisch lernen mit Miss Josi",
+          "durationMs": 202000,
+          "suggestedRank": "B"
+        },
+        {
+          "sourceId": "-yuH6vzR1t8",
+          "title": "Erste Worte und Zahlen spielerisch lernen | Mit Miss Josi | Zahlenlied Nummern 1-20 | Babys lernen",
+          "durationMs": 716000,
+          "suggestedRank": "A"
+        },
+        {
+          "sourceId": "xJLrj5RmJvU",
+          "title": "ABC Lied | \"A für Apfel\" | Anlautlied | Kinderlieder zum Mitsingen mit Miss Josi - Lernen für Kleine",
+          "durationMs": 133000,
+          "suggestedRank": "B"
+        },
+        {
+          "sourceId": "XtU4QsQedCM",
+          "title": "Der Kindergeburtstag | Mit Kinderliedern, Geschenken uvm. |  Lernen für Kleine mit Miss Josi",
+          "durationMs": 746000,
+          "suggestedRank": "A"
+        },
+        {
+          "sourceId": "3WAj6gmjJTY",
+          "title": "Weihnachtslieder und Weihnachtstraditionen kennen lernen mit Miss Josi | Für Babys und Kleinkinder",
+          "durationMs": 691000,
+          "suggestedRank": "A"
+        },
+        {
+          "sourceId": "ZlO2YmtCOmY",
+          "title": "Zähneputzen und Morgenroutine spielerisch lernen | Lernvideos mit Miss Josi für Babys & Kleinkinder",
+          "durationMs": 699000,
+          "suggestedRank": "A+"
+        },
+        {
+          "sourceId": "__UPPyEuYWQ",
+          "title": "Kinderlieder zum Mitmachen - Bewegungslieder für Babys & Kleinkinder - Lernen für Kleine- Miss Josi",
+          "durationMs": 747000,
+          "suggestedRank": "A"
+        },
+        {
+          "sourceId": "nUOTDdU0BHs",
+          "title": "Der Bauernhof - Tiere kennen lernen und Lieder singen mit Miss Josi - für Babys und Kleinkinder",
+          "durationMs": 679000,
+          "suggestedRank": "A+"
+        },
+        {
+          "sourceId": "VUY6ddSczao",
+          "title": "Farben spielerisch lernen - für Babys und Kleinkinder - Lernen für Kleine mit Miss Josi - Lernvideos",
+          "durationMs": 715000,
+          "suggestedRank": "A"
+        },
+        {
+          "sourceId": "oGkTGI1mVME",
+          "title": "Kinderlieder zum Mitmachen - Lernen für Kleine mit Miss Josi (Lernvideos für Babys und Kleinkinder)",
+          "durationMs": 792000,
+          "suggestedRank": "A"
+        },
+        {
+          "sourceId": "Dd_rgku4wtY",
+          "title": "Lernen für Kleine mit Miss Josi - Lernvideos für Babys und Kleinkinder - Erste Worte - Folge 2",
+          "durationMs": 677000,
+          "suggestedRank": "A+"
+        },
+        {
+          "sourceId": "d-uF2J9xAWQ",
+          "title": "Lernen für Kleine mit Miss Josi - Lernvideos für Babys und Kleinkinder -  Erste Worte - Folge 1",
+          "durationMs": 746000,
+          "suggestedRank": "A+"
+        }
+      ]
+    },
+    {
+      "showId": "ms-rachel",
+      "channelId": "UCG2CL6EUjG8TVT1Tpl9nJdg",
+      "videos": [
+        {
+          "sourceId": "P-QLrDbOl1E",
+          "title": "Learn Colors with Ms Rachel - I Love A Rainbow Song - NEW ALBUM VERSION - Toddler Learning",
+          "durationMs": 3027000,
+          "suggestedRank": "C"
+        },
+        {
+          "sourceId": "yQyEmZIw1e8",
+          "title": "Caterpillar Song - Kids Songs and Nursery Rhymes - Songs for Toddlers - Ms Rachel Songs on YouTube",
+          "durationMs": 3623000,
+          "suggestedRank": "C"
+        },
+        {
+          "sourceId": "w264Mn-2MnQ",
+          "title": "Learn to Talk for Babies and Toddlers - Ms Rachel visits the Play Street Museum in Manhattan!",
+          "durationMs": 1842000,
+          "suggestedRank": "A+"
+        },
+        {
+          "sourceId": "8KtnrtHRiCg",
+          "title": "Animal Learning for Toddlers with Ms Rachel - 3 Full Episodes - Learn Animal Sounds - Best Videos",
+          "durationMs": 9088000,
+          "suggestedRank": "C"
+        },
+        {
+          "sourceId": "1v3Dk41C_10",
+          "title": "Phonics Song + More Kids Songs & Nursery Rhymes - Learn Letter Sounds - Videos for Kids - Ms Rachel",
+          "durationMs": 3618000,
+          "suggestedRank": "B/C"
+        },
+        {
+          "sourceId": "2dDpryw3z5w",
+          "title": "Learn with Ms Rachel - Friendship & Social Skills - Videos for Kids - Colors, Letters & Counting",
+          "durationMs": 3677000,
+          "suggestedRank": "A"
+        },
+        {
+          "sourceId": "tYDuAfY77Do",
+          "title": "Brush Your Teeth Song with Ms Rachel and Elmo - Timer - Kids Songs and Nursery Rhymes",
+          "durationMs": 3601000,
+          "suggestedRank": "A"
+        },
+        {
+          "sourceId": "qXKsou9UmfY",
+          "title": "Potty Training with Ms Rachel - Toddler Learning Video - Potty Songs for Toddlers - Potty Song",
+          "durationMs": 2289000,
+          "suggestedRank": "A"
+        },
+        {
+          "sourceId": "drkVagtmIJA",
+          "title": "Hide and Seek with Ms Rachel & Elmo + More Games, Kids Songs, Nursery Rhymes & Social Skills",
+          "durationMs": 3746000,
+          "suggestedRank": "A"
+        },
+        {
+          "sourceId": "K_Aq4H03Nm4",
+          "title": "Preschool & Toddler Learning Video with Ms Rachel - Learn Shapes, Letters, Numbers, Colors & More",
+          "durationMs": 3003000,
+          "suggestedRank": "A"
+        },
+        {
+          "sourceId": "GLigE_f4dl0",
+          "title": "I Love A Rainbow with Ms Rachel, Elmo & Abby + MORE Nursery Rhymes & Kids Songs - Toddler Songs",
+          "durationMs": 3689000,
+          "suggestedRank": "B"
+        },
+        {
+          "sourceId": "h67AgK4EHq4",
+          "title": "Toddler Learning with Ms Rachel - Nursery Rhymes & Kids Songs - Baby Video - Milestones & Speech",
+          "durationMs": 2170000,
+          "suggestedRank": "A+"
+        },
+        {
+          "sourceId": "b051ktudQDQ",
+          "title": "ABC Song - The Alphabet - ABCs & 123s - Phonics - Kids Songs & Nursery Rhymes for Children",
+          "durationMs": 3775000,
+          "suggestedRank": "B"
+        },
+        {
+          "sourceId": "nnqsEUxgSBQ",
+          "title": "Ms Rachel & Elmo Get Ready For School - ABC Song, Numbers, Colors - Toddler & Preschool Learning",
+          "durationMs": 3634000,
+          "suggestedRank": "A"
+        },
+        {
+          "sourceId": "VvoO9-L1KA4",
+          "title": "Learn To Talk with Ms Rachel - Toddler Learning Video - Learn Colors, Numbers, Emotions & Feelings",
+          "durationMs": 3621000,
+          "suggestedRank": "A+"
+        },
+        {
+          "sourceId": "gngPQ771Ahk",
+          "title": "Hop Little Bunnies Hop Hop Hop + More Ms Rachel Nursery Rhymes & Kids Songs",
+          "durationMs": 5421000,
+          "suggestedRank": "C"
+        },
+        {
+          "sourceId": "oVtzNpzuvoA",
+          "title": "Learn with Ms Rachel - Phonics Song - Learn to Read - Preschool Learning - Kids Songs & Videos",
+          "durationMs": 2192000,
+          "suggestedRank": "B"
+        },
+        {
+          "sourceId": "oEn7XBxOXSw",
+          "title": "Ms Rachel Visits the Doctor for a Checkup - Doctor Checkup Song - Toddler Learning - Healthy Habits",
+          "durationMs": 1790000,
+          "suggestedRank": "A"
+        },
+        {
+          "sourceId": "O5xC8T1XsE4",
+          "title": "Blippi and Ms Rachel Fire Truck Song and Wheels on the Bus - Nursery Rhymes and Kids Songs",
+          "durationMs": 4043000,
+          "suggestedRank": "B"
+        },
+        {
+          "sourceId": "w1lRsjY2EmI",
+          "title": "Christmas Songs for Kids - Jingle Bells + More Nursery Rhymes & Kids Songs - Ms Rachel",
+          "durationMs": 3304000,
+          "suggestedRank": "B"
+        },
+        {
+          "sourceId": "_Z0ZQT0FttM",
+          "title": "Toddler Learning with Ms Rachel - Learn Zoo Animals - Kids Songs - Educational Videos for Toddlers",
+          "durationMs": 5144000,
+          "suggestedRank": "A+"
+        },
+        {
+          "sourceId": "gFuEoxh5hd4",
+          "title": "Blippi & Ms Rachel Learn Vehicles - Wheels on the Bus - Videos for Kids - Tractor, Car, Truck + More",
+          "durationMs": 1807000,
+          "suggestedRank": "B"
+        },
+        {
+          "sourceId": "xkYved-ucGg",
+          "title": "Learn to Talk with Ms Rachel - Videos for Toddlers - Nursery Rhymes & Kids Songs - Speech Practice",
+          "durationMs": 3620000,
+          "suggestedRank": "A+"
+        },
+        {
+          "sourceId": "axhYc_4jL3Y",
+          "title": "Bingo + More Nursery Rhymes & Kids Songs - Ms Rachel",
+          "durationMs": 3738000,
+          "suggestedRank": "C"
+        },
+        {
+          "sourceId": "zwL2o4jZxbc",
+          "title": "Baby’s First Words with Ms Rachel - Videos for Babies",
+          "durationMs": 1803000,
+          "suggestedRank": "A+"
+        },
+        {
+          "sourceId": "jBvzOfT8_44",
+          "title": "🔴 Learn with Ms Rachel - Toddler Learning - Kids Songs & Nursery Rhymes - Wheels On The Bus",
+          "durationMs": 0,
+          "suggestedRank": "X"
+        }
+      ]
+    }
+  ]
+}

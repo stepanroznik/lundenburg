@@ -62,6 +62,13 @@ including `.generated`, are excluded from the ordinary weighted catalogue.
 
 Supported video containers are MKV, MP4, and MOV. `show.yaml` supports `id`, `title`, `description`, `language`, `weight`, and `enabled`. Episode YAML supports `id`, `title`, `description`, `season`, `episode`, and `enabled`. Obvious season, episode, and title data are parsed from `S01E03 - Title.mp4`; YAML only supplies or overrides what cannot be inferred. See [examples/media-library](examples/media-library) for the live catalogue’s metadata.
 
+Add `kind: movie` to a film's `show.yaml` to exclude season/episode numbering.
+Series retain source episode numbers or receive stable local catalogue numbers;
+seasons remain optional. Scanning and acquisition share title cleanup and numbering
+rules. `npm run lkp -- media normalize` previews existing metadata changes without
+probing videos; `--write` backs up SQLite and sidecars, then updates the catalogue, episode YAML and future listing metadata without changing programme times or event IDs.
+See [ACQUISITION.md](ACQUISITION.md) for numbering provenance and scheduling boundaries.
+
 Sidecars must be UTF-8 and use the exact video stem plus `.cs.srt`, `.de.srt`, `.en.srt` (ASS is also indexed). Source files are never rewritten by the scanner.
 
 ### Ingest and editorial metadata
@@ -135,6 +142,40 @@ The supplied SVG is committed at [assets/logo/lkp-logo.svg](assets/logo/lkp-logo
 
 ## Catalogue and schedule
 
+### Coming up strip
+
+Programmes longer than 16 editorial minutes receive a live German programme
+strip near their ending. Five unequal panels in the logo's red, orange, yellow,
+green and blue slide in as a stack, unfold in sequence, hold for reading, fold
+back together and slide left off screen. The full-width strip sits above the
+bottom safe margin; programme audio continues unchanged.
+
+The first panel shows **JETZT**, followed by **GLEICH**, **DANACH**, **SPÄTER** and
+**ANSCHLIESSEND**. Titles come from the catalogue, with German season/episode
+labels. The four upcoming public programmes follow the authoritative schedule,
+skipping ads and hidden continuity (weather remains visible). The strip is
+omitted when fewer than four future public programmes exist.
+
+`comingUp` in `config/lkp.yaml` controls enablement, the strict duration threshold,
+lead and display duration. Defaults are 16 minutes, 60 seconds before the end,
+and 20 seconds on screen. Eligibility excludes embedded ads/intermissions.
+For segmented programmes the strip stays in the final content/credits run; if
+necessary it starts later, or is omitted when that run is too short. Restarts
+resume the correct animation phase; an already finished strip is not replayed.
+Text is drawn once per encoder into five finite colour sources, then moved by
+the existing FFmpeg compositor. No extra media assets or schedule rows are needed.
+
+An interactive preview with sample German titles can be created locally:
+
+```bash
+npm run coming-up:preview
+# Open runtime/coming-up-preview/index.html in a browser.
+```
+
+This only writes a standalone preview page; it does not access the schedule or
+start playout. Deploying the code/config and restarting production are separate
+operations.
+
 Future events may contain an immutable playout plan: content ranges, shortened
 credits, WERBUNG bumper, one or two ads, an LKP intermission, and resumed content.
 Only programmes longer than 35 editorial minutes qualify, and only every other
@@ -172,6 +213,14 @@ less runtime/epg.xml
 ```
 
 TSDuck `eitinject` reorganizes those events into actual present/following and schedule EIT at runtime.
+
+## Automated content acquisition
+
+The independent acquisition worker shares the authoritative catalogue, indexes
+existing media first, applies bounded toddler-programme subscriptions, and ingests
+manual incoming files without prompts. It uses low-priority resource limits and
+regenerates only safe future scheduling without restarting playout. See
+[ACQUISITION.md](ACQUISITION.md) for policy, deployment, commands and limitations.
 
 ## Advertising inventory
 
@@ -319,19 +368,6 @@ Automated coverage includes determinism, persistence, extension, episode order, 
 - `data` and `runtime` — ignored mutable state
 
 ## Weather show
-
-The isolated Pi renderer at `/home/lundenburg/lkp-weather` must publish to
-`/home/lundenburg/lundenburg/data/lkp.sqlite` and update the main
-`runtime/epg.xml`. Its installer writes absolute paths; `--configure-only`
-repairs them without reinstalling dependencies. The supplied weather service
-also pins `LKP_DATABASE` and `LKP_EPG_OUTPUT`. An empty schedule is an error,
-not a successful skipped edition. Weather videos stay on the external drive
-under `/mnt/lkp-media/LKP/.generated/lkp-wetterfreunde`.
-
-DVB event identities are persisted independently of schedule sequence numbers,
-so weather/intermission insertion does not rename existing TV guide events.
-EPG boundaries use consistent whole-second timestamps and hide continuity
-items inside the preceding programme.
 
 The weather module prepares standalone 1080p30 H.264/AAC MP4 programmes. It
 does not start DVB or RF. Four layered SVG presenters share a recurring studio

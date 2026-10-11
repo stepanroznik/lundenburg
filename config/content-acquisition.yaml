@@ -1,0 +1,762 @@
+version: 1
+reserveBytes: 80000000000
+maxNewBytes: null
+downloadBytesPerSecond: 2097152
+copyBytesPerSecond: 4194304
+jobsPerRun: 6
+stableSeconds: 120
+maxRunSeconds: 2700
+connectTimeoutSeconds: 20
+downloadStallSeconds: 120
+idlePollSeconds: 1800
+vpnFallback:
+  enabled: true
+  helper: scripts/download-hide-vpn.py
+  tokenFile: runtime/acquisition/vpn/accessToken.txt
+discoveryLimit: 400
+scheduleGuardSeconds: 900
+metadataModel: gpt-4.1-mini
+metadataRequestsPerRun: 12
+credentialsFile: runtime/weather/credentials.env
+subtitleRequestsPerDay: 200
+subtitleDownloadsPerDay: 40
+subtitleProviders:
+  - name: subdl
+    keyEnv: SUBDL_API_KEY
+editorialProviders:
+  - name: theintrodb
+    endpoint: https://api.theintrodb.org/v3/media
+subscriptions:
+  - id: sendung-mit-dem-elefanten
+    title: Die Sendung mit dem Elefanten
+    aliases:
+      - Sendung mit dem Elefanten
+      - Die Sendung mit dem Elefanten
+    description: Lach- und Sachgeschichten erklären kleinen Kindern Natur, Sprache
+      und Alltag.
+    language: de
+    source: mediathek
+    queries:
+      - Sendung mit dem Elefanten
+    urls: []
+    targetEpisodes: 50
+    maxEpisodes: 50
+    maxTotalDuration: 90000
+    maxBytes: null
+    priority: 100
+    minDuration: 1200
+    maxDuration: 1800
+    preferredEras:
+      - 2015
+    preferredSeasons: []
+    preferredFormats:
+      - episode
+    include: []
+    exclude:
+      - \b(?:Trailer|Vorschau|Teaser|Making.of|Gebärdensprache|Audiodeskription)\b
+    replacementPolicy: report
+    allowCompilations: false
+    allowShortClips: false
+  - id: bobo-siebenschlaefer
+    title: Bobo Siebenschläfer
+    aliases:
+      - Bobo Siebenschläfer
+    description: Bobo entdeckt mit seiner Familie die kleinen Abenteuer des Alltags.
+    language: de
+    source: mediathek
+    queries:
+      - Bobo Siebenschläfer
+    urls: []
+    targetEpisodes: 50
+    maxEpisodes: 50
+    maxTotalDuration: 30000
+    maxBytes: null
+    priority: 95
+    minDuration: 240
+    maxDuration: 600
+    preferredEras:
+      - 2015
+    preferredSeasons: []
+    preferredFormats:
+      - episode
+    include: []
+    exclude:
+      - \b(?:Trailer|Vorschau|Teaser|Making.of|Gebärdensprache|Audiodeskription)\b
+    replacementPolicy: report
+    allowCompilations: false
+    allowShortClips: false
+  - id: kikaninchen
+    title: KiKANiNCHEN
+    aliases:
+      - KiKANiNCHEN
+    description: KiKANiNCHEN lädt mit Spielen, Liedern und kleinen Geschichten zum
+      Entdecken ein.
+    language: de
+    source: mediathek
+    queries:
+      - KiKANiNCHEN
+    urls: []
+    targetEpisodes: 75
+    maxEpisodes: 75
+    maxTotalDuration: 135000
+    maxBytes: null
+    priority: 95
+    minDuration: 300
+    maxDuration: 1800
+    preferredEras:
+      - 2015
+    preferredSeasons: []
+    preferredFormats:
+      - episode
+    include: []
+    exclude:
+      - \b(?:Trailer|Vorschau|Teaser|Making.of|Gebärdensprache|Audiodeskription)\b
+    replacementPolicy: report
+    allowCompilations: true
+    allowShortClips: false
+  - id: unser-sandmaennchen
+    title: Unser Sandmännchen
+    aliases:
+      - Unser Sandmännchen
+      - Sandmännchen
+    description: Das Sandmännchen bringt eine kurze Gute-Nacht-Geschichte für kleine Kinder.
+    language: de
+    source: mediathek
+    queries:
+      - Unser Sandmännchen
+    urls: []
+    targetEpisodes: 100
+    maxEpisodes: 100
+    maxTotalDuration: 72000
+    maxBytes: null
+    priority: 95
+    minDuration: 240
+    maxDuration: 720
+    preferredEras:
+      - 2015
+    preferredSeasons: []
+    preferredFormats:
+      - episode
+    include:
+      - Schmusedecke|Pittiplatsch|Kalli|Jan\s*(?:&|und)\s*Henry|Fuchs\s*und\s*Elster|Plumps|Herr
+        Fuchs|Moppi
+    exclude:
+      - \b(?:Trailer|Vorschau|Teaser|Making.of|Gebärdensprache|Audiodeskription)\b
+    replacementPolicy: report
+    allowCompilations: false
+    allowShortClips: false
+  - id: peppa-wutz
+    title: Peppa Wutz
+    aliases: []
+    description: Peppa erlebt mit ihrer Familie und ihren Freunden kleine Alltagsabenteuer.
+    language: de
+    source: manual
+    queries: []
+    urls: []
+    targetEpisodes: 60
+    maxEpisodes: 60
+    maxTotalDuration: 28800
+    maxBytes: null
+    priority: 90
+    minDuration: 240
+    maxDuration: 480
+    preferredEras:
+      - 2015
+    preferredSeasons: []
+    preferredFormats:
+      - episode
+    include: []
+    exclude:
+      - \b(?:Trailer|Vorschau|Teaser|Making.of|Gebärdensprache|Audiodeskription)\b
+    replacementPolicy: report
+    allowCompilations: false
+    allowShortClips: false
+  - id: sesamstrasse
+    title: Sesamstraße
+    aliases:
+      - Sesamstraße
+    description: Ernie, Bert und ihre Freunde entdecken spielerisch die Welt.
+    language: de
+    source: mediathek
+    queries:
+      - Sesamstraße
+    urls: []
+    targetEpisodes: 50
+    maxEpisodes: 50
+    maxTotalDuration: 90000
+    maxBytes: null
+    priority: 80
+    minDuration: 900
+    maxDuration: 1800
+    preferredEras:
+      - 2015
+    preferredSeasons: []
+    preferredFormats:
+      - episode
+    include:
+      - Ernie|Bert|Elmo|Grobi|Krümelmonster
+    exclude:
+      - \b(?:Trailer|Vorschau|Teaser|Making.of|Gebärdensprache|Audiodeskription)\b
+      - \b(?:19[5-9][0-9]|200[0-9])\b
+    replacementPolicy: report
+    allowCompilations: false
+    allowShortClips: false
+  - id: bing
+    title: Bing
+    aliases: []
+    description: Bing erlebt die kleinen Herausforderungen des Alltags mit seinen Freunden.
+    language: de
+    source: manual
+    queries: []
+    urls: []
+    targetEpisodes: 50
+    maxEpisodes: 50
+    maxTotalDuration: 30000
+    maxBytes: null
+    priority: 85
+    minDuration: 300
+    maxDuration: 600
+    preferredEras:
+      - 2015
+    preferredSeasons: []
+    preferredFormats:
+      - episode
+    include: []
+    exclude:
+      - \b(?:Trailer|Vorschau|Teaser|Making.of|Gebärdensprache|Audiodeskription)\b
+    replacementPolicy: report
+    allowCompilations: false
+    allowShortClips: false
+  - id: servus-kasperl
+    title: Servus Kasperl
+    aliases:
+      - Servus Kasperl
+    description: Kasperl und seine Freunde erleben lustige Abenteuer im
+      österreichischen Puppentheater.
+    language: de
+    source: mediathek
+    queries:
+      - Servus Kasperl
+    urls: []
+    targetEpisodes: 40
+    maxEpisodes: 40
+    maxTotalDuration: 72000
+    maxBytes: null
+    priority: 85
+    minDuration: 600
+    maxDuration: 1800
+    preferredEras:
+      - 2015
+    preferredSeasons: []
+    preferredFormats:
+      - episode
+    include: []
+    exclude:
+      - \b(?:Trailer|Vorschau|Teaser|Making.of|Gebärdensprache|Audiodeskription)\b
+    replacementPolicy: report
+    allowCompilations: false
+    allowShortClips: false
+  - id: abc-baer
+    title: ABC Bär
+    aliases:
+      - ABC Bär
+      - ABC-Bär
+    description: ABC Bär entdeckt mit seinen Freunden Buchstaben, Zahlen und Musik.
+    language: de
+    source: mediathek
+    queries:
+      - ABC Bär
+    urls: []
+    targetEpisodes: 40
+    maxEpisodes: 40
+    maxTotalDuration: 60000
+    maxBytes: null
+    priority: 90
+    minDuration: 300
+    maxDuration: 1500
+    preferredEras:
+      - 2015
+    preferredSeasons: []
+    preferredFormats:
+      - episode
+    include: []
+    exclude:
+      - \b(?:Trailer|Vorschau|Teaser|Making.of|Gebärdensprache|Audiodeskription)\b
+    replacementPolicy: report
+    allowCompilations: false
+    allowShortClips: false
+  - id: tolle-tiere
+    title: Tolle Tiere
+    aliases:
+      - Tolle Tiere
+    description: Eine österreichische Kindersendung stellt Tiere und ihre Lebenswelt vor.
+    language: de
+    source: mediathek
+    queries:
+      - Tolle Tiere
+    urls: []
+    targetEpisodes: 40
+    maxEpisodes: 40
+    maxTotalDuration: 60000
+    maxBytes: null
+    priority: 85
+    minDuration: 300
+    maxDuration: 1500
+    preferredEras:
+      - 2015
+    preferredSeasons: []
+    preferredFormats:
+      - episode
+    include: []
+    exclude:
+      - \b(?:Trailer|Vorschau|Teaser|Making.of|Gebärdensprache|Audiodeskription)\b
+    replacementPolicy: report
+    allowCompilations: false
+    allowShortClips: false
+  - id: sarah-and-duck
+    title: Sarah & Duck
+    aliases:
+      - Sarah and Duck
+    description: Sarah und ihre Ente entdecken ihre Umgebung mit Fantasie und Neugier.
+    language: en
+    source: manual
+    queries: []
+    urls: []
+    targetEpisodes: 50
+    maxEpisodes: 50
+    maxTotalDuration: 36000
+    maxBytes: null
+    priority: 45
+    minDuration: 300
+    maxDuration: 720
+    preferredEras: []
+    preferredSeasons: []
+    preferredFormats:
+      - episode
+    include: []
+    exclude:
+      - \b(?:Trailer|Vorschau|Teaser|Making.of|Gebärdensprache|Audiodeskription)\b
+    replacementPolicy: report
+    allowCompilations: false
+    allowShortClips: false
+  - id: puffin-rock
+    title: Puffin Rock
+    aliases: []
+    description: Die Papageitaucher Oona und Baba entdecken die Natur ihrer kleinen Insel.
+    language: en
+    source: manual
+    queries: []
+    urls: []
+    targetEpisodes: 50
+    maxEpisodes: 50
+    maxTotalDuration: 36000
+    maxBytes: null
+    priority: 45
+    minDuration: 300
+    maxDuration: 720
+    preferredEras: []
+    preferredSeasons: []
+    preferredFormats:
+      - episode
+    include: []
+    exclude:
+      - \b(?:Trailer|Vorschau|Teaser|Making.of|Gebärdensprache|Audiodeskription)\b
+    replacementPolicy: report
+    allowCompilations: false
+    allowShortClips: false
+  - id: kipper
+    title: Kipper
+    aliases: []
+    description: Der freundliche Hund Kipper erlebt mit seinen Freunden ruhige
+      Alltagsabenteuer.
+    language: en
+    source: manual
+    queries: []
+    urls: []
+    targetEpisodes: 50
+    maxEpisodes: 50
+    maxTotalDuration: 36000
+    maxBytes: null
+    priority: 40
+    minDuration: 300
+    maxDuration: 720
+    preferredEras: []
+    preferredSeasons: []
+    preferredFormats:
+      - episode
+    include: []
+    exclude:
+      - \b(?:Trailer|Vorschau|Teaser|Making.of|Gebärdensprache|Audiodeskription)\b
+    replacementPolicy: report
+    allowCompilations: false
+    allowShortClips: false
+  - id: teletubbies
+    title: Teletubbies
+    aliases: []
+    description: Die Teletubbies spielen und entdecken Farben, Bewegungen und
+      alltägliche Dinge.
+    language: en
+    source: youtube
+    queries: []
+    urls:
+      - https://www.youtube.com/playlist?list=PLmdZ3yaBIVIW-OxGcVRCtD63thztEGK4_
+    targetEpisodes: 200
+    maxEpisodes: 200
+    maxTotalDuration: 360000
+    maxBytes: null
+    priority: 70
+    minDuration: 600
+    maxDuration: 1800
+    preferredEras: []
+    preferredSeasons: []
+    preferredFormats:
+      - episode
+    include: []
+    exclude:
+      - \b(?:Trailer|Vorschau|Teaser|Making.of|Gebärdensprache|Audiodeskription)\b
+    replacementPolicy: report
+    allowCompilations: false
+    allowShortClips: false
+    channelId: UCOk55dAgB8VnMlhaTEMeX5A
+  - id: bob-a-bobek
+    title: Bob a Bobek
+    aliases: []
+    description: Die beiden Kaninchen Bob und Bobek erleben fantasievolle Abenteuer.
+    language: cs
+    source: ct
+    queries: []
+    urls:
+      - https://www.ceskatelevize.cz/porady/902567-bob-a-bobek-kralici-z-klobouku/
+    targetEpisodes: 40
+    maxEpisodes: 40
+    maxTotalDuration: 28800
+    maxBytes: null
+    priority: 60
+    minDuration: 240
+    maxDuration: 720
+    preferredEras: []
+    preferredSeasons: []
+    preferredFormats:
+      - episode
+    include: []
+    exclude:
+      - \b(?:Trailer|Vorschau|Teaser|Making.of|Gebärdensprache|Audiodeskription)\b
+    replacementPolicy: report
+    allowCompilations: false
+    allowShortClips: false
+  - id: maxipes-fik
+    title: Maxipes Fík
+    aliases: []
+    description: Der riesige Hund Fík und das Mädchen Ája erleben fröhliche Abenteuer.
+    language: cs
+    source: ct
+    queries: []
+    urls:
+      - https://www.ceskatelevize.cz/porady/870994-maxipes-fik/
+    targetEpisodes: 26
+    maxEpisodes: 26
+    maxTotalDuration: 18720
+    maxBytes: null
+    priority: 60
+    minDuration: 240
+    maxDuration: 720
+    preferredEras: []
+    preferredSeasons: []
+    preferredFormats:
+      - episode
+    include: []
+    exclude:
+      - \b(?:Trailer|Vorschau|Teaser|Making.of|Gebärdensprache|Audiodeskription)\b
+    replacementPolicy: report
+    allowCompilations: false
+    allowShortClips: false
+  - id: rakosnicek
+    title: Rákosníček
+    aliases: []
+    description: Der kleine grüne Rákosníček hilft seinen Freunden am Teich und am
+      Sternenhimmel.
+    language: cs
+    source: ct
+    queries: []
+    urls:
+      - https://www.ceskatelevize.cz/porady/898331-rakosnicek/
+    targetEpisodes: 40
+    maxEpisodes: 40
+    maxTotalDuration: 28800
+    maxBytes: null
+    priority: 60
+    minDuration: 240
+    maxDuration: 720
+    preferredEras: []
+    preferredSeasons: []
+    preferredFormats:
+      - episode
+    include: []
+    exclude:
+      - \b(?:Trailer|Vorschau|Teaser|Making.of|Gebärdensprache|Audiodeskription)\b
+    replacementPolicy: report
+    allowCompilations: false
+    allowShortClips: false
+  - id: byl-jednou-jeden-zivot
+    title: Es war einmal … das Leben
+    aliases:
+      - Byl jednou jeden život
+    description: Eine Zeichentrickserie erklärt den menschlichen Körper und seine
+      natürlichen Abwehrmechanismen.
+    language: cs
+    source: ct
+    queries: []
+    urls:
+      - https://www.ceskatelevize.cz/porady/872965-byl-jednou-jeden-zivot/
+    targetEpisodes: 26
+    maxEpisodes: 26
+    maxTotalDuration: 46800
+    maxBytes: null
+    priority: 80
+    minDuration: 1200
+    maxDuration: 1800
+    preferredEras: []
+    preferredSeasons: []
+    preferredFormats:
+      - episode
+    include: []
+    exclude:
+      - \b(?:Trailer|Vorschau|Teaser|Making.of|Gebärdensprache|Audiodeskription)\b
+    replacementPolicy: report
+    allowCompilations: false
+    allowShortClips: false
+    defaultSeason: 1
+  - id: pat-a-mat
+    title: Pat a Mat
+    aliases:
+      - Pat & Mat
+      - A je to
+    description: Zwei einfallsreiche Nachbarn finden überraschende Lösungen für
+      handwerkliche Probleme.
+    language: neutral
+    source: ct
+    queries: []
+    urls:
+      - https://www.ceskatelevize.cz/porady/902140-pat-a-mat/
+    targetEpisodes: 40
+    maxEpisodes: 40
+    maxTotalDuration: 28800
+    maxBytes: null
+    priority: 50
+    minDuration: 240
+    maxDuration: 720
+    preferredEras: []
+    preferredSeasons: []
+    preferredFormats:
+      - episode
+    include: []
+    exclude:
+      - \b(?:Trailer|Vorschau|Teaser|Making.of|Gebärdensprache|Audiodeskription)\b
+    replacementPolicy: report
+    allowCompilations: false
+    allowShortClips: false
+  - id: pingu
+    title: Pingu
+    aliases: []
+    description: Der kleine Pinguin Pingu erlebt mit seiner Familie Abenteuer in
+      einer verschneiten Welt.
+    language: neutral
+    source: manual
+    queries: []
+    urls: []
+    targetEpisodes: 50
+    maxEpisodes: 50
+    maxTotalDuration: 36000
+    maxBytes: null
+    priority: 50
+    minDuration: 240
+    maxDuration: 720
+    preferredEras: []
+    preferredSeasons: []
+    preferredFormats:
+      - episode
+    include: []
+    exclude:
+      - \b(?:Trailer|Vorschau|Teaser|Making.of|Gebärdensprache|Audiodeskription)\b
+    replacementPolicy: report
+    allowCompilations: false
+    allowShortClips: false
+  - id: timmy-time
+    title: Timmy Time
+    aliases: []
+    description: Das kleine Schäfchen Timmy lernt beim Spielen mit anderen Tieren.
+    language: neutral
+    source: manual
+    queries: []
+    urls: []
+    targetEpisodes: 30
+    maxEpisodes: 30
+    maxTotalDuration: 21600
+    maxBytes: null
+    priority: 30
+    minDuration: 240
+    maxDuration: 720
+    preferredEras: []
+    preferredSeasons: []
+    preferredFormats:
+      - episode
+    include: []
+    exclude:
+      - \b(?:Trailer|Vorschau|Teaser|Making.of|Gebärdensprache|Audiodeskription)\b
+    replacementPolicy: report
+    allowCompilations: false
+    allowShortClips: false
+  - id: bluey
+    title: Bluey
+    aliases: []
+    description: Bluey verwandelt mit ihrer Schwester Bingo und ihren Eltern den
+      Familienalltag in fantasievolle Spiele.
+    language: en
+    source: existing
+    queries: []
+    urls: []
+    targetEpisodes: 52
+    maxEpisodes: 52
+    maxTotalDuration: 36000
+    maxBytes: null
+    priority: 1
+    minDuration: 1
+    maxDuration: 1800
+    preferredEras: []
+    preferredSeasons: []
+    preferredFormats:
+      - episode
+    include: []
+    exclude:
+      - \b(?:Trailer|Vorschau|Teaser|Making.of|Gebärdensprache|Audiodeskription)\b
+    replacementPolicy: report
+    allowCompilations: false
+    allowShortClips: false
+  - id: der-kleine-maulwurf
+    title: Der kleine Maulwurf
+    aliases:
+      - Krtek
+    description: Der neugierige kleine Maulwurf erlebt mit seinen Freunden Abenteuer
+      in der Natur.
+    language: neutral
+    source: existing
+    queries: []
+    urls: []
+    targetEpisodes: 100
+    maxEpisodes: 100
+    maxTotalDuration: 72000
+    maxBytes: null
+    priority: 1
+    minDuration: 1
+    maxDuration: 3600
+    preferredEras: []
+    preferredSeasons: []
+    preferredFormats:
+      - episode
+    include: []
+    exclude:
+      - \b(?:Trailer|Vorschau|Teaser|Making.of|Gebärdensprache|Audiodeskription)\b
+    replacementPolicy: report
+    allowCompilations: false
+    allowShortClips: false
+  - id: tom-und-jerry
+    title: Tom und Jerry
+    aliases:
+      - Tom and Jerry
+    description: Kater Tom und Maus Jerry liefern sich turbulente, meist wortlose
+      Verfolgungsjagden.
+    language: neutral
+    source: existing
+    queries: []
+    urls: []
+    targetEpisodes: 400
+    maxEpisodes: 400
+    maxTotalDuration: 216000
+    maxBytes: null
+    priority: 1
+    minDuration: 1
+    maxDuration: 3600
+    preferredEras: []
+    preferredSeasons: []
+    preferredFormats:
+      - episode
+    include: []
+    exclude:
+      - \b(?:Trailer|Vorschau|Teaser|Making.of|Gebärdensprache|Audiodeskription)\b
+    replacementPolicy: report
+    allowCompilations: false
+    allowShortClips: false
+  - id: miss-josi
+    title: Miss Josi – Lernen für Kleine
+    aliases:
+      - Miss Josi
+      - Lernen für Kleine
+    description: Miss Josi lädt kleine Kinder zum Sprechen, Singen, Bewegen und
+      spielerischen Lernen ein.
+    language: de
+    source: youtube
+    editorialClassification: true
+    channelId: UC2NKVbtgZEaJNBflx5bwHAg
+    urls:
+      - https://www.youtube.com/channel/UC2NKVbtgZEaJNBflx5bwHAg/videos
+      - https://www.youtube.com/channel/UC2NKVbtgZEaJNBflx5bwHAg/streams
+      - https://www.youtube.com/channel/UC2NKVbtgZEaJNBflx5bwHAg/shorts
+    queries: []
+    targetEpisodes: 1000000
+    maxEpisodes: 1000000
+    maxTotalDuration: 1000000000
+    maxBytes: null
+    priority: 75
+    minDuration: 1
+    maxDuration: 86400
+    preferredEras: []
+    preferredSeasons: []
+    preferredFormats:
+      - episode
+      - interstitial
+      - compilation
+    include: []
+    exclude: []
+    replacementPolicy: none
+    allowCompilations: false
+    allowShortClips: true
+    forbidRecycledContent: true
+  - id: ms-rachel
+    title: Ms Rachel / Songs for Littles
+    aliases:
+      - Ms Rachel
+      - Songs for Littles
+    description: Ms Rachel unterstützt kleine Kinder mit englischen Wörtern, Liedern
+      und Lernspielen.
+    language: en
+    source: youtube
+    editorialClassification: true
+    channelId: UCG2CL6EUjG8TVT1Tpl9nJdg
+    urls:
+      - https://www.youtube.com/channel/UCG2CL6EUjG8TVT1Tpl9nJdg/videos
+      - https://www.youtube.com/channel/UCG2CL6EUjG8TVT1Tpl9nJdg/streams
+      - https://www.youtube.com/channel/UCG2CL6EUjG8TVT1Tpl9nJdg/shorts
+    queries: []
+    targetEpisodes: 1000000
+    maxEpisodes: 1000000
+    maxTotalDuration: 1000000000
+    maxBytes: null
+    priority: 75
+    minDuration: 1
+    maxDuration: 86400
+    preferredEras: []
+    preferredSeasons: []
+    preferredFormats:
+      - episode
+      - interstitial
+      - compilation
+    include: []
+    exclude: []
+    replacementPolicy: none
+    allowCompilations: false
+    allowShortClips: true
+    minimumEditorialRank: A
+    forbidRecycledContent: true
+publishToSchedule: true
+classificationModel: gpt-4.1-mini
+aiProvider: chatgpt

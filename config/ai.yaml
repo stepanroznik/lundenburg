@@ -1,0 +1,5 @@
+# Offline jobs only. Never falls back to API-key billing.
+provider: chatgpt
+model: auto-small
+# Owner-only credentials, refresh locks and cache; ignored by Git.
+credentialsDirectory: runtime/ai

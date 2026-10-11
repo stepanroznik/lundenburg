@@ -4,6 +4,7 @@ import { DateTime } from 'luxon';
 import type { AppConfig, ScheduleEntry } from './types.js';
 import { durationClock } from './util.js';
 import { publicSchedule } from './listing.js';
+import { episodeNumberLabel } from './catalogue.js';
 
 function xml(value: string): string {
   return value.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&apos;');
@@ -14,7 +15,8 @@ function eventName(entry: ScheduleEntry): string {
 }
 
 function eventDescription(entry: ScheduleEntry): string {
-  const number = entry.season !== undefined && entry.episode !== undefined ? `S${entry.season} E${entry.episode}. ` : '';
+  const label = episodeNumberLabel(entry);
+  const number = label ? `${label}. ` : '';
   return `${number}${entry.description}`.trim();
 }
 

@@ -6,8 +6,10 @@ import type { AppConfig, Breakpoint, CreditsPolicy, EditorialMarker, ExternalIds
 import { normalizeLanguage, stableId } from './util.js';
 import { assertMediaStorage } from './media-storage.js';
 import { editorialEnd, scoreBreakSignal } from './editorial.js';
+import { normalizeCatalogueText, isCatalogueMovie } from './catalogue.js';
 
 interface ShowMetadata {
+  kind?: 'series' | 'movie';
   id?: string;
   title?: string;
   description?: string;
@@ -20,6 +22,8 @@ interface ShowMetadata {
 }
 
 interface EpisodeMetadata {
+  catalogue?: Record<string, unknown>;
+  acquisition?: Record<string, unknown>;
   id?: string;
   title?: string;
   description?: string;
@@ -46,7 +50,7 @@ interface ProbeStream {
   tags?: { language?: string; title?: string };
 }
 
-interface ProbeResult {
+export interface ProbeResult {
   streams: ProbeStream[];
   format: { duration?: string; format_name?: string; bit_rate?: string; tags?: Record<string, string> };
   chapters?: Array<{ start_time?: string; end_time?: string; tags?: { title?: string } }>;
@@ -101,7 +105,7 @@ export function episodeTitleFromTemplate(template: string | undefined, parsed: {
   return template.replaceAll('{season}', String(parsed.season ?? 1)).replaceAll('{episode}', String(parsed.episode));
 }
 
-async function ffprobe(binary: string, file: string): Promise<ProbeResult> {
+export async function ffprobe(binary: string, file: string): Promise<ProbeResult> {
   return await new Promise((resolve, reject) => {
     const child = spawn(binary, ['-v', 'error', '-show_format', '-show_streams', '-show_chapters', '-of', 'json', file], { stdio: ['ignore', 'pipe', 'pipe'] });
     let stdout = '';
@@ -116,7 +120,7 @@ async function ffprobe(binary: string, file: string): Promise<ProbeResult> {
   });
 }
 
-function walk(root: string, extensions: Set<string>): string[] {
+export function walk(root: string, extensions: Set<string>): string[] {
   const result: string[] = [];
   for (const entry of fs.readdirSync(root, { withFileTypes: true })) {
     if (entry.name.startsWith('.')) continue;
@@ -159,9 +163,12 @@ function chapterEditorial(probe: ProbeResult): { markers: EditorialMarker[]; bre
     if (!Number.isFinite(startMs) || startMs < 0) continue;
     const title = chapter.tags?.title?.trim();
     const normalized = title?.toLocaleLowerCase('de') ?? '';
-    const credits = /credits|end titles|abspann|nachspann|titulky|crédit/.test(normalized);
+    const postCredits = /post[ -]?credits|nach dem abspann|nachspannszene/.test(normalized);
+    const credits = !postCredits && /credits|end titles|abspann|nachspann|titulky|crédit/.test(normalized);
+    const intro = /^(intro|opening|vorspann|úvod)/.test(normalized);
+    const recap = /recap|rückblick|previously/.test(normalized);
     const knownBreak = /werbung|commercial|ad[ -]?break|reklama/.test(normalized);
-    markers.push({ kind: credits ? 'credits' : knownBreak ? 'ad-break' : 'chapter', startMs, ...(Number.isFinite(endMs) && endMs > startMs ? { endMs } : {}), ...(title ? { title } : {}), source: 'embedded', confidence: credits || knownBreak ? .9 : .7 });
+    markers.push({ kind: postCredits ? 'post-credits' : credits ? 'credits' : intro ? 'intro' : recap ? 'recap' : knownBreak ? 'ad-break' : 'chapter', startMs, ...(Number.isFinite(endMs) && endMs > startMs ? { endMs } : {}), ...(title ? { title } : {}), source: 'embedded', confidence: credits || postCredits || intro || recap || knownBreak ? .9 : .7 });
     if (startMs > 0) breakpoints.push(scoreBreakSignal({ atMs: startMs, known: knownBreak, strongChapter: knownBreak || /part|teil|kapit|chapter/.test(normalized), embeddedChapter: true }));
   }
   return { markers, breakpoints };
@@ -203,9 +210,9 @@ async function localBreakAnalysis(mediaPath: string): Promise<Breakpoint[]> {
   return candidates;
 }
 
-export async function scanMedia(config: AppConfig, onProgress?: (message: string) => void): Promise<MediaItem[]> {
+export async function scanMedia(config: AppConfig, onProgress?: (message: string) => void, options: { files?: string[]; probe?: (file: string) => Promise<ProbeResult>; skipLocalAnalysis?: boolean } = {}): Promise<MediaItem[]> {
   assertMediaStorage(config);
-  const mediaFiles = walk(config.media.root, new Set(config.media.supportedExtensions));
+  const mediaFiles = options.files ?? walk(config.media.root, new Set(config.media.supportedExtensions));
   if (mediaFiles.length === 0) throw new Error(`No supported media found below ${config.media.root}`);
   const allowedLanguages = new Set(config.media.subtitleLanguages);
   const items: MediaItem[] = [];
@@ -220,7 +227,7 @@ export async function scanMedia(config: AppConfig, onProgress?: (message: string
     const stem = mediaPath.slice(0, -path.extname(mediaPath).length);
     const episodeMeta = readYaml<EpisodeMetadata>(`${stem}.yaml`) ?? {};
     const parsed = episodeFromFilename(path.basename(mediaPath));
-    const probe = await ffprobe(config.media.ffprobe, mediaPath);
+    const probe = await (options.probe ? options.probe(mediaPath) : ffprobe(config.media.ffprobe, mediaPath));
     const durationSeconds = Number(probe.format.duration);
     if (!Number.isFinite(durationSeconds) || durationSeconds <= 0) throw new Error(`No valid duration detected for ${mediaPath}`);
     const showId = show.id ?? (relativeDirectory.split(path.sep).filter(Boolean).join('-') || 'uncategorized');
@@ -246,7 +253,7 @@ export async function scanMedia(config: AppConfig, onProgress?: (message: string
     let breakpoints = [...chapters.breakpoints, ...manualBreakpoints(episodeMeta.breakpoints)];
     const durationMs = Math.round(durationSeconds * 1000);
     const qcWarnings: string[] = [];
-    if (durationMs > 35 * 60_000) {
+    if (durationMs > 35 * 60_000 && !options.skipLocalAnalysis) {
       onProgress?.(`Analyzing editorial breaks in ${path.relative(config.media.root, mediaPath)}`);
       try { breakpoints = [...breakpoints, ...await localBreakAnalysis(mediaPath)]; }
       catch (error) { qcWarnings.push(`Local breakpoint analysis failed: ${error instanceof Error ? error.message : String(error)}`); }
@@ -272,7 +279,7 @@ export async function scanMedia(config: AppConfig, onProgress?: (message: string
       durationMs,
       ...(audioLanguage ? { audioLanguage } : {}),
       subtitles: uniqueSubtitles,
-      technical: { format: probe.format, streams: probe.streams, chapters: probe.chapters ?? [] },
+      technical: { format: probe.format, streams: probe.streams, chapters: probe.chapters ?? [], ...(episodeMeta.acquisition ? { acquisition: episodeMeta.acquisition } : {}), catalogue: { ...episodeMeta.catalogue, ...(show.kind ? { kind: show.kind } : {}) } },
       enabled: episodeMeta.enabled ?? show.enabled ?? true,
       externalIds,
       editorialMarkers,
@@ -284,7 +291,12 @@ export async function scanMedia(config: AppConfig, onProgress?: (message: string
     };
     if (!item.showId || !item.showTitle || !item.episodeTitle) throw new Error(`Incomplete metadata for ${mediaPath}`);
     if (!Number.isFinite(item.weight) || item.weight <= 0) throw new Error(`Show weight must be positive for ${mediaPath}`);
-    items.push(item);
+    const normalized = normalizeCatalogueText(item);
+    if (isCatalogueMovie(normalized)) {
+      delete normalized.season;
+      delete normalized.episode;
+    }
+    items.push(normalized);
   }
   return items;
 }

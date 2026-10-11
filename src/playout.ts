@@ -14,6 +14,7 @@ import { TransportPacer } from './transport.js';
 import { writePlayoutStatus, type PlayoutStatus } from './playout-status.js';
 import { recoveryIntermission } from './continuity.js';
 import { readRotationLibrary, type RotationClip } from './intermissions/rotation.js';
+import { comingUpFilter, comingUpForPiece, type ComingUpOverlay } from './coming-up.js';
 import { preparedSubtitleTracks, dvbLanguage } from './subtitles.js';
 
 export interface BroadcastOptions {
@@ -42,6 +43,7 @@ function seconds(ms: number): string { return (Math.max(0, ms) / 1000).toFixed(3
 export function buildFfmpegArgs(
   entry: ScheduleEntry, media: MediaItem | undefined, seekMs: number, remainingMs: number,
   animate: boolean, config: AppConfig, logo: PreparedLogo, outputOffsetMs = seekMs,
+  comingUp?: ComingUpOverlay,
 ): string[] {
   const intermission = entry.showId === 'lkp-intermissions' || entry.listingVisibility === 'hidden';
   const args = ['-hide_banner', '-loglevel', 'warning', '-nostdin',
@@ -80,7 +82,12 @@ export function buildFfmpegArgs(
       `y=${config.logo.top - (animate ? paddingTop : 0)}:` +
       'eval=init:eof_action=repeat:repeatlast=1:format=yuv420[v]',
   ].join(';');
-  const filter = intermission ? `[0:v:0]scale=${config.video.width}:${config.video.height}:force_original_aspect_ratio=decrease,pad=${config.video.width}:${config.video.height}:(ow-iw)/2:(oh-ih)/2:color=black,fps=${config.video.fps},setsar=1,format=yuv420p[v]` : videoFilter;
+  let filter = intermission ? `[0:v:0]scale=${config.video.width}:${config.video.height}:force_original_aspect_ratio=decrease,pad=${config.video.width}:${config.video.height}:(ow-iw)/2:(oh-ih)/2:color=black,fps=${config.video.fps},setsar=1,format=yuv420p[v]` : videoFilter;
+  if (comingUp && !intermission) {
+    const strip = comingUpFilter(comingUp, config, subtitleInput + prepared.length, 'programme');
+    args.push(...strip.inputs);
+    filter = [filter.replace(/\[v\]$/, '[programme]'), ...strip.filters].join(';');
+  }
   args.push('-filter_complex', filter, '-map', '[v]', '-map', '0:a:0?');
   const bitmapTracks = media?.subtitles.filter((subtitle, index, all) => subtitle.kind === 'dvb-bitmap' && subtitle.streamIndex !== undefined &&
     all.findIndex(other => other.kind === 'dvb-bitmap' && other.language === subtitle.language) === index) ?? [];
@@ -151,6 +158,8 @@ interface EncoderTarget {
   intermission?: boolean;
   plannedStartsAtMs?: number;
   plannedOffsetMs?: number;
+  programme?: ScheduleEntry;
+  programmeOffsetMs?: number;
 }
 
 interface PreparedEncoder {
@@ -176,13 +185,18 @@ class EncoderQueue {
   readonly continuity = new Map<number, number>();
 
   constructor(private readonly config: AppConfig, private readonly logo: PreparedLogo,
-    private readonly verbose: boolean, private readonly clips: RotationClip[]) {}
+    private readonly verbose: boolean, private readonly clips: RotationClip[], private readonly db: LkpDatabase) {}
 
   private launch(target: EncoderTarget): PreparedEncoder {
     const startsAtMs = target.entry.startsAtMs + target.outputOffsetMs;
-    const durationMs = target.limitMs ?? Number.POSITIVE_INFINITY;
+    const durationMs = target.limitMs ?? (target.intermission ? target.entry.durationMs : Number.POSITIVE_INFINITY);
+    const programme = target.programme ?? target.entry;
+    const programmeOffsetMs = target.programmeOffsetMs ?? target.seekMs;
+    const comingUp = comingUpForPiece(programme, programmeOffsetMs,
+      target.limitMs ?? target.entry.durationMs - (target.plannedOffsetMs ?? target.seekMs),
+      () => this.db.nextPublicEntries(programme.endsAtMs), this.config);
     const ffmpegArgs = buildFfmpegArgs(target.entry, target.media, target.seekMs, durationMs,
-      target.animate, this.config, this.logo, target.outputOffsetMs);
+      target.animate, this.config, this.logo, target.outputOffsetMs, comingUp);
     const command = this.config.video.cpuAffinity ? 'taskset' : 'ffmpeg';
     const args = this.config.video.cpuAffinity ? ['--cpu-list', this.config.video.cpuAffinity, 'ffmpeg', ...ffmpegArgs] : ffmpegArgs;
     const child = spawnLogged(command, args, { stdio: ['ignore', 'pipe', 'pipe'] }, this.verbose);
@@ -266,7 +280,7 @@ class EncoderQueue {
 
 function firstEncoderTarget(entry: ScheduleEntry, media: MediaItem | undefined, animate: boolean): EncoderTarget {
   const plan = entry.playoutPlan;
-  if (!plan) return { entry, media, seekMs: 0, outputOffsetMs: 0, animate, intermission: entry.showId === 'lkp-intermissions' };
+  if (!plan) return { entry, media, seekMs: 0, outputOffsetMs: 0, animate, intermission: entry.showId === 'lkp-intermissions', programme: entry, programmeOffsetMs: 0 };
   const segment = plan.segments[0]!;
   const internal = segment.type !== 'content' && segment.type !== 'credits';
   const { playoutPlan: _plan, ...base } = entry;
@@ -277,6 +291,7 @@ function firstEncoderTarget(entry: ScheduleEntry, media: MediaItem | undefined, 
     media: internal ? undefined : media,
     seekMs: internal ? 0 : segment.fromMs, outputOffsetMs: 0, animate: animate && !internal,
     ...(internal ? {} : { limitMs: segment.durationMs }), intermission: segment.type === 'intermission',
+    programme: entry, programmeOffsetMs: 0,
   };
 }
 
@@ -339,7 +354,7 @@ async function transcodePlayout(
     const runtimeEntry = { ...entry, startsAtMs: Date.now() - pastOffsetMs };
     const result = await transcodeEntry({ entry: runtimeEntry, media, seekMs: elapsedMs,
       outputOffsetMs: 0, animate, intermission: entry.showId === 'lkp-intermissions',
-      plannedStartsAtMs: entry.startsAtMs, plannedOffsetMs: elapsedMs },
+      plannedStartsAtMs: entry.startsAtMs, plannedOffsetMs: elapsedMs, programme: entry, programmeOffsetMs: elapsedMs },
       config, sinks, stopAtMs, pastOffsetMs, onChild, queue, nextProgramme, phase);
     phase.leadMs = entry.endsAtMs + pastOffsetMs - result.endedAtMs;
     return result;
@@ -364,6 +379,7 @@ async function transcodePlayout(
       ...(internal ? {} : { limitMs: segment.durationMs - segmentElapsedMs }),
       intermission: segment.type === 'intermission',
       plannedStartsAtMs: entry.startsAtMs + cumulativeMs, plannedOffsetMs: segmentElapsedMs,
+      programme: entry, programmeOffsetMs: cumulativeMs + segmentElapsedMs,
     };
     const nextSegment = (): EncoderTarget | undefined => {
       const following = plan.segments[index + 1];
@@ -378,6 +394,7 @@ async function transcodePlayout(
         seekMs: followingInternal ? 0 : following.fromMs, outputOffsetMs: 0, animate: false,
         ...(followingInternal ? {} : { limitMs: following.durationMs }),
         intermission: following.type === 'intermission',
+        programme: entry, programmeOffsetMs: cumulativeMs + segment.durationMs,
       };
     };
     last = await transcodeEntry(target, config, sinks, stopAtMs, pastOffsetMs, onChild, queue, nextSegment, phase);
@@ -480,7 +497,7 @@ export async function runBroadcast(db: LkpDatabase, config: AppConfig, options: 
   let internetRelay: ChildProcess | undefined;
   let currentFfmpeg: ChildProcess | undefined;
   const serviceDeadline = options.maxSeconds ? Date.now() + options.maxSeconds * 1000 : Number.POSITIVE_INFINITY;
-  const encoderQueue = new EncoderQueue(config, logo, options.verbose, readRotationLibrary(config));
+  const encoderQueue = new EncoderQueue(config, logo, options.verbose, readRotationLibrary(config), db);
   let stopping = false;
   let outputFailure: Error | undefined;
   const sinks: Writable[] = [];
