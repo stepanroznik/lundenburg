@@ -20,6 +20,31 @@ function eventDescription(entry: ScheduleEntry): string {
   return `${number}${entry.description}`.trim();
 }
 
+// DVB descriptor lengths count encoded bytes, including both strings and their
+// charset selectors. Reserve up to three selector bytes per string; UTF-8 is a
+// conservative bound for the default DVB encoding used by the live injector.
+function prefixBytes(value: string, limit: number): string {
+  let result = '', bytes = 0;
+  for (const character of value) {
+    const size = Buffer.byteLength(character, 'utf8');
+    if (bytes + size > limit) break;
+    result += character; bytes += size;
+  }
+  return result;
+}
+
+function descriptionParts(value: string): string[] {
+  const parts: string[] = [];
+  let remaining = value;
+  // Leave room for the short descriptor and the EIT section header, even for
+  // unusually large imported descriptions. Ordinary descriptions remain whole.
+  while (remaining && parts.length < 14) {
+    const part = prefixBytes(remaining, 246);
+    parts.push(part); remaining = remaining.slice(part.length);
+  }
+  return parts;
+}
+
 export function generateEpgXml(entries: ScheduleEntry[], config: AppConfig): string {
   const body = publicSchedule(entries).map((entry) => {
     // DVB has whole-second precision. Quantize both ends with the same rule,
@@ -29,11 +54,13 @@ export function generateEpgXml(entries: ScheduleEntry[], config: AppConfig): str
     const start = DateTime.fromMillis(startsAtMs, { zone: 'utc' }).toFormat('yyyy-LL-dd HH:mm:ss');
     const id = entry.epgEventId ?? (entry.sequence % 65_535) + 1;
     const description = eventDescription(entry);
-    const shortText = description.slice(0, 240);
+    const name = prefixBytes(eventName(entry), 200);
+    const shortText = prefixBytes(description, 244 - Buffer.byteLength(name, 'utf8'));
+    const parts = descriptionParts(description);
     const extended = description.length > shortText.length
-      ? `\n      <extended_event_descriptor language_code="${xml(config.epg.language)}" descriptor_number="0" last_descriptor_number="0">\n        <text>${xml(description)}</text>\n      </extended_event_descriptor>`
+      ? parts.map((part, index) => `\n      <extended_event_descriptor language_code="${xml(config.epg.language)}" descriptor_number="${index}" last_descriptor_number="${parts.length - 1}">\n        <text>${xml(part)}</text>\n      </extended_event_descriptor>`).join('')
       : '';
-    return `    <event event_id="${id}" start_time="${start}" duration="${durationClock(endsAtMs - startsAtMs)}" running_status="undefined">\n      <short_event_descriptor language_code="${xml(config.epg.language)}">\n        <event_name>${xml(eventName(entry))}</event_name>\n        <text>${xml(shortText)}</text>\n      </short_event_descriptor>${extended}\n    </event>`;
+    return `    <event event_id="${id}" start_time="${start}" duration="${durationClock(endsAtMs - startsAtMs)}" running_status="undefined">\n      <short_event_descriptor language_code="${xml(config.epg.language)}">\n        <event_name>${xml(name)}</event_name>\n        <text>${xml(shortText)}</text>\n      </short_event_descriptor>${extended}\n    </event>`;
   }).join('\n');
   return `<?xml version="1.0" encoding="UTF-8"?>\n<tsduck>\n  <EIT service_id="${config.channel.serviceId}" transport_stream_id="${config.channel.transportStreamId}" original_network_id="${config.channel.originalNetworkId}">\n${body}\n  </EIT>\n</tsduck>\n`;
 }

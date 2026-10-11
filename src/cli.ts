@@ -9,6 +9,7 @@ import { LkpDatabase } from './database.js';
 import { reconcileIntermissions } from './intermissions/rotation.js';
 import { runDoctor } from './doctor.js';
 import { writeEpgAtomic } from './epg.js';
+import { watchEpg } from './epg-refresh.js';
 import { exportWorkbook } from './export.js';
 import { scanMedia } from './media.js';
 import { catalogueChanges, writeCatalogue } from './catalogue-maintenance.js';
@@ -222,6 +223,26 @@ epg.command('generate').description('write the rolling TSDuck EIT event database
       writeEpgAtomic(entries, config);
       console.log(`Wrote ${entries.length} EPG events to ${config.epg.output}`);
     } finally { db.close(); }
+  });
+
+epg.command('watch').description('maintain the guide while an older broadcast process runs')
+  .option('--until-pid <pid>', 'exit when this broadcast process ends', Number)
+  .option('--offset-ms <milliseconds>', 'match an explicitly shifted broadcast clock', Number, 0)
+  .action(async (options: { untilPid?: number; offsetMs: number }) => {
+    if (!Number.isSafeInteger(options.offsetMs) || (options.untilPid !== undefined && (!Number.isSafeInteger(options.untilPid) || options.untilPid <= 0))) throw new Error('Invalid EPG watch clock or PID');
+    const { config, db } = context();
+    const stopWatch = watchEpg(db, config, options.offsetMs);
+    try {
+      console.log('EPG refresh active; broadcast continues.');
+      await new Promise<void>(resolve => {
+        const finish = () => { clearInterval(check); process.off('SIGTERM', finish); process.off('SIGINT', finish); resolve(); };
+        const check = setInterval(() => {
+          if (options.untilPid === undefined) return;
+          try { process.kill(options.untilPid, 0); } catch { finish(); }
+        }, 1000);
+        process.once('SIGTERM', finish); process.once('SIGINT', finish);
+      });
+    } finally { stopWatch(); db.close(); }
   });
 
 program.command('doctor').description('check runtime, media, schedule, and broadcast dependencies')

@@ -212,7 +212,7 @@ npm run lkp -- epg generate
 less runtime/epg.xml
 ```
 
-TSDuck `eitinject` reorganizes those events into actual present/following and schedule EIT at runtime.
+TSDuck `eitinject` reorganizes those events into actual present/following and schedule EIT at runtime. EPG strings are bounded by DVB encoded-byte limits; longer descriptions are split across numbered extended-event descriptors. Validate the actual feed with `tstabcomp runtime/epg.xml -o /tmp/lkp-epg.bin`. A running older broadcaster can retain an invalid generator until it exits; `npm run lkp -- epg watch --until-pid BROADCAST_PID` keeps its feed valid without restarting video or RF and exits with that process.
 
 ## Automated content acquisition
 
