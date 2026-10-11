@@ -75,7 +75,10 @@ Build humour from personality, local knowledge, or a clear visual event. If a fa
 Prefer 1080p whenever available, with resolution taking priority over codec.
 Never acquire below 480p; validate actual dimensions before ingest. Metadata
 estimates and downloads must share the same selection policy. Keep original
-assets until a replacement is validated and explicitly authorized.
+assets until a replacement is validated and explicitly authorized. Authorized
+quality repairs use `scripts/redownload-quality.mjs --replace`, preserve existing
+paths/IDs and schedules, defer protected playout assets, and delete old/staged
+copies only after the atomic file/database swap commits.
 
 ## Work economically
 

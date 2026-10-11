@@ -146,14 +146,20 @@ quality-repair batch from an audited JSON plan (`file`, `show`, `sourceId`,
 approved channel, requires at least the planned resolution, and uses the shared
 acquisition lease, broadcast guards, storage reserve, bandwidth and progress
 watchdogs. Launch it at idle CPU/I/O priority on cores 0–1. Partial transfers resume;
-transient failures receive up to three passes. Only safe status categories leave
+transient failures receive up to three passes in download-only mode. Only safe status categories leave
 the downloader process.
 
 Validated source downloads remain under `.acquisition/staging/quality-ID/`.
 Original videos, catalogue entries and schedules remain intact. Progress is saved
 in the Pi checkout's `runtime/quality-redownload/status.json`; restarting the same
-plan checks completed files before downloading again. This operation downloads
-replacement sources; importing or swapping them is a separate operation.
+plan checks completed files before downloading again. Add `--replace` only when replacing the originals is explicitly requested.
+That mode prepares H.264/AAC at the downloaded resolution, checks source identity,
+audio and duration, and atomically swaps the existing file at the same path and
+catalogue ID. It preserves episode metadata, captions and all schedule rows.
+It waits for the protected playout window to clear and keeps retrying unresolved
+items. A rollback journal restores interrupted uncommitted swaps and completes
+cleanup after committed swaps. Old copies and staged downloads are removed after
+commit; temporary rollback copies are not retained as library duplicates.
 
 ## Sources and curation
 

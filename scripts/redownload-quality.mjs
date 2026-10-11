@@ -1,4 +1,4 @@
-// Explicit repair batch: download validated replacements without changing originals or schedules.
+// Explicit repair batch: optionally replace validated assets at their existing catalogue paths.
 import fs from 'node:fs';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
@@ -6,6 +6,7 @@ import { setTimeout as delay } from 'node:timers/promises';
 
 const [planPath, releasePath] = process.argv.slice(2);
 if (!planPath || !releasePath) throw new Error('Usage: redownload-quality.mjs PLAN ACTIVE_RELEASE');
+const replace = process.argv.includes('--replace');
 const release = fs.realpathSync(releasePath);
 const moduleAt = name => import(pathToFileURL(path.join(release, 'dist/src', name)));
 const [{ loadConfig }, { loadAcquisitionConfig }, { LkpDatabase }, { AcquisitionStore }, io, adapters] = await Promise.all([
@@ -31,6 +32,10 @@ const statusPath = path.join(runtime, 'status.json');
 let previous = {}; try { previous = JSON.parse(fs.readFileSync(statusPath, 'utf8')); } catch {}
 const state = { pid: process.pid, phase: 'waiting-for-lease', total: plan.length, updatedAt: Date.now(), episodes: {} };
 for (const row of plan) state.episodes[row.sourceId] = previous.episodes?.[row.sourceId]?.targetHeight === row.targetHeight ? previous.episodes[row.sourceId] : { show: row.show, title: row.title, targetHeight: row.targetHeight, phase: 'queued', attempts: 0 };
+if (replace) plan.sort((a,b) => {
+  const score = row => state.episodes[row.sourceId]?.phase === 'validated' ? state.episodes[row.sourceId].codec === 'h264' ? 0 : 1 : 2;
+  return score(a) - score(b);
+});
 const save = () => { state.updatedAt = Date.now(); fs.writeFileSync(statusPath + '.tmp', JSON.stringify(state, null, 2)); fs.renameSync(statusPath + '.tmp', statusPath); };
 save();
 let leased = false, heartbeat, leaseLost = false;
@@ -38,30 +43,66 @@ const cleanup = () => { io.terminateChildren(); if (leased) store.release(owner)
 for (const signal of ['SIGTERM', 'SIGINT']) process.on(signal, () => { state.phase = 'interrupted'; save(); cleanup(); process.exit(1); });
 const check = () => { if (leaseLost) throw new io.Deferred('Lease lost'); guard.check(); };
 const downloader = path.join('/home/lundenburg/lundenburg/runtime/tools/yt-dlp/bin/yt-dlp');
-const probeHeight = async file => {
-  const probe = JSON.parse(await io.execute(app.media.ffprobe, ['-v', 'error', '-select_streams', 'v:0', '-show_entries', 'stream=height,width,codec_name', '-of', 'json', file], check, 30000));
-  return probe.streams?.[0];
+const fullProbe = async file => JSON.parse(await io.execute(app.media.ffprobe, ['-v', 'error', '-show_streams', '-show_format', '-of', 'json', file], check, 30000));
+const probeHeight = async file => (await fullProbe(file)).streams.find(s => s.codec_type === 'video' && !s.disposition?.attached_pic);
+const replacement = replace ? await moduleAt('acquisition/quality-replacement.js') : undefined;
+const done = entry => entry.phase === (replace ? 'installed' : 'validated');
+const finish = async (row, entry, dir) => {
+  if (!replace) return;
+  entry.phase = 'preparing-replacement'; save();
+  const ext = path.extname(row.file), prepared = path.join(dir, `playout${ext}`);
+  const protectOriginal = () => { check(); guard.check(row.file); };
+  if (replacement.recoverQualityReplacement(db, row.file, dir, protectOriginal)) {
+    Object.assign(entry, { phase: 'installed', file: row.file, codec: 'h264' }); save(); return;
+  }
+  if (!fs.existsSync(prepared)) {
+    const stream = await probeHeight(entry.file), partial = path.join(dir, `playout.partial${ext}`);
+    const estimate = Math.max(fs.statSync(entry.file).size * 2, Number((await fullProbe(entry.file)).format.duration) * 1500000);
+    io.reserve(app.media.root, estimate, policy.reserveBytes);
+    const progress = io.progressWatch(() => fs.existsSync(partial) ? fs.statSync(partial).size : 0, policy.downloadStallSeconds);
+    const manifest = JSON.parse(fs.readFileSync(path.join(path.dirname(row.file), 'ingest.json'), 'utf8'));
+    const videoArgs = stream.codec_name === 'h264' ? ['-c:v', 'copy'] : ['-c:v', 'libx264', '-preset', 'slow', '-crf', '18', '-threads', '1', '-pix_fmt', 'yuv420p'];
+    await io.execute('ffmpeg', ['-nostdin', '-v', 'error', '-y', '-threads', '1', '-filter_threads', '1', '-i', entry.file,
+      '-map', '0:v:0', '-map', '0:a:0', '-map', '0:s?', '-map_metadata', '0', '-map_chapters', '0', ...videoArgs,
+      '-c:a', 'aac', '-b:a', '192k', '-ar', '48000', '-metadata:s:a:0', `language=${manifest.item.audioLanguage ?? 'und'}`, '-c:s', 'copy', partial],
+      () => { check(); progress(); io.reserve(app.media.root, 1024 * 1024, policy.reserveBytes); }, 0);
+    fs.renameSync(partial, prepared);
+  }
+  entry.phase = 'awaiting-safe-swap'; save();
+  replacement.installQualityReplacement({ db, original: row.file, prepared, dir, sourceId: row.sourceId, targetHeight: row.targetHeight,
+    probe: await fullProbe(prepared), guard: protectOriginal });
+  Object.assign(entry, { phase: 'installed', file: row.file, codec: 'h264' }); delete entry.reason; save();
+  console.log(`Replaced ${row.show} / ${row.sourceId}; old copy and staging files removed.`);
 };
 try {
   while (!store.acquire(owner, 120000)) await delay(1000);
   leased = true;
   heartbeat = setInterval(() => { try { store.renew(owner, 120000); } catch { leaseLost = true; io.terminateChildren(); } }, 20000);
   state.phase = 'running'; save();
-  console.log(`Quality replacement batch started: ${plan.length} episodes; originals retained.`);
+  console.log(`Quality replacement batch started: ${plan.length} episodes; ${replace ? 'automatic replacement enabled' : 'originals retained'}.`);
   // Retry transient extraction failures; healthy transfers have a progress watchdog, not a wall-time limit.
-  for (let pass = 0; pass < 3; pass++) {
+  for (let pass = 0; replace || pass < 3; pass++) {
     for (const row of plan) {
       const entry = state.episodes[row.sourceId];
+      if (done(entry)) continue;
       const id = path.basename(path.dirname(row.file));
       const dir = path.join(app.media.root, '.acquisition/staging', `quality-${id}`);
       fs.mkdirSync(dir, { recursive: true });
       try {
         check();
+        if (replace && fs.existsSync(path.join(dir, 'swap.json')) && replacement.recoverQualityReplacement(db, row.file, dir, () => { check(); guard.check(row.file); })) {
+          Object.assign(entry, { phase: 'installed', file: row.file, codec: 'h264' }); save(); continue;
+        }
+        const installed = db.db.prepare('SELECT technical_json FROM media_items WHERE media_path=?').get(row.file);
+        if (replace && JSON.parse(installed?.technical_json ?? '{}').qualityReplacement?.sourceId === row.sourceId) {
+          const stream = await probeHeight(row.file);
+          if (stream.height >= row.targetHeight) { fs.rmSync(dir, { recursive: true, force: true }); Object.assign(entry, { phase: 'installed', file: row.file, codec: 'h264' }); save(); continue; }
+        }
         const completed = fs.readdirSync(dir).filter(n => /^replacement\.(mkv|mp4|webm|mov)$/.test(n));
         if (completed.length === 1) {
           const file = path.join(dir, completed[0]), stream = await probeHeight(file);
           if (!(stream?.height >= row.targetHeight)) throw new Error('Replacement below target');
-          Object.assign(entry, { phase: 'validated', file, width: stream.width, height: stream.height, codec: stream.codec_name }); save(); continue;
+          Object.assign(entry, { phase: 'validated', file, width: stream.width, height: stream.height, codec: stream.codec_name }); save(); await finish(row, entry, dir); continue;
         }
         entry.phase = 'extracting'; entry.attempts++; save();
         const qualityArgs = ['-f', `bv*[height>=${row.targetHeight}][height<=1080]+ba/b[height>=${row.targetHeight}][height<=1080]`, '--format-sort-force', '-S', 'height,vcodec:h264'];
@@ -86,14 +127,15 @@ try {
         if (!(stream?.height >= row.targetHeight)) throw new Error('Replacement below target');
         Object.assign(entry, { phase: 'validated', file, width: stream.width, height: stream.height, codec: stream.codec_name }); save();
         console.log(`Validated ${row.show} / ${row.sourceId}: ${stream.width}x${stream.height}.`);
+        await finish(row, entry, dir);
       } catch (error) {
-        entry.phase = 'retry'; entry.reason = error instanceof io.Deferred ? 'Protection or resource check deferred transfer' : 'Source extraction or validation failed'; save();
+        entry.phase = 'retry'; entry.reason = error instanceof io.Deferred ? 'Protection or resource check deferred transfer' : error instanceof adapters.AcquisitionCommandError ? `Downloader ${error.kind}` : 'Source extraction, preparation or validation failed'; save();
         console.log(`Deferred ${row.show} / ${row.sourceId}; originals retained.`);
       }
     }
-    if (Object.values(state.episodes).every(e => e.phase === 'validated')) break;
-    if (pass < 2) await delay(30000);
+    if (Object.values(state.episodes).every(done)) break;
+    if (replace || pass < 2) await delay(replace ? 60000 : 30000);
   }
-  state.phase = Object.values(state.episodes).every(e => e.phase === 'validated') ? 'complete' : 'needs-retry'; save();
-  console.log(`Batch ${state.phase}; ${Object.values(state.episodes).filter(e => e.phase === 'validated').length}/${plan.length} validated.`);
+  state.phase = Object.values(state.episodes).every(done) ? 'complete' : 'needs-retry'; save();
+  console.log(`Batch ${state.phase}; ${Object.values(state.episodes).filter(done).length}/${plan.length} ${replace ? 'installed' : 'validated'}.`);
 } finally { cleanup(); }
