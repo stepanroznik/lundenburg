@@ -113,7 +113,12 @@ era/season/format, inclusion/exclusion rules, compilation and clip policy, and
 replacement policy. Duration values are **seconds**; storage values are **bytes**.
 The defaults reserve 100 GiB free and cap new acquisitions, staging and quarantine
 at 160 GiB. Download bandwidth is 2 MiB/s; this does not select lower video
-quality. Mediathek downloads prefer the supplied HD direct URL. A codec conversion
+quality. YouTube downloads select the highest available resolution from 480p
+through 1080p, prioritizing height over codec (H.264 wins only at equal height).
+Metadata estimation and transfer use the same selector, including Teletubbies.
+Sources below 480p or with unknown height are rejected; ingest also probes the
+actual video height before accepting an asset. Existing library files are retained
+until an explicit replacement operation. Mediathek downloads prefer the supplied HD direct URL. A codec conversion
 retains dimensions and frame rate and uses H.264 CRF 18; compatible H.264 media is
 not transcoded. Neutral files with no audio receive a silent audio track for
 both broadcast outputs, with compatible H.264 video copied unchanged. If the

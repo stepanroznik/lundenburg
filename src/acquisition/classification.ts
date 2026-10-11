@@ -1,5 +1,5 @@
 import type Database from 'better-sqlite3';
-import { educationalYoutubeFormat, youtubeEstimatedBytes } from './adapters.js';
+import { youtubeQualityArgs, youtubeEstimatedBytes } from './adapters.js';
 import { AiService, smallClassificationModel } from '../ai/service.js';
 import { ChatGptAuth } from '../ai/auth.js';
 import { CredentialStore } from '../ai/storage.js';
@@ -194,7 +194,7 @@ export async function classifyPending(service: any, helpers: { execute: Function
         if (!metadata) {
           const downloader = process.env.LKP_YT_DLP ?? `${service.app.projectRoot}/runtime/tools/yt-dlp/bin/yt-dlp`;
           const raw = JSON.parse(await helpers.execute(downloader, [...helpers.extractorArgs('youtube', service.app.projectRoot),
-            '--ignore-config', '--no-playlist', '--no-geo-bypass', '--no-warnings', '-f', educationalYoutubeFormat, '--dump-single-json', c.sourceUrl], () => service.guard.check(), 60_000));
+            '--ignore-config', '--no-playlist', '--no-geo-bypass', '--no-warnings', ...youtubeQualityArgs, '--dump-single-json', c.sourceUrl], () => service.guard.check(), 60_000));
           if (raw.channel_id !== s.channelId || raw.id !== c.sourceId) c.invalidReason = 'Source identity mismatch';
           metadata = JSON.stringify({ title: String(raw.title ?? c.title).slice(0, 500), duration: raw.duration, description: String(raw.description ?? '').slice(0, 1800),
             timestamp: raw.timestamp, upload_date: raw.upload_date, live_status: raw.live_status, availability: raw.availability, has_drm: raw.has_drm,

@@ -12,7 +12,7 @@ import { randomUUID } from 'node:crypto';
 import { classifyPending, rankPriority } from './classification.js';
 import { recycledContent, purgeRecycled } from './recycled.js';
 import { fetchText } from './sources.js';
-import { youtubeEstimatedBytes, educationalYoutubeFormat } from './adapters.js';
+import { youtubeEstimatedBytes, youtubeQualityArgs, acceptableAcquisitionHeight } from './adapters.js';
 import { parse, stringify } from 'yaml';
 import { scanMedia, walk, parseEpisodeFilename } from '../media.js';
 import { assertMediaStorage } from '../media-storage.js';
@@ -216,7 +216,7 @@ export class ContentAcquisition {
             let metadata: Record<string,unknown>;
             let mediaUrl = c.sourceUrl;
             try {
-                metadata = JSON.parse(await execute(downloader, [...extractorArgs(c.source, this.app.projectRoot), '--ignore-config', '--no-playlist', '--no-geo-bypass', '--no-warnings', ...(s.editorialClassification ? ['-f', educationalYoutubeFormat] : []), '--dump-single-json', c.sourceUrl], () => this.guard.check(), 40_000));
+                metadata = JSON.parse(await execute(downloader, [...extractorArgs(c.source, this.app.projectRoot), '--ignore-config', '--no-playlist', '--no-geo-bypass', '--no-warnings', ...(c.source === 'youtube' ? youtubeQualityArgs : []), '--dump-single-json', c.sourceUrl], () => this.guard.check(), 40_000));
             }
             catch (error) {
                 if (error instanceof Deferred) throw error;
@@ -245,6 +245,8 @@ export class ContentAcquisition {
                 throw new Quarantined('No supported non-DRM media format; manual acquisition required');
             if (c.source === 'youtube' && (metadata.channel_id !== s.channelId || (!s.editorialClassification && metadata.language && !/^en(?:-|$)/i.test(String(metadata.language)))))
                 throw new Quarantined('Video does not match the approved English YouTube channel');
+            if (c.source === 'youtube' && !acceptableAcquisitionHeight(metadata.height))
+                throw new Deferred('No source at or above the 480p acquisition minimum; retry scheduled');
             applyEpisodeIdentity(c, s, metadata);
             this.store.remember(c);
             const subtitles = (metadata.subtitles as Record<string,Array<{url?:string}>>|undefined);
@@ -269,7 +271,7 @@ export class ContentAcquisition {
             const watch = () => { progress(); this.guard.check(); reserve(this.root, Math.max(0, c.size), this.config.reserveBytes); const bytes = fs.readdirSync(dir).filter(n => fs.statSync(path.join(dir, n)).isFile()).reduce((a, n) => a + signature(path.join(dir, n)).size, 0); if (bytes > ceiling)
                 throw new Quarantined('Downloader staging exceeds byte budget'); };
             try {
-                await execute(downloader, [...extractorArgs(c.source, this.app.projectRoot), '--ignore-config', '--no-playlist', '--no-geo-bypass', '--no-warnings', '--no-progress', '--socket-timeout', String(this.config.connectTimeoutSeconds), '--continue', '--retries', '2', '--fragment-retries', '2', '--concurrent-fragments', '1', '--limit-rate', String(this.config.downloadBytesPerSecond), '-f', s.editorialClassification ? 'bv*[vcodec^=avc1][height<=1080]+ba/b[vcodec^=avc1][height<=1080]/b[height<=1080]' : 'bv*[vcodec^=avc1]+ba/b[vcodec^=avc1]/b', '--merge-output-format', 'mkv', '-o', path.join(dir, 'source.%(ext)s'), mediaUrl], watch, 0);
+                await execute(downloader, [...extractorArgs(c.source, this.app.projectRoot), '--ignore-config', '--no-playlist', '--no-geo-bypass', '--no-warnings', '--no-progress', '--socket-timeout', String(this.config.connectTimeoutSeconds), '--continue', '--retries', '2', '--fragment-retries', '2', '--concurrent-fragments', '1', '--limit-rate', String(this.config.downloadBytesPerSecond), ...(c.source === 'youtube' ? youtubeQualityArgs : ['-f', 'bv*[height>=480]+ba/b[height>=480]', '--format-sort-force', '-S', 'height,vcodec:h264']), '--merge-output-format', 'mkv', '-o', path.join(dir, 'source.%(ext)s'), mediaUrl], watch, 0);
             }
             catch (error) {
                 if (error instanceof Deferred)
@@ -328,6 +330,7 @@ export class ContentAcquisition {
     // Trust source metadata: no full decode, runtime comparison or file hash.
     let probe=await this.probe(file);
     const video=probe.streams.find(s=>s.codec_type==='video'&&!s.disposition?.attached_pic);
+    if (!acceptableAcquisitionHeight(video?.height)) throw new Quarantined('Video resolution is below the 480p acquisition minimum or unknown');
     const needsAudio=!probe.streams.some(s=>s.codec_type==='audio');
     let prepared=file;
     if(video?.codec_name!=='h264'||needsAudio) {

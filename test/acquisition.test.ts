@@ -173,7 +173,7 @@ test('stable manual media imports, closes pending source record, and a metadata 
   const {app,policy,sub,db,service,close}=fixture();try{
     await service.index(0);const incoming=path.join(app.media.root,'.acquisition/incoming');
     const file=path.join(incoming,'bobo-siebenschlaefer__de__S01E01 - Bobo im Bad.mp4');
-    execFileSync('ffmpeg',['-nostdin','-v','error','-f','lavfi','-i','color=c=blue:s=160x90:r=10:d=2','-f','lavfi','-i','sine=frequency=440:duration=2','-c:v','libx264','-threads','1','-c:a','aac','-metadata:s:a:0','language=deu','-shortest',file]);
+    execFileSync('ffmpeg',['-nostdin','-v','error','-f','lavfi','-i','color=c=blue:s=854x480:r=10:d=2','-f','lavfi','-i','sine=frequency=440:duration=2','-c:v','libx264','-threads','1','-c:a','aac','-metadata:s:a:0','language=deu','-shortest',file]);
     fs.utimesSync(file,new Date(Date.now()-5000),new Date(Date.now()-5000));
     const pending=service.store.remember({...candidate(sub),season:1,episode:1,durationMs:2000});service.store.transition(pending,'manual','restricted');service.store.manual(`candidate:${pending}`,sub.id,'restricted',pending);
     const stat=fs.statSync(file);service.store.set(`incoming:${file}`,JSON.stringify({size:stat.size,mtime:stat.mtimeMs,at:Date.now()-5000}));
@@ -193,7 +193,7 @@ test('silent neutral media acquires audio without re-encoding compatible video',
     service.store.set('inventory-complete','1');
     const incoming=path.join(app.media.root,'.acquisition/incoming');fs.mkdirSync(incoming,{recursive:true});
     const file=path.join(incoming,'bobo-siebenschlaefer__neutral__S01E01 - Silent.mp4');
-    execFileSync('ffmpeg',['-nostdin','-v','error','-f','lavfi','-i','color=c=blue:s=160x90:r=10:d=2','-c:v','libx264','-threads','1',file]);
+    execFileSync('ffmpeg',['-nostdin','-v','error','-f','lavfi','-i','color=c=blue:s=854x480:r=10:d=2','-c:v','libx264','-threads','1',file]);
     const videoBytes=(name:string)=>execFileSync('ffmpeg',['-nostdin','-v','error','-i',name,'-map','0:v:0','-c','copy','-f','h264','-']);
     const originalVideo=videoBytes(file);
     fs.utimesSync(file,new Date(Date.now()-5000),new Date(Date.now()-5000));const stat=fs.statSync(file);
@@ -214,7 +214,7 @@ test('completed downloads are reused and metadata is trusted without decoding or
     const stat=fs.statSync(file);
     // Cached headers deliberately differ from source runtime and audio-language tags.
     // The fake bytes would fail a full decode; ingestion must use only these headers.
-    db.db.prepare('INSERT INTO acquisition_probe_cache VALUES(?,?,?,?)').run(file,stat.size,stat.mtimeMs,JSON.stringify({format:{duration:'2'},streams:[{index:0,codec_type:'video',codec_name:'h264'},{index:1,codec_type:'audio',codec_name:'aac',tags:{language:'eng'}}]}));
+    db.db.prepare('INSERT INTO acquisition_probe_cache VALUES(?,?,?,?)').run(file,stat.size,stat.mtimeMs,JSON.stringify({format:{duration:'2'},streams:[{index:0,codec_type:'video',codec_name:'h264',width:854,height:480},{index:1,codec_type:'audio',codec_name:'aac',tags:{language:'eng'}}]}));
     globalThis.fetch=async()=>{throw new Error('Completed download must not be fetched again');};
     const worker=service as unknown as {ingest(row:ReturnType<typeof service.store.candidates>[number],source:undefined):Promise<void>};
     await worker.ingest(service.store.candidates()[0]!,undefined);
@@ -381,4 +381,22 @@ test('wrong language imports are disabled and retained for review with manual me
     assert.ok(fs.existsSync(media.mediaPath));assert.match(fs.readFileSync(metadata,'utf8'),/creditsPolicy: full/);assert.match(fs.readFileSync(metadata,'utf8'),/enabled: false/);
     assert.equal(service.store.state('schedule-dirty'),'1');assert.equal(service.store.files()[0]?.state,'quarantine');
   }finally{close();}
+});
+
+
+test('resumed low-resolution and unknown-height downloads cannot enter the catalogue', async () => {
+  for (const height of [360, undefined]) {
+    const {app,sub,db,service,close}=fixture();
+    try {
+      await service.index(0);
+      const id=service.store.remember({...candidate(sub),durationMs:2000});
+      const dir=path.join(app.media.root,'.acquisition/staging',id);fs.mkdirSync(dir,{recursive:true});
+      const file=path.join(dir,'source.mp4');fs.writeFileSync(file,Buffer.alloc(1000));
+      const stat=fs.statSync(file);
+      db.db.prepare('INSERT INTO acquisition_probe_cache VALUES(?,?,?,?)').run(file,stat.size,stat.mtimeMs,JSON.stringify({format:{duration:'2'},streams:[{index:0,codec_type:'video',codec_name:'h264',height},{index:1,codec_type:'audio',codec_name:'aac'}]}));
+      await assert.rejects(service.ingest(service.store.candidates()[0]!,undefined), /480p acquisition minimum/);
+      assert.equal(db.listMedia().length,0);
+      assert.equal(fs.existsSync(file),true);
+    } finally {close();}
+  }
 });

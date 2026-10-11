@@ -70,6 +70,13 @@ Build humour from personality, local knowledge, or a clear visual event. If a fa
 - Review exact action frames before a full render. Check hands, feet, props, foreground layers, facial intent, text contrast, and the final logo.
 - Separate creation from playout. Do not schedule, publish, start a broadcast, or replace a reviewed master unless the user asks for that operation.
 
+## Acquisition quality
+
+Prefer 1080p whenever available, with resolution taking priority over codec.
+Never acquire below 480p; validate actual dimensions before ingest. Metadata
+estimates and downloads must share the same selection policy. Keep original
+assets until a replacement is validated and explicitly authorized.
+
 ## Work economically
 
 Lock scripts and pronunciation before paid TTS. Reuse cached speech and alignment whenever the full cache identity matches. Render stills or contact sheets first, then short previews, then masters. Write masters atomically so a failed render cannot overwrite the last good file.

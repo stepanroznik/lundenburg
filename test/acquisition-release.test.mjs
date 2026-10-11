@@ -91,7 +91,7 @@ test('educational ingestion reuses German classification, retains subtitles/mark
   try {
     service.dirs(); service.store.set('inventory-complete', '1');
     const file = path.join(root, 'incoming.mp4');
-    await execute('ffmpeg', ['-nostdin', '-v', 'error', '-f', 'lavfi', '-i', 'color=s=64x64:r=10:d=2', '-f', 'lavfi', '-i', 'anullsrc=r=48000:cl=stereo', '-t', '2', '-c:v', 'libx264', '-threads', '1', '-c:a', 'aac', file]);
+    await execute('ffmpeg', ['-nostdin', '-v', 'error', '-f', 'lavfi', '-i', 'color=s=854x480:r=10:d=2', '-f', 'lavfi', '-i', 'anullsrc=r=48000:cl=stereo', '-t', '2', '-c:v', 'libx264', '-threads', '1', '-c:a', 'aac', file]);
     fs.writeFileSync(path.join(root, 'incoming.de.srt'), '1\n00:00:00,100 --> 00:00:01,000\nHallo!\n');
     fs.writeFileSync(path.join(root, 'incoming.yaml'), 'markers:\n  - {kind: credits, startMs: 1500, endMs: 2000, source: manual, confidence: 1}\n');
     const c = { source: 'youtube', sourceId: 'd-uF2J9xAWQ', sourceUrl: 'https://www.youtube.com/watch?v=d-uF2J9xAWQ', showId: subscription.id,

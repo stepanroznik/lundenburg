@@ -4,7 +4,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { test } from 'node:test';
 import {
-  AcquisitionCommandError, downloaderFailure, extractorArgs, playlistCandidates,
+  acceptableAcquisitionHeight, AcquisitionCommandError, downloaderFailure, extractorArgs, playlistCandidates,
   recoverCtExtraction, recoverOrfExtraction, discardOrfPlaylistFiles, usesStreamExtractor, validateYoutubeSubscription, applyEpisodeIdentity, preserveEpisodeIdentity,
 } from '../src/acquisition/adapters.js';
 
@@ -120,4 +120,12 @@ test('ORF recovery resets only legacy failures once and leaves valid MP4 files i
     assert.equal(fs.existsSync(path.join(dir, 'source.mp4')), false);
     assert.equal(fs.existsSync(path.join(dir, 'source.mp4.part')), true);
   } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+});
+
+
+test('acquisition rejects unknown dimensions and sources below 480p', () => {
+  for (const height of [undefined, null, '1080', NaN, Infinity, 0, 240, 360, 479])
+    assert.equal(acceptableAcquisitionHeight(height), false);
+  for (const height of [480, 576, 720, 1080, 2160])
+    assert.equal(acceptableAcquisitionHeight(height), true);
 });

@@ -79,7 +79,12 @@ export interface YoutubeCandidate {
   originalTitle?: string; publishedAt?: number; invalidReason?: string;
 }
 type Execute = (binary: string, args: string[], guard?: () => void, timeout?: number) => Promise<string>;
-export const educationalYoutubeFormat = 'bv*[vcodec^=avc1][height<=1080]+ba/b[vcodec^=avc1][height<=1080]/b[height<=1080]';
+// Resolution wins over codec: a 1080p VP9 source beats a 360p H.264 source.
+export const educationalYoutubeFormat = 'bv*[height>=480][height<=1080]+ba/b[height>=480][height<=1080]';
+export const youtubeQualityArgs = ['-f', educationalYoutubeFormat, '--format-sort-force', '-S', 'height,vcodec:h264'];
+export function acceptableAcquisitionHeight(height: unknown): boolean {
+  return typeof height === 'number' && Number.isFinite(height) && height >= 480;
+}
 export function youtubeEstimatedBytes(metadata: { filesize?: number; filesize_approx?: number; requested_formats?: Array<{ filesize?: number; filesize_approx?: number }> }, durationMs: number): number {
   const formats = metadata.requested_formats ?? [metadata];
   const sizes = formats.map(f => Number(f.filesize ?? f.filesize_approx));
