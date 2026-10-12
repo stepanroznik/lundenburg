@@ -145,7 +145,10 @@ quality-repair batch from an audited JSON plan (`file`, `show`, `sourceId`,
 `targetHeight`). It checks source identity against the acquired provenance and
 approved channel, requires at least the planned resolution, and uses the shared
 acquisition lease, broadcast guards, storage reserve, bandwidth and progress
-watchdogs. Launch it at idle CPU/I/O priority on cores 0–1. Partial transfers resume;
+watchdogs. Launch it at idle CPU/I/O priority on cores 0–1. Staging reservations include separate audio/video streams and the growing merged
+container, using actual stream sizes to correct approximate provider estimates.
+Completed separate streams from interrupted merges are merged locally without
+redownloading. Partial transfers resume;
 transient failures receive up to three passes in download-only mode. Only safe status categories leave
 the downloader process.
 

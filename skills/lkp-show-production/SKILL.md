@@ -78,7 +78,9 @@ estimates and downloads must share the same selection policy. Keep original
 assets until a replacement is validated and explicitly authorized. Authorized
 quality repairs use `scripts/redownload-quality.mjs --replace`, preserve existing
 paths/IDs and schedules, defer protected playout assets, and delete old/staged
-copies only after the atomic file/database swap commits.
+copies only after the atomic file/database swap commits. Reserve space for both
+separate download streams and their merged output; never abort a normal merge
+using a one-file size estimate. Recover completed streams locally after interruption.
 
 ## Work economically
 

@@ -3,6 +3,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { setTimeout as delay } from 'node:timers/promises';
+import { qualityTransferReservation, isQualityStreamFile } from './quality-transfer-budget.mjs';
 
 const [planPath, releasePath] = process.argv.slice(2);
 if (!planPath || !releasePath) throw new Error('Usage: redownload-quality.mjs PLAN ACTIVE_RELEASE');
@@ -31,7 +32,10 @@ fs.mkdirSync(runtime, { recursive: true });
 const statusPath = path.join(runtime, 'status.json');
 let previous = {}; try { previous = JSON.parse(fs.readFileSync(statusPath, 'utf8')); } catch {}
 const state = { pid: process.pid, phase: 'waiting-for-lease', total: plan.length, updatedAt: Date.now(), episodes: {} };
-for (const row of plan) state.episodes[row.sourceId] = previous.episodes?.[row.sourceId]?.targetHeight === row.targetHeight ? previous.episodes[row.sourceId] : { show: row.show, title: row.title, targetHeight: row.targetHeight, phase: 'queued', attempts: 0 };
+for (const row of plan) {
+  state.episodes[row.sourceId] = previous.episodes?.[row.sourceId]?.targetHeight === row.targetHeight ? previous.episodes[row.sourceId] : { show: row.show, title: row.title, targetHeight: row.targetHeight, phase: 'queued', attempts: 0 };
+  if (!['installed', 'validated', 'retry', 'queued'].includes(state.episodes[row.sourceId].phase)) state.episodes[row.sourceId].phase = 'queued';
+}
 if (replace) plan.sort((a,b) => {
   const score = row => state.episodes[row.sourceId]?.phase === 'validated' ? state.episodes[row.sourceId].codec === 'h264' ? 0 : 1 : 2;
   return score(a) - score(b);
@@ -98,7 +102,27 @@ try {
           const stream = await probeHeight(row.file);
           if (stream.height >= row.targetHeight) { fs.rmSync(dir, { recursive: true, force: true }); Object.assign(entry, { phase: 'installed', file: row.file, codec: 'h264' }); save(); continue; }
         }
-        const completed = fs.readdirSync(dir).filter(n => /^replacement\.(mkv|mp4|webm|mov)$/.test(n));
+        let completed = fs.readdirSync(dir).filter(n => /^replacement\.(mkv|mp4|webm|mov)$/.test(n));
+        if (!completed.length) {
+          const sources = [];
+          for (const name of fs.readdirSync(dir).filter(n => /^replacement\.f[\w-]+\.(mp4|webm|m4a)$/.test(n))) {
+            const file = path.join(dir, name), probe = await fullProbe(file);
+            sources.push({ file, probe, size: fs.statSync(file).size });
+          }
+          const videos = sources.filter(s => s.probe.streams.some(v => v.codec_type === 'video' && v.height >= row.targetHeight));
+          videos.sort((a,b) => Number(b.probe.streams.some(v => v.codec_name === 'h264')) - Number(a.probe.streams.some(v => v.codec_name === 'h264')));
+          const video = videos[0], audio = sources.find(s => s.probe.streams.some(a => a.codec_type === 'audio') && !s.probe.streams.some(v => v.codec_type === 'video'));
+          if (video && audio) {
+            const abandoned = path.join(dir, 'replacement.temp.mkv'); if (fs.existsSync(abandoned)) fs.unlinkSync(abandoned);
+            const partial = path.join(dir, 'replacement.mux.partial.mkv'), output = path.join(dir, 'replacement.mkv');
+            io.reserve(app.media.root, video.size + audio.size, policy.reserveBytes);
+            const progress = io.progressWatch(() => fs.existsSync(partial) ? fs.statSync(partial).size : 0, policy.downloadStallSeconds);
+            entry.phase = 'merging-completed-streams'; save();
+            console.log(`Recovering completed streams for ${row.show} / ${row.sourceId}; no redownload needed.`);
+            await io.execute('ffmpeg', ['-nostdin','-v','error','-y','-threads','1','-i',video.file,'-i',audio.file,'-map','0:v:0','-map','1:a:0','-c','copy',partial], () => { check(); progress(); io.reserve(app.media.root, 1024 * 1024, policy.reserveBytes); }, 0);
+            fs.renameSync(partial, output); completed = ['replacement.mkv'];
+          }
+        }
         if (completed.length === 1) {
           const file = path.join(dir, completed[0]), stream = await probeHeight(file);
           if (!(stream?.height >= row.targetHeight)) throw new Error('Replacement below target');
@@ -112,13 +136,15 @@ try {
         const sub = policy.subscriptions.find(s => s.id === row.show);
         if (metadata.id !== row.sourceId || metadata.channel_id !== sub.channelId || !(metadata.height >= row.targetHeight)) throw new Error('Source identity or resolution mismatch');
         const estimate = adapters.youtubeEstimatedBytes(metadata, Number(metadata.duration) * 1000);
-        io.reserve(app.media.root, estimate * 2, policy.reserveBytes);
         const stagedBytes = () => fs.readdirSync(dir).reduce((sum, name) => { const file = path.join(dir, name); return sum + (fs.statSync(file).isFile() ? fs.statSync(file).size : 0); }, 0);
+        const streamBytes = () => fs.readdirSync(dir).filter(isQualityStreamFile).reduce((sum,name) => sum + fs.statSync(path.join(dir,name)).size,0);
+        const allowance = () => qualityTransferReservation(estimate, streamBytes());
+        io.reserve(app.media.root, Math.max(0, allowance() - stagedBytes()), policy.reserveBytes);
         const progress = io.progressWatch(stagedBytes, policy.downloadStallSeconds);
         entry.phase = 'downloading'; save(); console.log(`Downloading ${row.show} / ${row.sourceId} at ${row.targetHeight}p.`);
         await io.execute(downloader, [...common, '--no-progress', '--continue', '--retries', '2', '--fragment-retries', '2', '--concurrent-fragments', '1', '--limit-rate', String(policy.downloadBytesPerSecond), '--merge-output-format', 'mkv', '-o', path.join(dir, 'replacement.%(ext)s'), url], () => {
-          check(); progress(); const bytes = stagedBytes(); io.reserve(app.media.root, Math.max(0, estimate - bytes), policy.reserveBytes);
-          if (bytes > estimate * 1.25) throw new io.Deferred('Replacement exceeds reservation');
+          check(); progress(); const bytes = stagedBytes(); io.reserve(app.media.root, Math.max(0, allowance() - bytes), policy.reserveBytes);
+          if (bytes > allowance()) throw new io.Deferred('Replacement exceeds reservation');
           entry.downloadedBytes = bytes; save();
         }, 0);
         const files = fs.readdirSync(dir).filter(n => /^replacement\.(mkv|mp4|webm|mov)$/.test(n));
@@ -129,7 +155,7 @@ try {
         console.log(`Validated ${row.show} / ${row.sourceId}: ${stream.width}x${stream.height}.`);
         await finish(row, entry, dir);
       } catch (error) {
-        entry.phase = 'retry'; entry.reason = error instanceof io.Deferred ? 'Protection or resource check deferred transfer' : error instanceof adapters.AcquisitionCommandError ? `Downloader ${error.kind}` : 'Source extraction, preparation or validation failed'; save();
+        entry.phase = 'retry'; entry.reason = error instanceof io.Deferred ? ['Replacement exceeds reservation','Minimum disk-space reserve would be breached','Playout is stale, behind, or awaiting its next asset','Media processing stalled; retry scheduled','yt-dlp timed out','Asset is playing or inside the protected playout window'].includes(error.message) ? error.message : 'Protection or resource check deferred transfer' : error instanceof adapters.AcquisitionCommandError ? `Downloader ${error.kind}` : 'Source extraction, preparation or validation failed'; save();
         console.log(`Deferred ${row.show} / ${row.sourceId}; originals retained.`);
       }
     }
