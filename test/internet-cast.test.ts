@@ -86,10 +86,9 @@ function browser() {
     if (!elements.has(id)) elements.set(id, { hidden: true, textContent: '', listeners: new Map(), addEventListener(type: string, fn: Function) { this.listeners.set(type, fn); } });
     return elements.get(id);
   };
-  const events: any[] = [], listeners = new Map<string, Function>(), intervals: Function[] = [];
-  let now = 100000;
-  const media: any = { media: { contentId: 'https://stream.example.test/cast/test/stream.m3u8' }, playerState: 'PLAYING', currentTime: 96, liveSeekableRange: { start: 40, end: 100 }, seeks: [],
-    seek(request: any, success: Function) { this.seeks.push(request); success(); } };
+  const events: any[] = [], listeners = new Map<string, Function>();
+  const remoteListeners = new Map<string, Function>();
+  let remote: any;
   let session: any, loadRequest: any, fetchCount = 0, fail = false, pickerCalls = 0, pickerError: unknown;
   const castContext = {
     setOptions() {}, getCastState: () => 'none', getCurrentSession: () => session,
@@ -98,7 +97,7 @@ function browser() {
     endCurrentSession: () => { session = undefined; listeners.get('session')!({ sessionState: 'ended' }); },
   };
   const context: any = {
-    URL, location: { origin: 'https://stream.example.test' }, Date: { now: () => now }, setInterval: (fn: Function) => intervals.push(fn),
+    URL, location: { origin: 'https://stream.example.test' },
     document: { getElementById: element },
     CustomEvent: class { constructor(public type: string, public detail: any) { Object.assign(this, detail); } },
     dispatchEvent: (event: any) => events.push(event),
@@ -106,24 +105,24 @@ function browser() {
     chrome: { cast: { AutoJoinPolicy: { ORIGIN_SCOPED: 'origin' }, media: {
       DEFAULT_MEDIA_RECEIVER_APP_ID: 'default', StreamType: { LIVE: 'LIVE' }, HlsSegmentFormat: { TS: 'TS' }, HlsVideoSegmentFormat: { MPEG2_TS: 'MPEG2_TS' },
       MediaInfo: class { constructor(public contentId: string, public contentType: string) {} },
-      SeekRequest: class {}, GenericMediaMetadata: class {}, LoadRequest: class { constructor(public media: any) {} },
+      GenericMediaMetadata: class {}, LoadRequest: class { constructor(public media: any) {} },
     } } },
     cast: { framework: {
       CastContext: { getInstance: () => castContext }, CastState: { NO_DEVICES_AVAILABLE: 'none' },
       CastContextEventType: { SESSION_STATE_CHANGED: 'session', CAST_STATE_CHANGED: 'state' },
       SessionState: { SESSION_STARTED: 'started', SESSION_RESUMED: 'resumed', SESSION_ENDED: 'ended', SESSION_START_FAILED: 'failed' },
-      RemotePlayer: class {}, RemotePlayerController: class { addEventListener() {} playOrPause() {} },
+      RemotePlayer: class { isMediaLoaded = true; constructor() { remote = this; } }, RemotePlayerController: class { addEventListener(name: string, fn: Function) { remoteListeners.set(name, fn); } playOrPause() {} },
       RemotePlayerEventType: { IS_PAUSED_CHANGED: 'paused', IS_MEDIA_LOADED_CHANGED: 'loaded' },
     } },
   };
   context.window = context;
   vm.runInNewContext(castPlayerJs, context);
-  return { context, events, element, media, tick(ms = 3000) { now += ms; intervals.forEach(fn => fn()); }, get request() { return loadRequest; }, get fetches() { return fetchCount; },
+  return { context, events, element, mediaLoaded(value: boolean) { remote.isMediaLoaded = value; remoteListeners.get('loaded')!(); }, get request() { return loadRequest; }, get fetches() { return fetchCount; },
     get pickerCalls() { return pickerCalls; }, set pickerError(value: unknown) { pickerError = value; },
     async connect(resumed = false, failure = false) {
       fail = failure;
       session = { getCastDevice: () => ({ friendlyName: 'Living room' }),
-        getMediaSession: () => media,
+        getMediaSession: () => resumed ? { media: { contentId: 'https://stream.example.test/cast/existing/stream.m3u8' } } : null,
         loadMedia: async (request: any) => { loadRequest = request; } };
       listeners.get('session')!({ sessionState: resumed ? 'resumed' : 'started' });
       await new Promise(resolve => setImmediate(resolve));
@@ -131,7 +130,7 @@ function browser() {
   };
 }
 
-test('Cast sender loads LIVE MPEG-TS HLS, pauses local playback only on success, and resumes after disconnect', async () => {
+test('Cast sender loads LIVE MPEG-TS HLS, suspends local playback, and resumes after disconnect', async () => {
   const b = browser();
   b.context.__onGCastApiAvailable(true);
   await b.connect();
@@ -178,7 +177,7 @@ test('Cast session resumes without interrupting TV playback and reports authoriz
   const failed = browser();
   failed.context.__onGCastApiAvailable(true);
   await failed.connect(false, true);
-  assert.equal(failed.events.some(event => event.detail.active), false);
+  assert.equal(failed.events.at(-1).detail.active, true, 'browser stays suspended until the failed TV session is disconnected');
   assert.match(failed.element('cast-hint').textContent, /Could not start casting/);
   const unsupported = browser();
   unsupported.context.__onGCastApiAvailable(false);
@@ -189,7 +188,7 @@ test('local player suspends retries while casting and reloads live playback on r
   const listeners = new Map<string, Function>();
   let plays = 0, pauses = 0, loads = 0;
   const video = { src: '', muted: true, paused: false, currentTime: 0,
-    canPlayType: () => true, addEventListener() {},
+    canPlayType: () => true, addEventListener() {}, removeAttribute() {},
     play: () => { plays++; return Promise.resolve(); }, pause: () => { pauses++; }, load: () => { loads++; } };
   const element = { textContent: '' };
   const context: any = { document: { getElementById: (id: string) => id === 'video' ? video : element },
@@ -202,91 +201,53 @@ test('local player suspends retries while casting and reloads live playback on r
   assert.equal(pauses, 1);
   vm.runInNewContext('restartNative();play();rebuild();online()', context);
   assert.equal(plays, 0);
-  assert.equal(loads, 0);
+  assert.equal(loads, 1, 'clearing the browser media cancels pending downloads');
   listeners.get('lkp-cast-state')!({ detail: { active: false } });
   assert.equal(plays, 1);
-  assert.equal(loads, 1);
+  assert.equal(loads, 2);
   assert.ok(player.indexOf('/cast.js') < player.indexOf('https://www.gstatic.com/cv/'));
 });
 
-test('fresh Cast playback gains headroom; resumed and paused sessions are left alone', async () => {
-  const fresh = browser(); fresh.context.__onGCastApiAvailable(true); await fresh.connect();
-  fresh.tick();
-  assert.equal(fresh.media.seeks.length, 1);
-  assert.equal(fresh.media.seeks[0].currentTime, 84);
-  assert.equal(fresh.media.seeks[0].resumeState, undefined);
-  fresh.tick(); assert.equal(fresh.media.seeks.length, 1);
-  const resumed = browser(); resumed.context.__onGCastApiAvailable(true); await resumed.connect(true);
-  resumed.tick(); assert.equal(resumed.media.seeks.length, 0);
-  const paused = browser(); paused.context.__onGCastApiAvailable(true); await paused.connect();
-  paused.media.playerState = 'PAUSED'; paused.tick();
-  paused.media.playerState = 'PLAYING'; paused.tick();
-  assert.equal(paused.media.seeks.length, 0);
-});
-
-test('Cast recovery waits for a real stall, is rate limited, and ignores other media', async () => {
-  const b = browser(); b.context.__onGCastApiAvailable(true); await b.connect(true);
-  b.media.playerState = 'BUFFERING'; b.tick(); b.tick(19000);
-  assert.equal(b.media.seeks.length, 0);
-  b.tick(2000); assert.equal(b.media.seeks.length, 1);
-  b.tick(); b.tick(21000); assert.equal(b.media.seeks.length, 1);
-  b.tick(40000); assert.equal(b.media.seeks.length, 2);
-  b.media.playerState = 'PAUSED'; b.tick(61000);
-  assert.equal(b.media.seeks.length, 2);
-  b.media.playerState = 'BUFFERING'; b.media.media.contentId = 'https://other.example/video';
-  b.tick(); b.tick(61000); assert.equal(b.media.seeks.length, 2);
-});
-
-test('Cast stall reloads only when seeking is unavailable, without taking over a foreign session', async () => {
-  const b = browser(); b.context.__onGCastApiAvailable(true); await b.connect(true);
-  b.media.liveSeekableRange = undefined; b.media.playerState = 'BUFFERING';
-  b.tick(); b.tick(21000);
+test('Cast loading and transient unloaded signals never restart browser playback', async () => {
+  const b = browser(); b.context.__onGCastApiAvailable(true);
+  let finish: Function = () => {};
+  b.context.fetch = () => new Promise(resolve => { finish = resolve; });
+  await b.connect();
+  assert.equal(b.events.at(-1).detail.active, true, 'local playback stops before the receiver load finishes');
+  b.mediaLoaded(false);
+  assert.equal(b.events.every(event => event.detail.active), true);
+  finish({ ok: true, json: async () => ({ path: '/cast/test/stream.m3u8' }) });
   await new Promise(resolve => setImmediate(resolve));
-  assert.equal(b.fetches, 1);
-  assert.equal(b.events.at(-1).detail.active, true);
-  assert.equal(b.media.seeks.length, 0);
+  b.mediaLoaded(false); b.mediaLoaded(true);
+  assert.equal(b.events.every(event => event.detail.active), true);
+  b.element('cast-stop').listeners.get('click')();
+  assert.equal(b.events.at(-1).detail.active, false);
 });
 
-test('Chrome uses the buffered MSE player and preserves mute and backward-seek progress', () => {
-  const callbacks = new Map<string, Function>(), intervals: Function[] = [];
-  let now = 100000, instances = 0;
-  const video = { muted: true, currentTime: 100, paused: false, seeking: false,
-    canPlayType: () => true, addEventListener: (name: string, fn: Function) => callbacks.set(name, fn),
-    play: () => Promise.resolve(), pause() {} };
-  let config: any;
+test('casting destroys MSE and blocks local play attempts until disconnect', () => {
+  const listeners = new Map<string, Function>(), videoEvents = new Map<string, Function>();
+  let destroyed = 0, instances = 0, pauses = 0, loads = 0, removed = 0;
+  const video = { src: '', muted: true, paused: false, currentTime: 0, autoplay: true, controls: true,
+    canPlayType: () => '', addEventListener: (name: string, fn: Function) => videoEvents.set(name, fn),
+    play: () => Promise.resolve(), pause() { pauses++; }, load() { loads++; }, removeAttribute(name: string) { assert.equal(name, 'src'); removed++; } };
   class Hls {
-    static isSupported = () => true;
-    static Events = { MANIFEST_PARSED: 'manifest', ERROR: 'error' };
+    static isSupported = () => true; static Events = { MANIFEST_PARSED: 'manifest', ERROR: 'error', FRAG_LOADED: 'fragment' };
     static ErrorTypes = { MEDIA_ERROR: 'media' };
-    constructor(options: any) { config = options; instances++; }
-    loadSource() {} attachMedia() {} on() {} destroy() {} stopLoad() {}
+    constructor() { instances++; } loadSource() {} attachMedia() {} on() {} destroy() { destroyed++; }
   }
-  const element = { textContent: '' };
-  const context: any = { Hls, document: { getElementById: (id: string) => id === 'video' ? video : element },
-    Date: class extends Date { static now() { return now; } }, Intl,
-    setInterval: (fn: Function) => intervals.push(fn), setTimeout() {}, clearTimeout() {}, addEventListener() {},
+  const context: any = { Hls, document: { getElementById: (id: string) => id === 'video' ? video : { textContent: '' } },
+    Date, Intl, setInterval() {}, setTimeout() {}, clearTimeout() {},
+    addEventListener: (name: string, fn: Function) => listeners.set(name, fn),
     fetch: async () => ({ ok: true, json: async () => ({ now: null, next: null, stale: true }) }) };
-  context.window = context;
-  vm.runInNewContext(playerJs, context);
-  assert.equal(instances, 1, 'MSE must win even if Chrome also advertises native HLS');
-  assert.equal(config.lowLatencyMode, false);
-  assert.equal(config.liveSyncDurationCount, 7);
-  assert.equal(config.backBufferLength, 8);
-  callbacks.get('playing')!(); assert.equal(video.muted, true, 'autoplay must not unmute without a gesture');
-  callbacks.get('timeupdate')!();
-  now += 14000; video.currentTime = 20; callbacks.get('timeupdate')!();
-  now += 2000; intervals[0]!(); assert.equal(instances, 1, 'backward seeks still count as progress');
-  now += 16000; intervals[0]!(); assert.equal(instances, 2, 'a real playback stall rebuilds MSE');
-});
-
- test('recovery never overrides a pause made while authorization is pending', async () => {
-  const b = browser(); b.context.__onGCastApiAvailable(true); await b.connect(true);
-  let resolveAccess: Function = () => {};
-  b.context.fetch = () => new Promise(resolve => { resolveAccess = resolve; });
-  b.media.liveSeekableRange = undefined; b.media.playerState = 'BUFFERING';
-  b.tick(); b.tick(21000);
-  b.media.playerState = 'PAUSED';
-  resolveAccess({ ok: true, json: async () => ({ path: '/cast/test/stream.m3u8' }) });
-  await new Promise(resolve => setImmediate(resolve));
-  assert.equal(b.request, undefined);
+  context.window = context; vm.runInNewContext(playerJs, context);
+  assert.equal(instances, 1);
+  listeners.get('lkp-cast-state')!({ detail: { active: true } });
+  assert.equal(destroyed, 1); assert.equal(removed, 1); assert.equal(loads, 1);
+  assert.equal(video.autoplay, false); assert.equal(video.controls, false);
+  const before = pauses; videoEvents.get('play')!(); videoEvents.get('playing')!();
+  assert.equal(pauses, before + 2);
+  vm.runInNewContext('play();rebuild();restartNative()', context);
+  assert.equal(instances, 1); assert.equal(loads, 1);
+  listeners.get('lkp-cast-state')!({ detail: { active: false } });
+  assert.equal(instances, 2); assert.equal(video.controls, true);
 });

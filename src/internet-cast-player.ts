@@ -7,7 +7,6 @@ export const castPlayerJs = `(() => {
   const stopButton = document.getElementById('cast-stop');
   const findButton = document.getElementById('cast-find');
   let context, remote, controller, active = false, loadingSession;
-  let bufferSession, bufferDeadline = 0, bufferingSince = 0, lastRecovery = -Infinity, seeking = false, seekDeadline = 0;
   const pickerFailure = error => {
     const code = typeof error === 'string' ? error : error && (error.code || error.name);
     if (code === 'cancel') return 'Device selection cancelled. Choose Find Chromecast to try again.';
@@ -18,7 +17,6 @@ export const castPlayerJs = `(() => {
   };
   const localState = value => {
     active = value;
-    if (!value) { bufferSession = undefined; bufferingSince = 0; seeking = false; }
     remoteControls.hidden = !value;
     window.dispatchEvent(new CustomEvent('lkp-cast-state', { detail: { active: value } }));
   };
@@ -34,61 +32,18 @@ export const castPlayerJs = `(() => {
     localState(true);
     hint.textContent = 'Casting live to ' + session.getCastDevice().friendlyName;
   };
-  // Use the receiver's media timeline, never wall-clock time. Staying another
-  // 16 seconds behind its safe edge gives slow Wi-Fi deliveries room to finish.
-  const seekBuffered = (session, recovering) => {
-    const media = session.getMediaSession();
-    const range = media && (media.getEstimatedLiveSeekableRange?.() || media.liveSeekableRange);
-    if (!range || !Number.isFinite(range.start) || !Number.isFinite(range.end) || range.end - range.start < 20 || !media.seek) return false;
-    const target = Math.max(range.start + 2, range.end - 16);
-    const position = media.getEstimatedTime?.() ?? media.currentTime;
-    if (!recovering && (!Number.isFinite(position) || position <= target + 4)) return false;
-    const request = new chrome.cast.media.SeekRequest();
-    request.currentTime = target;
-    // Omitting resumeState preserves the receiver's current pause/play choice.
-    seeking = true;
-    seekDeadline = Date.now() + 15000;
-    media.seek(request, () => {
-      seeking = false;
-      if (recovering && active && context.getCurrentSession() === session && ownMedia(session)) connected(session);
-    }, () => {
-      seeking = false;
-      if (recovering && context.getCurrentSession() === session && active) void load(session, false, true);
-    });
-    return true;
-  };
-  setInterval(() => {
-    const session = context && context.getCurrentSession();
-    if (!active || !session || loadingSession || !ownMedia(session)) { bufferingSince = 0; return; }
-    const media = session.getMediaSession();
-    if (remote?.isPaused || media.playerState === 'PAUSED') { bufferSession = undefined; bufferingSince = 0; return; }
-    const now = Date.now();
-    if (seeking && now > seekDeadline) seeking = false;
-    if (bufferSession === session && !seeking) {
-      if (now > bufferDeadline || seekBuffered(session, false)) bufferSession = undefined;
-    }
-    if (media.playerState !== 'BUFFERING') { bufferingSince = 0; return; }
-    if (!bufferingSince) bufferingSince = now;
-    if (now - bufferingSince < 20000 || now - lastRecovery < 60000 || seeking) return;
-    lastRecovery = now;
-    bufferingSince = 0;
-    bufferSession = undefined;
-    hint.textContent = 'TV playback stalled; reconnecting the live stream…';
-    if (!seekBuffered(session, true)) void load(session, false, true);
-  }, 3000);
-  async function load(session, resumed, recovering = false) {
-    const expectedMedia = session.getMediaSession();
-    if (recovering && (!active || !ownMedia(session) || remote?.isPaused || expectedMedia.playerState === 'PAUSED')) return;
+  async function load(session, resumed) {
     if (loadingSession === session) return;
     if (resumed && ownMedia(session)) { connected(session); return; }
     loadingSession = session;
+    // Reserve playback for the TV throughout loading and buffering.
+    localState(true);
     hint.textContent = 'Connecting the live stream to your TV…';
     try {
       const response = await fetch('/api/cast', { method: 'POST', headers: { 'X-LKP-Cast': '1' }, credentials: 'same-origin' });
       if (!response.ok) throw new Error('access');
       const link = await response.json();
       if (context.getCurrentSession() !== session) return;
-      if (recovering && (!active || !ownMedia(session) || session.getMediaSession() !== expectedMedia || remote?.isPaused || expectedMedia.playerState === 'PAUSED')) return;
       const media = new chrome.cast.media.MediaInfo(new URL(link.path, location.origin).href, 'application/vnd.apple.mpegurl');
       media.streamType = chrome.cast.media.StreamType.LIVE;
       media.hlsSegmentFormat = chrome.cast.media.HlsSegmentFormat.TS;
@@ -99,14 +54,10 @@ export const castPlayerJs = `(() => {
       const request = new chrome.cast.media.LoadRequest(media);
       request.autoplay = true;
       await session.loadMedia(request);
-      if (context.getCurrentSession() === session) {
-        bufferSession = session;
-        bufferDeadline = Date.now() + 30000;
-        connected(session);
-      }
+      if (context.getCurrentSession() === session) connected(session);
     } catch {
       if (context.getCurrentSession() === session) {
-        localState(false);
+        // Keep browser playback suspended until the user disconnects.
         hint.textContent = 'Could not start casting. Check your TV connection, then stop casting and try again.';
       }
     } finally { if (loadingSession === session) loadingSession = undefined; }
@@ -157,8 +108,9 @@ export const castPlayerJs = `(() => {
     });
     controller.addEventListener(cast.framework.RemotePlayerEventType.IS_MEDIA_LOADED_CHANGED, () => {
       if (active && !remote.isMediaLoaded) {
-        localState(false);
-        hint.textContent = 'TV playback ended. Stop casting and reconnect to return to the live stream.';
+        // Receivers report unloaded during loading/buffering too. This does
+        // not mean the Cast session ended, so never restart local playback.
+        hint.textContent = 'TV playback is interrupted. Stop casting and reconnect to try again.';
       }
     });
     pauseButton.addEventListener('click', () => controller.playOrPause());

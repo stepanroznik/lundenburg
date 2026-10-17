@@ -65,7 +65,7 @@ Cast button; ordinary browser playback continues to work.
 
 The player uses Google's Default Media Receiver, so no custom receiver account,
 registration, or app ID is needed. It sends the existing H.264/AAC MPEG-TS HLS as
-a live stream. Local playback pauses after the TV successfully loads the stream;
+a live stream. Local playback stops as soon as a selected TV session begins loading;
 **Pause on TV**, **Resume on TV**, and **Stop casting** control the receiver.
 Stopping casting returns the browser to the live edge. Reopening the page can
 rejoin an existing receiver session without restarting its video.
@@ -106,23 +106,15 @@ A working YouTube or Netflix app is not a reliable test of web discovery: Google
 notes that those apps use specialized discovery mechanisms in its
 [discovery troubleshooting guide](https://developers.google.com/cast/docs/discovery).
 
-## Playback resilience
+## Exclusive Cast playback
 
-MSE-capable browsers prefer hls.js, even when Chrome advertises native HLS. The
-player targets seven four-second segments (about 28 seconds) behind the live
-edge, disables low-latency loading, retains only eight seconds of played video,
-and tolerates small inter-segment timestamp gaps. Native HLS remains available
-when MSE is unsupported. Autoplay respects the mute setting; unmute with the video
-controls. A progress watchdog reconnects after 15 seconds without playback
-progress and treats backward seeks as progress. Schedule polling slows to five
-seconds and pauses while the page is hidden.
+The browser destroys its local HLS instance, clears the video source, disables
+local autoplay and playback controls, and releases local media downloads while
+casting. It stays suspended throughout receiver loading, buffering, transient
+unloaded status and load failures. Only ending the Cast session restores local
+playback. Play events are also guarded against an accidental browser restart.
 
-On a fresh Cast load, the sender uses the receiver's live seekable range to move
-another 16 seconds behind its safe edge, once, when the range is available.
-Rejoining an existing session preserves its position; paused or foreign media
-are never repositioned. While the sender page is running, 20 seconds of continuous
-receiver buffering triggers a seek to a safe live position, or a fresh authorized
-load if seeking is unavailable. Recovery is limited to once per minute. This
-watchdog cannot run reliably while the phone suspends the page; the initial
-playback margin stays in effect on the receiver. These measures add viewing delay
-without changing the schedule, encoding quality, RF path or HLS producer.
+The experimental receiver seeks, automatic reload watchdog and larger MSE-first
+browser buffering introduced in dd3700a have been removed following device
+regressions. Native HLS is again preferred where available. Receiver playback
+uses its normal live position without sender-driven seeking or reloading.
