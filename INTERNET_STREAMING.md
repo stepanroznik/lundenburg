@@ -54,3 +54,75 @@ The first version provides one browser rendition at the broadcast resolution
 and bitrate. It is intended for about zero to two concurrent viewers. The media
 pipeline keeps subtitle streams separate internally, but the web player does not
 yet expose a subtitle selector.
+
+## Chromecast
+
+Open the public HTTPS player in a Cast-supported Chrome browser, sign in, and
+use **Find Chromecast**. The browser and TV must be on the same local network. Allow
+local network access if Chrome asks. Chrome on iOS does not support the Cast Web
+Sender SDK. An unavailable browser or a missing device is explained beside the
+Cast button; ordinary browser playback continues to work.
+
+The player uses Google's Default Media Receiver, so no custom receiver account,
+registration, or app ID is needed. It sends the existing H.264/AAC MPEG-TS HLS as
+a live stream. Local playback pauses after the TV successfully loads the stream;
+**Pause on TV**, **Resume on TV**, and **Stop casting** control the receiver.
+Stopping casting returns the browser to the live edge. Reopening the page can
+rejoin an existing receiver session without restarting its video.
+
+Chromecast does not inherit the browser's HTTP Basic credentials. An authenticated
+POST to `/api/cast`, with `X-LKP-Cast: 1`, therefore issues a random, signed HLS
+capability path. It lasts six hours and is invalidated by restarting
+`lkp-internet.service`. Reconnect from the player after it expires. The stream
+password is never embedded in a media URL, sent to the receiver, or stored in the
+page. Treat a temporary Cast URL as private: anyone holding it can watch until it
+expires. The player does not persist or log these URLs.
+
+Only the signed `/cast/TOKEN/stream.m3u8` and `/cast/TOKEN/segment-N.ts` routes allow
+receiver CORS and credential-free GET/HEAD requests. Relative playlist segments
+retain the capability prefix. Other files, the regular HLS routes, and all
+schedule/catalogue APIs still require the browser login. The issuing endpoint
+does not allow CORS and rejects cross-site requests. The page's content security
+policy permits Google's SDK on `https://www.gstatic.com` and the local HLS worker.
+
+After updating the maintained TypeScript sources, run `npm run check` and
+`node --import tsx --test test/internet-cast.test.ts`, then restart only
+`lkp-internet.service`. The separate playout encoder and its rolling HLS output
+can continue running. Verify authenticated Cast-link creation, unauthenticated
+signed playlist and segment requests, and unsigned-route rejection. A physical
+Chromecast playback test is still needed to confirm device discovery and TV
+playback on the viewer's network.
+
+References: [Google Cast Web Sender integration](https://developers.google.com/cast/docs/web_sender/integrate),
+[supported media and CORS](https://developers.google.com/cast/docs/media), and
+[supported browsers](https://developers.google.com/cast/docs/web_sender).
+
+The **Find Chromecast** button remains visible even when background discovery
+reports no receivers. It calls `CastContext.requestSession()` directly within the
+click gesture, so Chrome can open its device chooser. Picker failures distinguish
+cancellation, permission refusal, discovery failure and timeout. On Android, check
+**Settings → Apps → Chrome → Permissions → Nearby devices** if no devices appear.
+A working YouTube or Netflix app is not a reliable test of web discovery: Google
+notes that those apps use specialized discovery mechanisms in its
+[discovery troubleshooting guide](https://developers.google.com/cast/docs/discovery).
+
+## Playback resilience
+
+MSE-capable browsers prefer hls.js, even when Chrome advertises native HLS. The
+player targets seven four-second segments (about 28 seconds) behind the live
+edge, disables low-latency loading, retains only eight seconds of played video,
+and tolerates small inter-segment timestamp gaps. Native HLS remains available
+when MSE is unsupported. Autoplay respects the mute setting; unmute with the video
+controls. A progress watchdog reconnects after 15 seconds without playback
+progress and treats backward seeks as progress. Schedule polling slows to five
+seconds and pauses while the page is hidden.
+
+On a fresh Cast load, the sender uses the receiver's live seekable range to move
+another 16 seconds behind its safe edge, once, when the range is available.
+Rejoining an existing session preserves its position; paused or foreign media
+are never repositioned. While the sender page is running, 20 seconds of continuous
+receiver buffering triggers a seek to a safe live position, or a fresh authorized
+load if seeking is unavailable. Recovery is limited to once per minute. This
+watchdog cannot run reliably while the phone suspends the page; the initial
+playback margin stays in effect on the receiver. These measures add viewing delay
+without changing the schedule, encoding quality, RF path or HLS producer.

@@ -6,11 +6,14 @@ import { timingSafeEqual } from 'node:crypto';
 import Database from 'better-sqlite3';
 import { readPlayoutStatus } from './playout-status.js';
 import { loadConfig } from './config.js';
+import { createCastHandler } from './internet-cast.js';
+import { castPlayerJs } from './internet-cast-player.js';
+import { player, playerJs } from './internet-player.js';
 
 const config = loadConfig();
 const username = process.env.LKP_STREAM_USERNAME ?? 'lkp';
 const configuredPassword = process.env.LKP_STREAM_PASSWORD;
-if (!configuredPassword || configuredPassword.length < 20) throw new Error('LKP_STREAM_PASSWORD must contain at least 20 characters');
+if (!configuredPassword || configuredPassword.length < 8) throw new Error('LKP_STREAM_PASSWORD must contain at least 8 characters');
 const password: string = configuredPassword;
 
 function equal(a: string, b: string): boolean {
@@ -30,29 +33,11 @@ function security(response: ServerResponse) {
   response.setHeader('X-Frame-Options', 'DENY');
   response.setHeader('Referrer-Policy', 'no-referrer');
   response.setHeader('Permissions-Policy', 'camera=(), microphone=(), geolocation=()');
-  response.setHeader('Content-Security-Policy', "default-src 'self'; img-src 'self'; media-src 'self' blob:; script-src 'self'; style-src 'self' 'unsafe-inline'; connect-src 'self'");
+  response.setHeader('Content-Security-Policy', "default-src 'self'; img-src 'self'; media-src 'self' blob:; script-src 'self' https://www.gstatic.com; style-src 'self' 'unsafe-inline'; connect-src 'self' https://www.gstatic.com; frame-src https://www.gstatic.com; worker-src 'self' blob:; object-src 'none'; base-uri 'none'; frame-ancestors 'none'");
 }
 function send(response: ServerResponse, status: number, type: string, body: string | Buffer, cache = 'no-store') {
   security(response); response.writeHead(status, { 'Content-Type': type, 'Cache-Control': cache, 'Content-Length': Buffer.byteLength(body) }); response.end(body);
 }
-
-const player = `<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>LKP Live</title><style>
-@font-face{font-family:Fredoka;src:url('/font.ttf')}*{box-sizing:border-box}body{margin:0;min-height:100vh;background:#fffcf4;color:#004f4f;font-family:Fredoka,system-ui,sans-serif}header,main{width:min(1120px,calc(100% - 30px));margin:auto}header{display:flex;align-items:center;gap:18px;padding:22px 0 15px}header img{width:74px;height:76px;object-fit:contain}h1{margin:0;font-size:clamp(25px,5vw,42px)}header p{margin:3px 0;color:#52716c}.live{color:#fb1143;font-size:13px;letter-spacing:2px}.frame{overflow:hidden;border:4px solid #004f4f;border-radius:18px;background:#001514;box-shadow:0 18px 50px #004f4f26}video{display:block;width:100%;aspect-ratio:16/9;background:#001514}.info{display:grid;grid-template-columns:1fr 1fr;gap:15px;padding:18px 0 36px}.card{background:#fff;border:1px solid #d6e2d9;border-radius:14px;padding:17px}.label{text-transform:uppercase;letter-spacing:2px;font-size:12px;color:#6e8580}.title{font-size:clamp(18px,3vw,27px);margin:7px 0}.time{color:#647a75}.status{padding:11px 0;color:#647a75}@media(max-width:650px){.info{grid-template-columns:1fr}header img{width:58px}}</style>
-<header><img src="/brand.svg" alt="LKP"><div><div class="live">● LIVE</div><h1>Lundenburg Kids Premium</h1><p>Our little channel, live from Lundenburg.</p></div></header><main><div class="frame"><video id="video" controls autoplay muted playsinline></video></div><div id="status" class="status">Connecting to the live stream…</div><div id="timing" class="time" aria-live="polite">Schedule timing unavailable</div><section class="info"><div class="card"><div class="label">Now</div><div class="title" id="now-title">Loading…</div><div class="time" id="now-time"></div></div><div class="card"><div class="label">Next</div><div class="title" id="next-title">Loading…</div><div class="time" id="next-time"></div></div></section></main><script src="/hls.min.js"></script><script src="/player.js"></script></html>`;
-const playerJs = `const video=document.getElementById('video'),status=document.getElementById('status');
-const source='/hls/stream.m3u8';
-let hls,restartTimer,failures=0,lastMediaRecovery=0,nativeMode=false,lastProgress=Date.now(),lastTime=0;
-function online(){status.textContent='Live stream connected';failures=0;video.muted=false}
-function play(){video.play().catch(()=>{status.textContent='Press play to start the live stream'})}
-function rebuild(){clearTimeout(restartTimer);if(hls)hls.destroy();hls=new Hls({liveSyncDurationCount:5,liveMaxLatencyDurationCount:12,maxBufferLength:45,backBufferLength:30});hls.loadSource(source);hls.attachMedia(video);hls.on(Hls.Events.MANIFEST_PARSED,play);hls.on(Hls.Events.FRAG_LOADED,online);hls.on(Hls.Events.ERROR,(_,d)=>{if(!d.fatal)return;if(d.type===Hls.ErrorTypes.MEDIA_ERROR&&Date.now()-lastMediaRecovery>5000){lastMediaRecovery=Date.now();status.textContent='Recovering the video…';hls.recoverMediaError();return}status.textContent='Connection interrupted; reconnecting…';const delay=Math.min(10000,1000*Math.pow(2,Math.min(failures++,3)));clearTimeout(restartTimer);restartTimer=setTimeout(rebuild,delay)})}
-function restartNative(){video.src=source;video.load();play()}
-function native(){nativeMode=true;video.src=source;video.addEventListener('loadedmetadata',play);video.addEventListener('playing',online);video.addEventListener('error',()=>{status.textContent='Connection interrupted; reconnecting…';setTimeout(restartNative,2000)})}
-video.addEventListener('waiting',()=>{status.textContent='Buffering live video…'});video.addEventListener('playing',online);
-video.addEventListener('timeupdate',()=>{if(video.currentTime>lastTime+.05){lastTime=video.currentTime;lastProgress=Date.now()}});setInterval(()=>{if(!video.paused&&Date.now()-lastProgress>12000){lastProgress=Date.now();status.textContent='Playback stalled; reconnecting…';nativeMode?restartNative():rebuild()}},3000);
-if(video.canPlayType('application/vnd.apple.mpegurl'))native();else if(window.Hls&&Hls.isSupported())rebuild();else status.textContent='This browser cannot play HLS video.';
-const fmt=n=>new Intl.DateTimeFormat([], {hour:'2-digit',minute:'2-digit',second:'2-digit'}).format(new Date(n));
-async function programmes(){try{const r=await fetch('/api/programme',{cache:'no-store'});if(!r.ok)throw Error();const p=await r.json();for(const k of ['now','next']){document.getElementById(k+'-title').textContent=p[k]?p[k].showTitle+' · '+p[k].episodeTitle:'Not scheduled';document.getElementById(k+'-time').textContent=p[k]?fmt(p[k].startsAtMs)+'–'+fmt(p[k].endsAtMs):''}}catch{document.getElementById('now-title').textContent='Schedule unavailable'}}programmes();setInterval(programmes,15000);
-async function timing(){try{const r=await fetch('/api/playout',{cache:'no-store'});const s=await r.json();let label='Live playout status unavailable';if(s&&!s.stale){if(s.state==='stopped')label='Broadcast stopped';else{label=Math.abs(s.leadMs)<250?'On schedule':(Math.abs(s.leadMs)/1000).toFixed(1)+' s '+(s.leadMs>0?'ahead of':'behind')+' schedule';label+=' · Next piece '+(s.next&&s.next.ready?'ready':'preparing');if(s.current)document.getElementById('now-title').textContent=s.current.title}}document.getElementById('timing').textContent=label}catch{document.getElementById('timing').textContent='Schedule timing unavailable'}}timing();setInterval(timing,2000);`;
 
 const database = new Database(config.storage.database, { readonly: true, fileMustExist: true });
 const queryCurrent = database.prepare(`SELECT s.show_title showTitle, s.episode_title episodeTitle, s.starts_at_ms startsAtMs,
@@ -67,10 +52,15 @@ const queryPlans = database.prepare(`SELECT id,media_id mediaId,show_title showT
   FROM schedule_entries WHERE starts_at_ms>=? AND playout_plan_json IS NOT NULL ORDER BY starts_at_ms LIMIT 20`);
 const hlsPattern = /^\/(hls)\/(stream\.m3u8|segment-\d+\.ts)$/;
 
+const handleCast = createCastHandler({ hlsDirectory: config.internet.hlsDirectory, authorized, security });
 const server = http.createServer((request, response) => {
+  let url: URL;
+  try { url = new URL(request.url ?? '/', 'http://localhost'); }
+  catch { return send(response, 400, 'text/plain; charset=utf-8', 'Invalid URL'); }
+  if (handleCast(request, response, url)) return;
   if (!authorized(request)) { security(response); response.writeHead(401, { 'WWW-Authenticate': 'Basic realm="LKP Live", charset="UTF-8"', 'Cache-Control': 'no-store' }); response.end('Authentication required'); return; }
-  const url = new URL(request.url ?? '/', 'http://localhost');
   if (url.pathname === '/') return send(response, 200, 'text/html; charset=utf-8', player);
+  if (url.pathname === '/cast.js') return send(response, 200, 'text/javascript; charset=utf-8', castPlayerJs);
   if (url.pathname === '/player.js') return send(response, 200, 'text/javascript; charset=utf-8', playerJs);
   if (url.pathname === '/brand.svg') return send(response, 200, 'image/svg+xml', fs.readFileSync(config.logo.path), 'public, max-age=86400');
   if (url.pathname === '/font.ttf') return send(response, 200, 'font/ttf', fs.readFileSync(path.join(config.projectRoot, 'assets/weather/fonts/Fredoka.ttf')), 'public, max-age=86400');
