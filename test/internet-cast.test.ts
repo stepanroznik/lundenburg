@@ -26,6 +26,7 @@ test('Cast capabilities expire, reject modification, and are revoked by restart'
 test('Cast HTTP access stays restricted to signed HLS and supports receiver CORS, HEAD and byte ranges', async t => {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'lkp-cast-test-'));
   t.after(() => fs.rmSync(directory, { recursive: true, force: true }));
+  fs.writeFileSync(path.join(directory, 'master.m3u8'), '#EXTM3U\n#EXT-X-STREAM-INF:BANDWIDTH=4400000,CODECS="avc1.42c028,mp4a.40.2"\nstream.m3u8\n');
   fs.writeFileSync(path.join(directory, 'stream.m3u8'), '#EXTM3U\n#EXT-X-TARGETDURATION:4\n#EXTINF:4,\nsegment-000000001.ts\n');
   fs.writeFileSync(path.join(directory, 'segment-000000001.ts'), Buffer.from([0x47, 1, 2, 3, 4]));
   const auth = { Authorization: 'Basic test-fixture-only' };
@@ -53,12 +54,20 @@ test('Cast HTTP access stays restricted to signed HLS and supports receiver CORS
   assert.equal(playlist.status, 200);
   assert.equal(playlist.headers.get('access-control-allow-origin'), '*');
   assert.equal(playlist.headers.get('content-type'), 'application/vnd.apple.mpegurl');
-  const segmentName = (await playlist.text()).split('\n').find(line => line.endsWith('.ts'))!;
+  const masterText = await playlist.text();
+  assert.match(masterText, /CODECS="avc1\.42c028,mp4a\.40\.2"/);
+  const mediaPlaylistUrl = new URL(masterText.split('\n').find(line => line.endsWith('.m3u8'))!, new URL(link.path, origin));
+  assert.equal(mediaPlaylistUrl.pathname.split('/')[2], link.path.split('/')[2]);
+  const mediaPlaylist = await request(mediaPlaylistUrl.href);
+  assert.equal(mediaPlaylist.status, 200);
+  assert.equal(mediaPlaylist.headers.get('cache-control'), 'no-store');
+  const segmentName = (await mediaPlaylist.text()).split('\n').find(line => line.endsWith('.ts'))!;
   const segment = new URL(segmentName, new URL(link.path, origin));
   assert.equal((await request(segment.href)).status, 200);
   const head = await request(segment.href, { method: 'HEAD' });
   assert.equal(head.status, 200);
   assert.equal(head.headers.get('content-length'), '5');
+  assert.equal(head.headers.get('cache-control'), 'no-store');
   assert.equal((await head.text()).length, 0);
   const ranged = await request(segment.href, { headers: { Range: 'bytes=1-3' } });
   assert.equal(ranged.status, 206);

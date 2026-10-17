@@ -6,6 +6,7 @@ import { timingSafeEqual } from 'node:crypto';
 import Database from 'better-sqlite3';
 import { readPlayoutStatus } from './playout-status.js';
 import { loadConfig } from './config.js';
+import { serveHlsFile } from './internet-hls.js';
 import { createCastHandler } from './internet-cast.js';
 import { castPlayerJs } from './internet-cast-player.js';
 import { player, playerJs } from './internet-player.js';
@@ -50,7 +51,7 @@ const queryCatalog = database.prepare(`SELECT id,show_id showId,show_title showT
   subtitles_json subtitles,ingest_state ingestState,qc_warnings_json qcWarnings FROM media_items WHERE enabled=1 ORDER BY show_title,season,episode,episode_title`);
 const queryPlans = database.prepare(`SELECT id,media_id mediaId,show_title showTitle,episode_title episodeTitle,starts_at_ms startsAtMs,ends_at_ms endsAtMs,playout_plan_json playoutPlan
   FROM schedule_entries WHERE starts_at_ms>=? AND playout_plan_json IS NOT NULL ORDER BY starts_at_ms LIMIT 20`);
-const hlsPattern = /^\/(hls)\/(stream\.m3u8|segment-\d+\.ts)$/;
+const hlsPattern = /^\/(hls)\/((?:master|stream)\.m3u8|segment-\d+\.ts)$/;
 
 const handleCast = createCastHandler({ hlsDirectory: config.internet.hlsDirectory, authorized, security });
 const server = http.createServer((request, response) => {
@@ -86,11 +87,16 @@ const server = http.createServer((request, response) => {
   const match = hlsPattern.exec(url.pathname);
   if (match) {
     const file = path.join(config.internet.hlsDirectory, match[2]!);
-    if (!fs.existsSync(file)) return send(response, 404, 'text/plain; charset=utf-8', 'Stream is starting');
-    return send(response, 200, match[2]!.endsWith('.m3u8') ? 'application/vnd.apple.mpegurl' : 'video/mp2t', fs.readFileSync(file), match[2]!.endsWith('.m3u8') ? 'no-store' : 'private, max-age=20');
+    security(response);
+    void serveHlsFile(request, response, file, match[2]!.endsWith('.m3u8'));
+    return;
   }
   return send(response, 404, 'text/plain; charset=utf-8', 'Not found');
 });
+// HLS requests arrive roughly every four seconds. Keep idle connections long
+// enough for playlist and segment reuse instead of racing a five-second close.
+server.keepAliveTimeout = 30000;
+server.headersTimeout = 60000;
 server.on('clientError', (_error, socket) => socket.end('HTTP/1.1 400 Bad Request\r\n\r\n'));
 server.listen(config.internet.port, config.internet.bind, () => process.stdout.write(`${JSON.stringify({ time: new Date().toISOString(), level: 'info', message: 'Authenticated LKP player listening', bind: config.internet.bind, port: config.internet.port })}\n`));
 const stop = () => server.close(() => { database.close(); process.exit(0); });

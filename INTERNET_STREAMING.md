@@ -118,3 +118,35 @@ The experimental receiver seeks, automatic reload watchdog and larger MSE-first
 browser buffering introduced in dd3700a have been removed following device
 regressions. Native HLS is again preferred where available. Receiver playback
 uses its normal live position without sender-driven seeking or reloading.
+
+## HLS delivery hardening
+
+The public player and Cast capability now start at `master.m3u8`. FFmpeg generates
+this single-rendition master from the actual H.264/AAC streams, declaring codec
+profile/level, resolution and bitrate. It references `stream.m3u8` using a relative
+URI, so the signed Cast path stays attached to every request. The copied video
+bitrate is provided as metadata; `-c:v copy` still preserves the encoded video.
+Google recommends explicit CODECS for receiver initialization; otherwise its HLS
+player defaults to H.264 Main Profile Level 3.0, unlike this channel's output.
+See [Google's HLS reference](https://developers.google.com/cast/docs/media/streaming_protocols).
+
+The configured media playlist holds 30 four-second segments (two minutes), with
+another playlist's worth retained on disk for slow/retried segment downloads.
+This extends available history without requesting more client buffering or
+moving the normal live start. Epoch-based segment numbering avoids reusing
+cached filenames after a producer restart. Existing master/segment files are
+cleared on broadcast startup using the same restricted filename whitelist.
+
+Both authenticated and signed media use asynchronous file streams with socket
+backpressure, proper HEAD and byte-range responses. An open file descriptor keeps
+a requested segment readable even if FFmpeg unlinks its old pathname. Cancelled
+requests stop disk reads. Signed responses remain no-store; regular segments keep
+their existing private 20-second cache. Playlist responses are always no-store.
+The web server keeps idle HTTP connections for 30 seconds, and background schedule
+polling pauses while the page is hidden and slows from two to five seconds.
+
+These changes preserve the 1080p rendition, native-player preference and exclusive
+Cast handoff. They add no receiver seeks, automatic Cast reloads or startup delay.
+Activating producer options requires one restart of the existing broadcast
+service; web changes require restarting the separate web service. Neither action
+requires rescheduling or modifying programme assets.

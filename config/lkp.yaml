@@ -77,7 +77,8 @@ internet:
   port: 8080
   hlsDirectory: ./runtime/internet/hls
   segmentSeconds: 4
-  playlistSegments: 15
+  # Two minutes available for delayed clients; normal live start is unchanged.
+  playlistSegments: 30
   audioBitrate: 128k
 
 # Available after the intermission render/publish command completes.

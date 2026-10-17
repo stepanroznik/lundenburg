@@ -84,5 +84,8 @@ test('Internet HLS reuses encoded video and converts only audio for browsers', (
   assert.match(args, /-c:v copy/);
   assert.match(args, /-c:a aac/);
   assert.match(args, /-hls_time 2/);
+  assert.match(args, /-master_pl_name master\.m3u8/);
+  assert.match(args, /-hls_start_number_source epoch/);
+  assert.ok(args.includes('-hls_delete_threshold ' + config('/tmp/lkp-test').internet.playlistSegments));
   assert.match(args, /delete_segments/);
 });

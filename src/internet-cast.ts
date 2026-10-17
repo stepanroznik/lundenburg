@@ -1,6 +1,6 @@
 import { createHmac, randomBytes, timingSafeEqual } from 'node:crypto';
-import fs from 'node:fs';
 import path from 'node:path';
+import { serveHlsFile } from './internet-hls.js';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 
 // A receiver cannot use the sender's HTTP Basic login. These capabilities grant
@@ -13,7 +13,7 @@ export class CastAccess {
     const expiresAt = now + this.lifetimeMs;
     const payload = `${expiresAt}.${randomBytes(16).toString('hex')}`;
     const token = `${payload}.${this.sign(payload)}`;
-    return { path: `/cast/${token}/stream.m3u8`, expiresAt };
+    return { path: `/cast/${token}/master.m3u8`, expiresAt };
   }
 
   valid(token: string, now = Date.now()): boolean {
@@ -69,41 +69,16 @@ export function createCastHandler(options: {
     response.setHeader('Access-Control-Allow-Methods', 'GET, HEAD, OPTIONS');
     response.setHeader('Access-Control-Allow-Headers', 'Range');
     response.setHeader('Access-Control-Expose-Headers', 'Content-Length, Content-Range, Accept-Ranges');
-    const match = /^\/cast\/([^/]+)\/(stream\.m3u8|segment-\d+\.ts)$/.exec(url.pathname);
+    const match = /^\/cast\/([^/]+)\/((?:master|stream)\.m3u8|segment-\d+\.ts)$/.exec(url.pathname);
     if (!match || !access.valid(match[1]!)) return end(403, 'Cast link expired or invalid; reconnect from the player');
     if (request.method === 'OPTIONS') { response.writeHead(204); response.end(); return true; }
     if (request.method !== 'GET' && request.method !== 'HEAD') {
       response.setHeader('Allow', 'GET, HEAD, OPTIONS');
       return end(405, 'Use GET or HEAD');
     }
-    let body: Buffer;
-    try { body = fs.readFileSync(path.join(options.hlsDirectory, match[2]!)); }
-    catch (error) {
-      if ((error as NodeJS.ErrnoException).code === 'ENOENT') return end(404, 'Stream is starting');
-      return end(503, 'Stream temporarily unavailable');
-    }
-    // FFmpeg writes relative segment names. Resolving them against this playlist
-    // keeps the capability in the path for every segment and playlist refresh.
-    const playlist = match[2] === 'stream.m3u8';
-    response.setHeader('Content-Type', playlist ? 'application/vnd.apple.mpegurl' : 'video/mp2t');
-    response.setHeader('Accept-Ranges', 'bytes');
-    let start = 0, endByte = body.length - 1, status = 200;
-    if (request.headers.range) {
-      const range = /^bytes=(\d*)-(\d*)$/.exec(request.headers.range);
-      if (range && (range[1] || range[2])) {
-        start = range[1] ? Number(range[1]) : Math.max(0, body.length - Number(range[2]));
-        endByte = range[1] && range[2] ? Math.min(Number(range[2]), endByte) : endByte;
-      } else start = body.length;
-      if (!Number.isSafeInteger(start) || !Number.isSafeInteger(endByte) || start > endByte || start >= body.length) {
-        response.setHeader('Content-Range', `bytes */${body.length}`);
-        return end(416, 'Range not satisfiable');
-      }
-      response.setHeader('Content-Range', `bytes ${start}-${endByte}/${body.length}`);
-      status = 206;
-    }
-    response.setHeader('Content-Length', String(Math.max(0, endByte - start + 1)));
-    response.writeHead(status);
-    response.end(request.method === 'HEAD' ? undefined : body.subarray(start, endByte + 1));
+    // Relative master/media playlist URIs retain the capability path. Keep
+    // signed media uncached so expiry and server-restart revocation stay intact.
+    void serveHlsFile(request, response, path.join(options.hlsDirectory, match[2]!), match[2]!.endsWith('.m3u8'), 'no-store');
     return true;
   };
 }

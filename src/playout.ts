@@ -458,10 +458,14 @@ export function internetFfmpegArgs(config: AppConfig): string[] {
     '-map', '0:v:0', '-map', '0:a:0',
     // Video is the exact already-encoded channel output. Only the small audio
     // stream is converted from DVB MP2 to browser-compatible AAC.
-    '-c:v', 'copy', '-c:a', 'aac', '-b:a', config.internet.audioBitrate, '-ar', '48000', '-ac', '2',
+    // Declares the copied video's existing rate for HLS master metadata only.
+    '-c:v', 'copy', '-b:v', config.video.bitrate, '-c:a', 'aac', '-b:a', config.internet.audioBitrate, '-ar', '48000', '-ac', '2',
     '-f', 'hls', '-hls_time', String(config.internet.segmentSeconds),
     '-hls_list_size', String(config.internet.playlistSegments),
-    '-hls_delete_threshold', '2',
+    // Retain another playlist's worth of segments for delayed requests/retries.
+    '-hls_delete_threshold', String(config.internet.playlistSegments),
+    '-hls_start_number_source', 'epoch',
+    '-master_pl_name', 'master.m3u8',
     '-hls_flags', 'delete_segments+append_list+omit_endlist+independent_segments+program_date_time+temp_file',
     '-hls_segment_filename', segment, playlist,
   ];
@@ -470,7 +474,7 @@ export function internetFfmpegArgs(config: AppConfig): string[] {
 function startInternetPipeline(config: AppConfig): { sink: Writable; relay: ChildProcess } {
   fs.mkdirSync(config.internet.hlsDirectory, { recursive: true });
   for (const name of fs.readdirSync(config.internet.hlsDirectory)) {
-    if (/^(stream\.m3u8|segment-\d+\.ts)(\.tmp)?$/.test(name)) fs.unlinkSync(path.join(config.internet.hlsDirectory, name));
+    if (/^((?:master|stream)\.m3u8|segment-\d+\.ts)(\.tmp)?$/.test(name)) fs.unlinkSync(path.join(config.internet.hlsDirectory, name));
   }
   const relay = spawnLogged('ffmpeg', internetFfmpegArgs(config), { stdio: ['pipe', 'ignore', 'inherit'] }, true);
   if (!relay.stdin) throw new Error('Internet HLS relay has no input pipe');

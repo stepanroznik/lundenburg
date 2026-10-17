@@ -1,0 +1,42 @@
+import assert from 'node:assert/strict';
+import { once } from 'node:events';
+import fs from 'node:fs';
+import http from 'node:http';
+import os from 'node:os';
+import path from 'node:path';
+import { test } from 'node:test';
+import { serveHlsFile } from '../src/internet-hls.js';
+
+test('HLS delivery supports resumed downloads and finishes an open segment after rolling deletion', async t => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'lkp-hls-delivery-'));
+  t.after(() => fs.rmSync(directory, { recursive: true, force: true }));
+  const segment = path.join(directory, 'segment.ts');
+  const body = Buffer.alloc(4 * 1024 * 1024, 0x47);
+  fs.writeFileSync(segment, body);
+  fs.writeFileSync(path.join(directory, 'stream.m3u8'), '#EXTM3U\nsegment.ts\n');
+  const server = http.createServer((request, response) => {
+    const playlist = request.url === '/stream.m3u8';
+    void serveHlsFile(request, response, playlist ? path.join(directory, 'stream.m3u8') : segment, playlist);
+  });
+  server.listen(0, '127.0.0.1'); await once(server, 'listening');
+  t.after(() => { server.closeAllConnections(); server.close(); });
+  const origin = `http://127.0.0.1:${(server.address() as { port: number }).port}`;
+  const head = await fetch(origin + '/segment.ts', { method: 'HEAD' });
+  assert.equal(head.status, 200); assert.equal(head.headers.get('content-length'), String(body.length));
+  assert.equal(head.headers.get('cache-control'), 'private, max-age=20');
+  assert.equal((await head.arrayBuffer()).byteLength, 0);
+  const partial = await fetch(origin + '/segment.ts', { headers: { Range: 'bytes=1048576-' } });
+  assert.equal(partial.status, 206);
+  assert.equal(partial.headers.get('content-range'), `bytes 1048576-${body.length - 1}/${body.length}`);
+  assert.deepEqual(Buffer.from(await partial.arrayBuffer()), body.subarray(1048576));
+  const invalid = await fetch(origin + '/segment.ts', { headers: { Range: 'bytes=9-2' } });
+  assert.equal(invalid.status, 416); assert.equal(invalid.headers.get('cache-control'), 'no-store');
+  assert.equal((await fetch(origin + '/segment.ts', { method: 'POST' })).status, 405);
+  const playlist = await fetch(origin + '/stream.m3u8');
+  assert.equal(playlist.headers.get('cache-control'), 'no-store'); await playlist.text();
+  const download = await fetch(origin + '/segment.ts');
+  fs.unlinkSync(segment);
+  assert.deepEqual(Buffer.from(await download.arrayBuffer()), body);
+  const missing = await fetch(origin + '/segment.ts');
+  assert.equal(missing.status, 404); assert.equal(missing.headers.get('cache-control'), 'no-store');
+});
