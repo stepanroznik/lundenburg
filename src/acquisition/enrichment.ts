@@ -105,16 +105,19 @@ export async function openSubtitlesHash(file:string):Promise<string> {
 export async function enrichSubtitles(item:MediaItem,c:Candidate,config:AcquisitionConfig,guard:()=>void,budget:SubtitleBudget=()=>true):Promise<SubtitleTrack[]> {
   const result:SubtitleTrack[]=[];const stem=item.mediaPath.slice(0,-path.extname(item.mediaPath).length);
   const warnings=item.qcWarnings ?? (item.qcWarnings=[]);
-  const suppliedLang=normalizeLanguage(c.subtitleLanguage??c.language);
-  if(c.subtitleUrl&&suppliedLang&&['de','cs','en'].includes(suppliedLang)&&!item.subtitles.some(t=>t.language===suppliedLang)) {
+  const supplied = c.subtitleSources?.length ? c.subtitleSources : c.subtitleUrl ? [{ language: c.subtitleLanguage ?? c.language, url: c.subtitleUrl }] : [];
+  for (const source of supplied) {
+  const suppliedLang=normalizeLanguage(source.language);
+  if(suppliedLang&&['de','cs','en'].includes(suppliedLang)&&!item.subtitles.some(t=>t.language===suppliedLang)) {
     const raw=`${stem}.source-subtitle`,output=`${stem}.${suppliedLang}.srt`;
     try{
-      let text=await fetchText(c.subtitleUrl,{},2*1024*1024);
+      let text=await fetchText(source.url,{},2*1024*1024);
       // Some KiKA endpoints wrap the subtitle URL in JSON rather than returning TTML.
       if(text.trim().startsWith('{')){const wrapper=JSON.parse(text);const url=wrapper.url ?? wrapper.src ?? wrapper.subtitle?.url;if(typeof url!=='string')throw new Error('Unknown source subtitle schema');text=await fetchText(url,{},2*1024*1024);}
       fs.writeFileSync(raw,text);await importSubtitle(raw,output,item.durationMs,guard);
       result.push({language:suppliedLang,kind:'downloaded',path:output,codec:'srt',provider:c.broadcaster,providerId:c.sourceId,syncStatus:'unknown'});
     }catch{warnings.push('Broadcaster subtitle unavailable or failed timing validation');}finally{if(fs.existsSync(raw))fs.unlinkSync(raw);}
+  }
   }
   for(const track of item.subtitles.filter(t=>t.path)) {
     try {

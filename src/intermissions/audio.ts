@@ -31,13 +31,18 @@ export function effectsFor(f: Film): Effect[] {
 
 // Original procedural Foley. Silent clips use no network, voice, or speech cache.
 export function writeEffects(film: Film, effects = effectsFor(film)): string {
-  const rate = 48000, samples = Math.ceil(film.durationInFrames / film.fps * rate);
+  return writeEffectTrack(film.skit.id, film.durationInFrames / film.fps, path.join(publicRoot, film.sfx), effects);
+}
+
+/** Shared original synthesis for programme Foley and station audio signatures. */
+export function writeEffectTrack(id: string, durationSeconds: number, output: string, effects: Effect[]): string {
+  const rate = 48000, samples = Math.ceil(durationSeconds * rate);
   const buffer = Buffer.alloc(44 + samples * 4);
   buffer.write('RIFF'); buffer.writeUInt32LE(buffer.length - 8, 4); buffer.write('WAVEfmt ', 8);
   buffer.writeUInt32LE(16,16); buffer.writeUInt16LE(1,20); buffer.writeUInt16LE(2,22);
   buffer.writeUInt32LE(rate,24); buffer.writeUInt32LE(rate*4,28); buffer.writeUInt16LE(4,32); buffer.writeUInt16LE(16,34);
   buffer.write('data',36); buffer.writeUInt32LE(samples*4,40);
-  let seed = [...film.skit.id].reduce((n,c)=>Math.imul(n,31)+c.charCodeAt(0),12877)>>>0;
+  let seed = [...id].reduce((n,c)=>Math.imul(n,31)+c.charCodeAt(0),12877)>>>0;
   let previous = 0, low = 0, lastNoise = 0;
   for (let i = 0; i < samples; i++) {
     const t = i / rate;
@@ -66,7 +71,6 @@ export function writeEffects(film: Film, effects = effectsFor(film)): string {
     const sample = Math.round(Math.max(-.5,Math.min(.5,value))*32767);
     buffer.writeInt16LE(sample,44+i*4); buffer.writeInt16LE(sample,46+i*4);
   }
-  const output = path.join(publicRoot,film.sfx);
   fs.mkdirSync(path.dirname(output),{recursive:true}); fs.writeFileSync(output,buffer);
   return output;
 }

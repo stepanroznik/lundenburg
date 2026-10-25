@@ -21,6 +21,12 @@ The default Raspberry Pi 5 playout profile is 1920×1080 at 30 fps and 3.8 Mb/s.
 - dry-run MPEG-TS output, diagnostics, systemd unit, and automated tests.
 - configurable `dvb`, `internet`, and `both` output modes from one playout source;
 - an authenticated HLS player exposed through Tailscale Funnel HTTPS.
+- configurable Lundenburg Nacht and daytime profiles sharing the catalogue,
+  schedule, EPG, and continuous broadcast pipeline. See [NACHT.md](NACHT.md) and its
+  [design language](NACHT-DESIGN.md).
+
+For NetworkManager disconnect recovery, installation and read-only checks, see
+[WIFI_RECOVERY.md](WIFI_RECOVERY.md).
 
 ## Installation on the Pi
 
@@ -139,6 +145,15 @@ currently carries video/audio only and does not expose these DVB tracks.
 ## Logo
 
 The supplied SVG is committed at [assets/logo/lkp-logo.svg](assets/logo/lkp-logo.svg). At broadcast startup it is rasterized once into `runtime/graphics`; the cached transparent PNG is then composited live, so source programmes remain untouched and future graphics can use the same live compositor. Width, position, opacity, transition duration, rotations, and zoom are in `config/lkp.yaml`.
+
+## Lundenburg Nacht
+
+The imported Pi configuration enables both profiles. LN shares the station's
+persistent clock schedule and MPEG-TS pipeline. Its Europe/Prague handovers are
+wall-clock based, while separate age policies keep
+unknown catalogue items on LKP by default. The dark navy and champagne identity,
+Remotion source, pre-rendered transitions, acquisition subscriptions and guarded
+activation are documented in [NACHT.md](NACHT.md).
 
 ## Catalogue and schedule
 
@@ -316,7 +331,7 @@ Override the configured HackRF TX gain for one run (valid range: 0–30 dB):
 npm run broadcast:start -- --rf --i-understand-rf --gain 16
 ```
 
-This starts the continuous TSDuck/GNU Radio pipeline at the configured **14 dB**. Stop with Ctrl-C. The unit keeps stable IDs and PIDs while child FFmpeg processes change at authoritative boundaries.
+The command above starts the continuous TSDuck/GNU Radio pipeline with the explicit **16 dB** override; without `--gain`, the configured default is **21 dB**. Stop with Ctrl-C. The unit keeps stable IDs and PIDs while child FFmpeg processes change at authoritative boundaries.
 
 ## systemd
 
@@ -545,7 +560,8 @@ sudo systemctl start lkp-weather.service
 Each episode directory archives the raw source, normalized forecast, script,
 timeline, original-language VTT, per-language SRT, MP4, programme metadata,
 generation report and (after publication) schedule entry. Subtitles remain text
-sidecars; the existing DVB bitmap conversion limitation still applies. The
+sidecars. When the optional DVB converter is installed, weather generation also
+prepares selectable bitmap caption tracks as described in the DVB subtitle section. The
 soundtrack has an original quiet opening/closing sting; continuous background
 music and extra effects are deliberately deferred until voice intelligibility
 has been reviewed.
@@ -558,4 +574,6 @@ enabled. Weather facts, temperatures and temporal wording remain deterministic.
 Implementation: `src/weather/{forecast,narration,speech,episode,render,publish}.ts`,
 the CLI in `src/weather/cli.ts`, and SVG studio/characters in
 `src/weather/video`. The map data licence and attribution are documented in
-`assets/weather/README.md`. No weather skill is created yet.
+`assets/weather/README.md`. The maintained
+[production skill](skills/lkp-show-production/SKILL.md) covers weather,
+intermissions and Nacht branding.

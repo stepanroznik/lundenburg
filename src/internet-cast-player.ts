@@ -28,8 +28,18 @@ export const castPlayerJs = `(() => {
       return url.origin === location.origin && url.pathname.startsWith('/cast/');
     } catch { return false; }
   };
+  const reportReceiver = event => {
+    const session = context?.getCurrentSession();
+    if (!active || !session || !ownMedia(session)) return;
+    const media = session.getMediaSession();
+    const range = media.getEstimatedLiveSeekableRange?.() || media.liveSeekableRange;
+    window.lkpReportPlayback?.({player:'cast', event,
+      mediaTime:media.getEstimatedTime?.() ?? remote?.currentTime,
+      rangeStart:range?.start,rangeEnd:range?.end,idleReason:media.idleReason});
+  };
   const connected = session => {
     localState(true);
+    reportReceiver('loaded');
     hint.textContent = 'Casting live to ' + session.getCastDevice().friendlyName;
   };
   async function load(session, resumed) {
@@ -38,6 +48,7 @@ export const castPlayerJs = `(() => {
     loadingSession = session;
     // Reserve playback for the TV throughout loading and buffering.
     localState(true);
+    window.lkpReportPlayback?.({player:'cast',event:'loading'});
     hint.textContent = 'Connecting the live stream to your TV…';
     try {
       const response = await fetch('/api/cast', { method: 'POST', headers: { 'X-LKP-Cast': '1' }, credentials: 'same-origin' });
@@ -57,6 +68,7 @@ export const castPlayerJs = `(() => {
       if (context.getCurrentSession() === session) connected(session);
     } catch {
       if (context.getCurrentSession() === session) {
+        window.lkpReportPlayback?.({player:'cast',event:'error'});
         // Keep browser playback suspended until the user disconnects.
         hint.textContent = 'Could not start casting. Check your TV connection, then stop casting and try again.';
       }
@@ -103,11 +115,19 @@ export const castPlayerJs = `(() => {
     });
     remote = new cast.framework.RemotePlayer();
     controller = new cast.framework.RemotePlayerController(remote);
+    if (cast.framework.RemotePlayerEventType.PLAYER_STATE_CHANGED) {
+      controller.addEventListener(cast.framework.RemotePlayerEventType.PLAYER_STATE_CHANGED, () => {
+        const states = {PLAYING:'playing',BUFFERING:'buffering',PAUSED:'paused',IDLE:'idle'};
+        const event = states[remote.playerState];
+        if (event) reportReceiver(event);
+      });
+    }
     controller.addEventListener(cast.framework.RemotePlayerEventType.IS_PAUSED_CHANGED, () => {
       pauseButton.textContent = remote.isPaused ? 'Resume on TV' : 'Pause on TV';
     });
     controller.addEventListener(cast.framework.RemotePlayerEventType.IS_MEDIA_LOADED_CHANGED, () => {
       if (active && !remote.isMediaLoaded) {
+        reportReceiver('unloaded');
         // Receivers report unloaded during loading/buffering too. This does
         // not mean the Cast session ended, so never restart local playback.
         hint.textContent = 'TV playback is interrupted. Stop casting and reconnect to try again.';

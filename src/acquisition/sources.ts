@@ -2,6 +2,7 @@ import type { Candidate, Subscription } from './model.js';
 import { ClassificationApiError } from './classification.js';
 import { normalize, urlIdentity } from './model.js';
 import { stableId } from '../util.js';
+import { regionalRelevance } from './regional.js';
 export async function fetchText(url: string, init: RequestInit = {}, maxBytes = 4*1024*1024) : Promise<string> {
     const response = await fetch(url, { ...init, signal: AbortSignal.timeout(30_000) });
     if (!response.ok) {
@@ -30,6 +31,9 @@ export function normalizeMediathek(row: Record<string,unknown>, s: Subscription)
   // Never accept loose search hits, especially names in news reports.
   if (![s.title,...s.aliases].some(alias => topic === normalize(alias))) return undefined;
   const title = String(row.title ?? '').trim(); if (!title) return undefined;
+  const relevance = s.regional ? regionalRelevance(`${title} ${String(row.description ?? '')}`) : undefined;
+  if (s.regional && !relevance) return undefined;
+  if (s.regional && !/^(?:ORF(?:\s*(?:ON|III|1|2|Niederösterreich))?|ARTE(?:\.(?:DE|FR))?|3sat|ARD|Das Erste|BR|SWR|NDR|MDR|WDR|HR|RBB)$/i.test(String(row.channel ?? ''))) return undefined;
   const downloadUrl = String(row.url_video_hd || row.url_video || '');
   const sourceUrl = String(row.url_website || downloadUrl); if (!sourceUrl) return undefined;
   if(s.language==='de'&&/\b(?:sorbisch|obersorbisch|niedersorbisch|sorbian)\b/i.test(title))return undefined;
@@ -44,7 +48,7 @@ export function normalizeMediathek(row: Record<string,unknown>, s: Subscription)
     ...(numbers ? {season:Number(numbers[1])} : episode && s.id==='sendung-mit-dem-elefanten' ? {season:1} : {}), ...(episode ? {episode:Number(episode)} : {}),
     ...(downloadUrl ? {downloadUrl} : {}), ...(row.url_subtitle ? {subtitleUrl:String(row.url_subtitle)} : {}),
     components:explicitComponents(String(row.description??'')),compilation:/\b(XXL|compilation|zusammenstellung|best.of|sammlung)\b/i.test(title),
-    format:'episode',available:Boolean(downloadUrl),
+    format:'episode',available:Boolean(downloadUrl), ...(relevance ? { relevance } : {}),
   };
 }
 export function explicitComponents(description:string):string[] {
@@ -63,7 +67,7 @@ export async function mediathek(s: Subscription, limit: number): Promise<Candida
     for (let offset=0;offset<limit;offset+=100) {
       const data=JSON.parse(await fetchText('https://mediathekviewweb.de/api/query',{
         method:'POST',headers:{'Content-Type':'text/plain','User-Agent':'LKP-content-acquisition/1.0'},
-        body:JSON.stringify({queries:[{fields:['topic','title'],query}],sortBy:'timestamp',sortOrder:'desc',future:false,offset,size:Math.min(100,limit-offset)}),
+        body:JSON.stringify({queries:[{fields:s.regional?['topic','title','description']:['topic','title'],query}],sortBy:'timestamp',sortOrder:'desc',future:false,offset,size:Math.min(100,limit-offset)}),
       })) as {result?:{results?:Array<Record<string,unknown>>};err?:unknown};
       if (data.err || !data.result?.results) throw new Error('Mediathek API schema/error');
       for (const row of data.result.results) { const c=normalizeMediathek(row,s); if(c)result.set(c.sourceId,c); }

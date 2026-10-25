@@ -150,3 +150,22 @@ Cast handoff. They add no receiver seeks, automatic Cast reloads or startup dela
 Activating producer options requires one restart of the existing broadcast
 service; web changes require restarting the separate web service. Neither action
 requires rescheduling or modifying programme assets.
+
+## Observing actual playback stalls
+
+The player reports browser waiting/playing/media errors and receiver state
+changes to authenticated, same-origin-only `POST /api/playback-health`. The server
+records whitelisted player/event enums and bounded numeric media time, buffered
+seconds, live range or media error code. Receiver idle reasons use a fixed enum.
+URLs, capabilities, credentials, device names and arbitrary fields are discarded.
+Bodies are capped at 2 KiB and ingestion at 120 reports per minute. Reporting is
+best effort and never pauses, seeks, reloads or changes playback. Receiver reports
+require the sender page to remain active and connected.
+
+HLS responses separately log only slow (>2 s), failed or aborted downloads, with
+media category, status and elapsed time; no request path or token is recorded.
+Review these alongside client state reports in `journalctl -u lkp-internet.service`
+to correlate an actual pause. Startup waiting and normal cancellations when
+casting/stopping can appear too; neither alone establishes a stream fault. Logs
+use the existing system journal's retention. No new media rendition or repeated
+probe stream is started.

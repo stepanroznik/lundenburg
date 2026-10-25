@@ -37,7 +37,10 @@ export class AcquisitionStore {
     remember(c: Candidate) : string {
         const id = stableId(c.source, c.sourceId), now = Date.now();
         const previous = (this.catalogue.db.prepare('SELECT metadata_json,state FROM acquisition_candidates WHERE id=?').get(id) as {metadata_json:string;state:string}|undefined);
-        if (previous) { const old = JSON.parse(previous.metadata_json); preserveEpisodeIdentity(old, c); preserveClassification(old, c); }
+        if (previous) { const old = JSON.parse(previous.metadata_json); preserveEpisodeIdentity(old, c); preserveClassification(old, c);
+          if (!c.nachtClassification) { c.nachtClassification = old.nachtClassification; c.broadcastPolicy ??= old.broadcastPolicy; }
+          c.channelId ??= old.channelId;
+        }
         this.catalogue.db.prepare(`INSERT INTO acquisition_candidates(id,source,source_id,url_identity,show_id,metadata_json,first_seen,last_seen)
       VALUES(?,?,?,?,?,?,?,?) ON CONFLICT(source,source_id) DO UPDATE SET metadata_json=excluded.metadata_json,last_seen=excluded.last_seen`)
             .run(id, c.source, c.sourceId, c.sourceUrl, c.showId, JSON.stringify(c), now, now);

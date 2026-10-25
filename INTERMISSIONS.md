@@ -50,7 +50,12 @@ npm run intermissions:stills
 npm run intermissions:finish
 ```
 
-`INTERMISSION_BROWSER` selects the installed browser executable; on the workstation the compatible binary is `/home/roznik/.cache/ms-playwright/chromium_headless_shell-1187/chrome-linux/headless_shell`. The Pi uses its installed Chromium. `INTERMISSION_CONCURRENCY` defaults to 2.
+`INTERMISSION_BROWSER` selects the installed browser executable. The renderer
+also checks installed Chromium/Chrome and the workstation's cached Playwright
+headless shell. The Pi uses its installed Chromium.
+`INTERMISSION_CONCURRENCY` defaults to 2; set it to 1 on the Pi unless measured
+capacity supports more, as described in the
+[production skill](skills/lkp-show-production/SKILL.md).
 
 Final outputs are under
 `/mnt/lkp-media/LKP/.generated/lkp-pausenfilme/` on the mounted media drive.
@@ -72,10 +77,10 @@ On the Pi the self-contained generation project is `/home/lundenburg/lkp-intermi
 
 The library includes `seasonAt` / `eligibleSkits`, using `Europe/Prague` dates. Spring = March–May, summer = June–August, autumn = September–November, winter = December–February. After final films pass the publish checks, schedule generation inserts one after about 80% of ordinary programme boundaries. The weighted mix is 70% channel ident, 20% seasonal silent films and 10% voiced films. Insertions are deterministic, idempotent, preserve whole programmes and avoid the weather validity margin. No intermission is scheduled until the final published manifest exists.
 
-The current complete render predates the improved logo and is deliberately
-blocked from publication by the source-revision check. Run
-`npm run intermissions:finish` on the Pi when ready; it is intentionally not run
-as part of deployment because rendering all 15 revised films is lengthy.
+Publication checks every film against the current source revision and rejects
+missing, preview or outdated renders. When a reviewed source change requires new
+masters, run `npm run intermissions:finish` on the Pi as an explicit production
+operation. Code synchronization does not render or publish films.
 
 ## Shared characters and adding a skit
 

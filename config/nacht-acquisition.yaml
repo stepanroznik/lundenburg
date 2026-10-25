@@ -1,0 +1,295 @@
+# Independent LN subscriptions, merged into the existing acquisition worker.
+# Canonical YouTube channel IDs are resolved once and pinned in acquisition_state.
+version: 1
+subscriptions:
+  - profile: ln
+    enabled: true
+    scanSeconds: 21600
+    language: en
+    source: youtube
+    aliases: &a1 []
+    queries: &a2 []
+    targetEpisodes: 100000
+    maxEpisodes: 100000
+    maxTotalDuration: 100000000
+    maxBytes: null
+    priority: 80
+    minDuration: 1
+    maxDuration: 86400
+    preferredEras: &a3 []
+    preferredSeasons: &a4 []
+    preferredFormats: &a5
+      - episode
+    include: &a6 []
+    exclude: &a7 []
+    replacementPolicy: none
+    allowCompilations: true
+    allowShortClips: true
+    retention: protected
+    id: unusualvideos
+    title: UnusualVideos
+    category: comedy
+    description: Nummerierte ungewöhnliche Internetmomente.
+    urls:
+      - https://www.youtube.com/@unusualvideos/videos
+    deterministicSeries: unusual
+  - profile: ln
+    enabled: true
+    scanSeconds: 21600
+    language: en
+    source: youtube
+    aliases: *a1
+    queries: *a2
+    targetEpisodes: 100000
+    maxEpisodes: 100000
+    maxTotalDuration: 100000000
+    maxBytes: null
+    priority: 50
+    minDuration: 1
+    maxDuration: 86400
+    preferredEras: *a3
+    preferredSeasons: *a4
+    preferredFormats: *a5
+    include: *a6
+    exclude: *a7
+    replacementPolicy: none
+    allowCompilations: true
+    allowShortClips: true
+    retention: standard
+    id: kurzgesagt-ln
+    title: Kurzgesagt – In a Nutshell
+    category: science
+    description: Wissenschaftliche Erklärfilme in englischer Originalfassung.
+    urls:
+      - https://www.youtube.com/@kurzgesagt/videos
+  - profile: ln
+    enabled: true
+    scanSeconds: 21600
+    language: en
+    source: youtube
+    aliases: *a1
+    queries: *a2
+    targetEpisodes: 100000
+    maxEpisodes: 100000
+    maxTotalDuration: 100000000
+    maxBytes: null
+    priority: 50
+    minDuration: 1
+    maxDuration: 86400
+    preferredEras: *a3
+    preferredSeasons: *a4
+    preferredFormats: *a5
+    include: *a6
+    exclude: *a7
+    replacementPolicy: none
+    allowCompilations: true
+    allowShortClips: true
+    retention: standard
+    id: nightshift
+    title: Nightshift – Kurzgesagt After Dark
+    category: history
+    description: Animierte Geschichte in englischer Originalfassung.
+    urls:
+      - https://www.youtube.com/@nightshift_kurzgesagt/videos
+  - profile: ln
+    enabled: true
+    scanSeconds: 21600
+    language: en
+    source: youtube
+    aliases: *a1
+    queries: *a2
+    targetEpisodes: 100000
+    maxEpisodes: 100000
+    maxTotalDuration: 100000000
+    maxBytes: null
+    priority: 50
+    minDuration: 1
+    maxDuration: 86400
+    preferredEras: *a3
+    preferredSeasons: *a4
+    preferredFormats: *a5
+    include: *a6
+    exclude: *a7
+    replacementPolicy: none
+    allowCompilations: true
+    allowShortClips: true
+    retention: standard
+    id: rational-animations
+    title: Rational Animations
+    category: science
+    description: Animierte Erklärfilme über Ideen, Wissenschaft und rationales Denken.
+    urls:
+      - https://www.youtube.com/@RationalAnimations/videos
+  - profile: ln
+    enabled: true
+    scanSeconds: 21600
+    language: en
+    source: youtube
+    aliases: *a1
+    queries: *a2
+    targetEpisodes: 100000
+    maxEpisodes: 100000
+    maxTotalDuration: 100000000
+    maxBytes: null
+    priority: 50
+    minDuration: 1
+    maxDuration: 86400
+    preferredEras: *a3
+    preferredSeasons: *a4
+    preferredFormats: *a5
+    include: *a6
+    exclude: *a7
+    replacementPolicy: none
+    allowCompilations: true
+    allowShortClips: true
+    retention: standard
+    id: kraut
+    title: Kraut
+    category: history
+    description: Videoessays über Geschichte, Gesellschaft, Politik und Geographie.
+    urls:
+      - https://www.youtube.com/@kraut_the_parrot/videos
+  - profile: ln
+    enabled: true
+    scanSeconds: 21600
+    language: cs
+    source: youtube
+    aliases: *a1
+    queries: *a2
+    targetEpisodes: 1
+    maxEpisodes: 2
+    maxTotalDuration: 100000000
+    maxBytes: null
+    priority: 100
+    minDuration: 1
+    maxDuration: 86400
+    preferredEras: *a3
+    preferredSeasons: *a4
+    preferredFormats: *a5
+    include: *a6
+    exclude: *a7
+    replacementPolicy: none
+    allowCompilations: true
+    allowShortClips: true
+    retention: latest-only
+    id: breclav-tv
+    title: Břeclavská televize
+    category: news
+    description: Die kommunale Fernsehsendung aus Břeclav.
+    urls:
+      - https://www.youtube.com/@mestobreclav5701/videos
+    deterministicSeries: breclav
+  - profile: ln
+    enabled: true
+    scanSeconds: 21600
+    language: de
+    source: mediathek
+    aliases:
+      - Universum
+      - Erlebnis Österreich
+      - Unterwegs beim Nachbarn
+      - Unsere kleine Welt
+      - Land der Berge
+      - Landleben
+      - ORF III Themenmontag
+      - Heimat Österreich
+      - Dokumentation
+      - Doku
+      - Reisen
+      - Natur
+      - Geschichte
+      - Eisenbahn-Romantik
+      - Länder-Menschen-Abenteuer
+    queries:
+      - Weinviertel
+      - Marchfeld
+      - Thayatal
+      - March Thaya
+      - Bernhardsthal
+      - Hohenau
+      - Poysdorf
+      - Mistelbach
+      - Schrattenberg
+      - Laa an der Thaya
+      - Waldviertel
+      - Wachau
+      - Niederösterreich
+    targetEpisodes: 120
+    maxEpisodes: 150
+    maxTotalDuration: 100000000
+    maxBytes: null
+    priority: 90
+    minDuration: 1
+    maxDuration: 86400
+    preferredEras: *a3
+    preferredSeasons: *a4
+    preferredFormats: *a5
+    include: *a6
+    exclude: *a7
+    replacementPolicy: none
+    allowCompilations: true
+    allowShortClips: true
+    retention: standard
+    id: unsere-heimat
+    title: Unsere Heimat
+    category: regional
+    description: Dokumentationen aus Niederösterreich und dem
+      tschechisch-österreichischen Grenzraum.
+    regional: true
+    urls: []
+  - profile: ln
+    enabled: true
+    scanSeconds: 21600
+    language: de
+    source: manual
+    aliases: *a1
+    queries: *a2
+    targetEpisodes: 100
+    maxEpisodes: 100
+    maxTotalDuration: 100000000
+    maxBytes: null
+    priority: 50
+    minDuration: 1
+    maxDuration: 86400
+    preferredEras: *a3
+    preferredSeasons: *a4
+    preferredFormats: *a5
+    include: *a6
+    exclude: *a7
+    replacementPolicy: none
+    allowCompilations: true
+    allowShortClips: true
+    retention: standard
+    id: ln-feierabend
+    title: Feierabend
+    category: sitcom
+    description: Feierabend
+    urls: []
+  - profile: ln
+    enabled: true
+    scanSeconds: 21600
+    language: de
+    source: manual
+    aliases: *a1
+    queries: *a2
+    targetEpisodes: 100
+    maxEpisodes: 100
+    maxTotalDuration: 100000000
+    maxBytes: null
+    priority: 50
+    minDuration: 1
+    maxDuration: 86400
+    preferredEras: *a3
+    preferredSeasons: *a4
+    preferredFormats: *a5
+    include: *a6
+    exclude: *a7
+    replacementPolicy: none
+    allowCompilations: true
+    allowShortClips: true
+    retention: standard
+    id: ln-kino
+    title: Lundenburg Kino
+    category: movie
+    description: Lundenburg Kino
+    urls: []

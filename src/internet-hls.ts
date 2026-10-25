@@ -1,3 +1,4 @@
+import { observeHlsResponse } from './internet-health.js';
 import { open, type FileHandle } from 'node:fs/promises';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 
@@ -8,6 +9,7 @@ export async function serveHlsFile(
   request: IncomingMessage, response: ServerResponse, file: string,
   playlist: boolean, segmentCache = 'private, max-age=20',
 ): Promise<void> {
+  observeHlsResponse(request, response, playlist);
   response.setHeader('Cache-Control', playlist ? 'no-store' : segmentCache);
   const fail = (status: number, message: string) => {
     if (response.destroyed) return;

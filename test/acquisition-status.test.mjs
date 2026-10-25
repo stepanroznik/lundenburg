@@ -59,6 +59,18 @@ test('CLI uses a read-only snapshot, respects policy/retry delays, and emits onl
     store.transition(later, 'deferred', 'Downloader network; retry scheduled', Date.now() + 3600000);
     const blocked = store.remember({ ...candidate, sourceId: 'blocked', title: 'Unavailable', available: false });
     store.transition(blocked, 'manual', 'source unavailable; manual acquisition required');
+    const hasNacht = fs.existsSync(path.join(release, 'config/nacht-acquisition.yaml'));
+    if (hasNacht) {
+      store.remember({ ...candidate, source: 'youtube', sourceId: 'ln-ready', showId: 'unusualvideos',
+        title: 'UNUSUAL MEMES COMPILATION V42', language: 'en', season: 1, episode: 42,
+        nachtClassification: { eligible: true, standalone: true, category: 'comedy', timeOfNight: 'late', intensity: 'high',
+          topics: ['Internet'], evergreen: true, series: 'unusualvideos', episode: 42, recommendedAge: 16,
+          confidence: 1, reason: 'Numbered fixture episode.', descriptionDe: 'Nummerierte Internetmomente.' },
+        broadcastPolicy: { profiles: ['ln'], recommendedAge: 16, category: 'comedy', topics: [],
+          retention: 'protected', priority: 80, pinned: false, reviewState: 'approved' } });
+      store.remember({ ...candidate, source: 'youtube', sourceId: 'ln-pending', showId: 'kurzgesagt-ln',
+        title: 'Unreviewed science video', language: 'en' });
+    }
     catalogue.close();
     const hash = () => createHash('sha256').update(fs.readFileSync(file)).digest('hex');
     const before = hash();
@@ -75,5 +87,11 @@ test('CLI uses a read-only snapshot, respects policy/retry delays, and emits onl
     assert.equal(report.next.length, 1);
     assert.match(report.next[0].title, /\[URL\]/);
     assert.doesNotMatch(result.stdout, /sentinel|ceskatelevize\.cz|example\.org|credentials|tokenFile/);
+    if (hasNacht) {
+      // /tmp can be smaller than the real library's configured free-space reserve.
+      assert.match(report.shows.find(s => s.title === 'UnusualVideos').plan, /^(Queued|LN reserved filesystem space budget reached)$/);
+      assert.equal(report.shows.find(s => s.title.startsWith('Kurzgesagt')).ready, 0);
+      assert.ok(report.reasons.some(r => r.reason === 'Awaiting LN curation'));
+    }
   } finally { fs.rmSync(dir, { recursive: true, force: true }); }
 });

@@ -8,9 +8,15 @@ import { chooseIntermission, reconcileIntermissions, isProgramme, readRotationLi
 import { buildPlayoutPlan, type AdBumper } from './editorial.js';
 import { stableId } from './util.js';
 import { ordinaryProgramme, programmeOrder, programmeRotation } from './acquisition/programming.js';
+import { eligibleFor } from './channels.js';
+import { buildProfileSchedule, type RotationRecord } from './channel-schedule.js';
 
 interface ShowBucket { id: string; weight: number; episodes: MediaItem[] }
-interface SchedulePlanning { config: AppConfig; ads: AdAsset[]; clips: RotationClip[]; bumpers: AdBumper[] }
+export interface SchedulePlanning { config: AppConfig; ads: AdAsset[]; clips: RotationClip[]; bumpers: AdBumper[]; partitionEndMs?: number; history?: RotationRecord[]; reserved?: ScheduleEntry[] }
+export function schedulePlanning(db: LkpDatabase, config: AppConfig): SchedulePlanning {
+  return { config, ads: db.listAds(), clips: readRotationLibrary(config), bumpers: readBumpers(config),
+    history: db.db.prepare('SELECT media_id AS mediaId,played_count AS count,last_played_at_ms AS lastAtMs FROM media_rotation_history').all() as RotationRecord[] };
+}
 
 // Feature films get one Saturday-evening premiere and the same film on Sunday
 // morning. The next ordinary programme boundary starts the film, so no show is
@@ -57,7 +63,11 @@ export function buildScheduleEntries(
   catalogue: MediaItem[], seed: string, startMs: number, targetEndMs: number,
   initialSequence = 0, previousEntries: ScheduleEntry[] = [], planning?: SchedulePlanning,
 ): ScheduleEntry[] {
-  const enabled = catalogue.filter((item) => item.enabled);
+  if (planning?.config.station?.enabled && planning.partitionEndMs === undefined) {
+    return buildProfileSchedule(catalogue, seed, startMs, targetEndMs, initialSequence, previousEntries, planning,
+      (from, until, sequence, previous) => buildScheduleEntries(catalogue, seed, from, until, sequence, previous, { ...planning, partitionEndMs: until }));
+  }
+  const enabled = catalogue.filter((item) => eligibleFor(item, 'lkp', planning?.config.station, startMs));
   if (enabled.length === 0) throw new Error('Cannot generate a schedule without enabled media');
   const byShow = new Map<string, ShowBucket>();
   for (const item of enabled) {
@@ -100,13 +110,16 @@ export function buildScheduleEntries(
   let previousClip = previousEntries.filter((entry) => entry.showId === intermissionShowId).at(-1)?.mediaId.replace(/^intermission-/, '');
   const result: ScheduleEntry[] = [];
   while (cursor < targetEndMs) {
-    const availableShows = shows.map(show => ({ ...show, episodes: programmeRotation(show.episodes, cursor, zone) })).filter(show => show.episodes.length);
+    const fits = (item: MediaItem) => !planning?.partitionEndMs || item.durationMs <= planning.partitionEndMs - cursor;
+    const availableShows = shows.map(show => ({ ...show, episodes: programmeRotation(show.episodes, cursor, zone).filter(fits) })).filter(show => show.episodes.length);
+    if (!availableShows.length && planning?.partitionEndMs) break;
     if (!availableShows.length) throw new Error('No season-appropriate ordinary programmes');
     const slot = films.length ? featureWindow(cursor, zone) : undefined;
-    const selectedFilm = slot && !featuredDates.has(slot.date)
+    const possibleFilm = slot && !featuredDates.has(slot.date)
       ? slot.weekday === 7 ? filmById.get(saturdayFilmByWeek.get(slot.week) ?? '') ?? filmForWeek(films, slot.week)
         : filmForWeek(films, slot.week)
       : undefined;
+    const selectedFilm = possibleFilm && fits(possibleFilm) ? possibleFilm : undefined;
     let show = selectedFilm ? undefined : chooseShow(availableShows, seed, sequence, previousShow);
     const targets = planning?.config.schedule.spokenLanguageTargets;
     if (show && targets && Object.hasOwn(targets, show.episodes[0]!.audioLanguage ?? show.episodes[0]!.defaultLanguage ?? '')) {
@@ -128,10 +141,13 @@ export function buildScheduleEntries(
     const media = selectedFilm ?? show!.episodes[playCount % show!.episodes.length]!;
     const startsAtMs = cursor;
     const id = stableId(seed, sequence, media.id, startsAtMs);
-    const playoutPlan = planning ? buildPlayoutPlan({
+    let playoutPlan = planning ? buildPlayoutPlan({
       eventId: id, eventStartMs: startsAtMs, media, ...(planning.config.advertising ? { advertising: planning.config.advertising } : {}),
       ads: planning.ads, bumpers: planning.bumpers, intermissions: planning.clips, seed, programmeOrdinal,
     }) : undefined;
+    if (planning?.partitionEndMs && playoutPlan && cursor + playoutPlan.durationMs > planning.partitionEndMs) {
+      playoutPlan = buildPlayoutPlan({ eventId: id, eventStartMs: startsAtMs, media, ads: [], bumpers: [], intermissions: [], seed, programmeOrdinal });
+    }
     const durationMs = playoutPlan?.durationMs ?? media.durationMs;
     const endsAtMs = startsAtMs + durationMs;
     const entry: ScheduleEntry = {
@@ -160,7 +176,7 @@ export function buildScheduleEntries(
     const policy = planning?.config.intermissions;
     if (policy && planning.clips.length && cursor < targetEndMs) {
       const clip = chooseIntermission(planning.clips, policy, seed, entry, cursor, previousClip);
-      if (clip) {
+      if (clip && (!planning?.partitionEndMs || cursor + clip.durationMs <= planning.partitionEndMs)) {
         result.push({ id: stableId('intermission-after', entry.id), sequence,
           mediaId: `intermission-${clip.id}`, showId: intermissionShowId,
           showTitle: 'Lundenburg Kids Premium', episodeTitle: clip.title,
@@ -178,12 +194,13 @@ export function buildScheduleEntries(
 }
 
 export function reconcilePlayoutPlans(db: LkpDatabase, config: AppConfig, earliestMs = Date.now() + 60_000, refreshBumpers = false): number {
+  if (config.station?.enabled) throw new Error('Profile schedules must be regenerated with fixed handover barriers');
   const bounds = db.scheduleBounds();
   if (!bounds) return 0;
   const entries = db.listSchedule(earliestMs, bounds.lastMs + 1).filter((entry) => entry.startsAtMs >= earliestMs);
   if (!entries.length) return 0;
   const mediaById = new Map(db.listMedia(false).map((media) => [media.id, media]));
-  const planning: SchedulePlanning = { config, ads: db.listAds(), clips: readRotationLibrary(config), bumpers: readBumpers(config) };
+  const planning: SchedulePlanning = schedulePlanning(db, config);
   const before = db.listSchedule(bounds.firstMs, entries[0]!.startsAtMs);
   let programmeOrdinal = before.filter(isProgramme).length;
   let cursor = entries[0]!.startsAtMs;
@@ -255,7 +272,7 @@ export function ensureSchedule(
   const last = previous.at(-1);
   const startMs = last?.endsAtMs ?? requestedStart;
   const sequence = last ? last.sequence + 1 : 0;
-  const planning: SchedulePlanning = { config, ads: db.listAds(), clips: readRotationLibrary(config), bumpers: readBumpers(config) };
+  const planning: SchedulePlanning = schedulePlanning(db, config);
   const entries = buildScheduleEntries(db.listMedia(), config.schedule.seed, startMs, targetEnd, sequence, previous, planning);
   db.insertSchedule(entries);
   const intermissions = reconcileIntermissions(db, config);
@@ -273,10 +290,11 @@ export function rebuildFutureSchedule(
   if (!boundary) throw new Error('No safe future programme boundary');
   const prefix = db.listSchedule(bounds.firstMs, boundary.startsAtMs);
   const future = db.listSchedule(boundary.startsAtMs, bounds.lastMs + 1);
-  if (future.some((entry) => entry.showId === 'lkp-weather')) {
+  if (!config.station?.enabled && future.some((entry) => entry.showId === 'lkp-weather')) {
     throw new Error('Future weather programmes are published; move them before rebuilding the schedule');
   }
-  const planning: SchedulePlanning = { config, ads: db.listAds(), clips: readRotationLibrary(config), bumpers: readBumpers(config) };
+  const planning: SchedulePlanning = schedulePlanning(db, config);
+  planning.reserved = future.filter(e => e.showId === 'lkp-weather');
   const generated = buildScheduleEntries(db.listMedia(), config.schedule.seed,
     boundary.startsAtMs, bounds.lastMs, boundary.sequence, prefix, planning);
   const errors = validateTimeline([...prefix.slice(-1), ...generated]);

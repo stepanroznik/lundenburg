@@ -1,7 +1,10 @@
-import type { AppConfig } from '../types.js';
+import type { AppConfig, MediaBroadcastPolicy, ProfileId, Retention } from '../types.js';
+import type { NachtClassification } from './nacht-classification.js';
 import type { Classification, EditorialRank } from './classification.js';
 export type Language = 'de' | 'en' | 'cs' | 'neutral';
 export interface Subscription {
+  profile?: ProfileId; enabled?: boolean; scanSeconds?: number; retention?: Retention; category?: string;
+  deterministicSeries?: 'unusual' | 'breclav'; regional?: boolean;
   id: string; title: string; aliases: string[]; description: string; language: Language;
   source: 'mediathek' | 'ct' | 'manual' | 'existing' | 'youtube'; queries: string[]; urls: string[];
   channelId?: string; defaultSeason?: number; editorialClassification?: boolean;
@@ -25,6 +28,9 @@ export interface AcquisitionConfig {
   subscriptions: Subscription[];
 }
 export interface Candidate {
+  subtitleSources?: Array<{ language: string; url: string }>;
+  channelId?: string; nachtClassification?: NachtClassification; broadcastPolicy?: MediaBroadcastPolicy;
+  tags?: string[]; categories?: string[]; transcript?: string; relevance?: number;
   source: 'mediathek' | 'ct' | 'manual' | 'youtube'; sourceId: string; sourceUrl: string; showId: string;
   originalTitle?: string; invalidReason?: string; classification?: Classification;
   classificationVersion?: string; classificationModel?: string;
@@ -63,6 +69,12 @@ export function urlIdentity(value: string): string {
 }
 export function loadAcquisitionConfig(app: AppConfig, file = path.join(app.projectRoot, 'config/content-acquisition.yaml')) : AcquisitionConfig {
     const c = (parse(fs.readFileSync(file, 'utf8')) as AcquisitionConfig);
+    const nightFile = path.join(app.projectRoot, 'config/nacht-acquisition.yaml');
+    if (fs.existsSync(nightFile)) {
+      const night = parse(fs.readFileSync(nightFile, 'utf8')) as { version: number; subscriptions: Subscription[] };
+      if (night.version !== 1 || !Array.isArray(night.subscriptions)) throw new Error('Invalid LN subscription configuration');
+      c.subscriptions.push(...night.subscriptions.filter(s => !c.subscriptions.some(existing => existing.id === s.id)));
+    }
     if (c.version !== 1 || !Array.isArray(c.subscriptions) || !c.subscriptions.length)
         throw new Error('Invalid acquisition configuration');
     c.subtitleRequestsPerDay ??= 200;
@@ -84,6 +96,8 @@ export function loadAcquisitionConfig(app: AppConfig, file = path.join(app.proje
         if (!/^[a-z0-9-]+$/.test(s.id) || ids.has(s.id))
             throw new Error('Invalid/duplicate subscription ID');
         ids.add(s.id);
+        if (s.profile !== undefined && !['lkp', 'ln'].includes(s.profile)) throw new Error('Invalid subscription profile');
+        if (s.scanSeconds !== undefined && (!Number.isSafeInteger(s.scanSeconds) || s.scanSeconds < 60)) throw new Error('Invalid subscription scan interval');
         if (!['de', 'en', 'cs', 'neutral'].includes(s.language) || !['existing', 'mediathek', 'ct', 'manual', 'youtube'].includes(s.source))
             throw new Error(`Invalid subscription ${s.id}`);
         for (const key of (['targetEpisodes','maxEpisodes','maxTotalDuration','maxBytes','priority','minDuration','maxDuration'] as const))
@@ -120,6 +134,12 @@ export function unsupportedEdition(c:Pick<Candidate,'source'|'language'|'title'>
   return c.source==='mediathek'&&c.language==='de'&&/\b(?:sorbisch|obersorbisch|niedersorbisch|sorbian)\b/i.test(c.title);
 }
 export function admission(c: Candidate, s: Subscription, u: Usage, newBytes: number, config: AcquisitionConfig) : string | undefined {
+    if (s.enabled === false) return 'Source disabled';
+    if (s.profile === 'ln') {
+      if (!c.nachtClassification) return 'Awaiting LN classification';
+      if (!c.nachtClassification.eligible || !c.nachtClassification.standalone) return 'LN classification excluded';
+      if (!c.broadcastPolicy) return 'Awaiting confident LN classification';
+    }
     if (s.forbidRecycledContent && recycledContent(c)) return 'Recycled content forbidden';
     if (s.editorialClassification && !acquiredRank(c.classification?.rank, s.minimumEditorialRank)) return c.classification ? 'Editorial rank excluded' : 'Awaiting editorial classification';
     if (unsupportedEdition(c))
@@ -130,9 +150,9 @@ export function admission(c: Candidate, s: Subscription, u: Usage, newBytes: num
         return 'source unavailable; manual acquisition required';
     if (c.language !== s.language)
         return 'language mismatch';
-    if (!Number.isFinite(c.durationMs) || c.durationMs < s.minDuration * 1000 || c.durationMs > s.maxDuration * 1000)
+    if (!Number.isFinite(c.durationMs) || c.durationMs <= 0 || (s.profile !== 'ln' && (c.durationMs < s.minDuration * 1000 || c.durationMs > s.maxDuration * 1000)))
         return 'duration/format outside curated range';
-    if (!s.allowShortClips && /\b(clip|trailer|preview|vorschau|teaser|bonus|ausschnitt)\b/i.test(c.title))
+    if (s.profile !== 'ln' && !s.allowShortClips && /\b(clip|trailer|preview|vorschau|teaser|bonus|ausschnitt)\b/i.test(c.title))
         return 'clip/trailer excluded';
     if (c.compilation && !s.allowCompilations)
         return 'compilation excluded to avoid overlap';
@@ -143,7 +163,7 @@ export function admission(c: Candidate, s: Subscription, u: Usage, newBytes: num
         return 'excluded by curation rule';
     if (s.include.length && !s.include.some(rule => new RegExp(rule, 'iu').test(text)))
         return 'not in curated selection';
-    if (u.episodes >= Math.min(s.targetEpisodes, s.maxEpisodes))
+    if (s.retention !== 'latest-only' && u.episodes >= Math.min(s.targetEpisodes, s.maxEpisodes))
         return 'collection target reached';
     if (u.durationMs + c.durationMs > s.maxTotalDuration * 1000)
         return 'show duration budget reached';

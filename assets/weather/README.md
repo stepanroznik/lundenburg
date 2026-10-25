@@ -27,4 +27,7 @@ SIL Open Font License in `fonts/OFL.txt`. Fonts and borders are local assets;
 rendering requires no font or map downloads.
 
 Characters are layered, deterministic SVG components in
-`src/weather/video/Character.tsx`, rather than flattened weather variants.
+`src/characters/Character.tsx`; `src/weather/video/Character.tsx` wraps the shared
+rig with weather-specific outfit and prop selection. The
+[production skill](../../skills/lkp-show-production/SKILL.md) documents the shared
+character and animation workflow.

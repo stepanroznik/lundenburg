@@ -12,6 +12,18 @@ export function prepareRelease(baseline, destination, repository) {
   fs.mkdirSync(destination, { recursive: true });
   fs.cpSync(path.join(repository, 'dist'), path.join(destination, 'dist'), { recursive: true });
   fs.cpSync(path.join(previous, 'config'), path.join(destination, 'config'), { recursive: true });
+  for (const name of ['channels.yaml', 'nacht-acquisition.yaml']) {
+    const source = path.join(repository, 'config', name);
+    if (fs.existsSync(source)) {
+      const target = path.join(destination, 'config', name);
+      if (name === 'channels.yaml') {
+        // This station policy is shared by the broadcaster and the acquisition
+        // worker so schedule regeneration always sees the same enabled profile.
+        fs.rmSync(target, { force: true });
+        fs.symlinkSync(path.resolve(source), target);
+      } else fs.copyFileSync(source, target);
+    }
+  }
   const appPath = path.join(destination, 'config/lkp.yaml');
   const app = parse(fs.readFileSync(appPath, 'utf8'));
   const sourceApp = parse(fs.readFileSync(path.join(repository, 'config/lkp.yaml'), 'utf8'));

@@ -7,8 +7,10 @@ import { normalizeLanguage, stableId } from './util.js';
 import { assertMediaStorage } from './media-storage.js';
 import { editorialEnd, scoreBreakSignal } from './editorial.js';
 import { normalizeCatalogueText, isCatalogueMovie } from './catalogue.js';
+import { validateMediaPolicy } from './channels.js';
 
 interface ShowMetadata {
+  broadcast?: unknown;
   kind?: 'series' | 'movie';
   id?: string;
   title?: string;
@@ -22,6 +24,7 @@ interface ShowMetadata {
 }
 
 interface EpisodeMetadata {
+  broadcast?: unknown;
   catalogue?: Record<string, unknown>;
   acquisition?: Record<string, unknown>;
   id?: string;
@@ -265,6 +268,7 @@ export async function scanMedia(config: AppConfig, onProgress?: (message: string
     if (!editorialMarkers.some((marker) => marker.kind === 'credits' && marker.confidence >= .7)) qcWarnings.push('No reliable credits marker; automatic credits shortening is disabled');
     for (const language of allowedLanguages) if (!uniqueSubtitles.some((track) => track.language === language)) qcWarnings.push(`Missing ${language} subtitles`);
     const item: MediaItem = {
+      ...(episodeMeta.broadcast ?? show.broadcast ? { broadcast: validateMediaPolicy(episodeMeta.broadcast ?? show.broadcast) } : {}),
       id: episodeMeta.id ?? stableId(showId, episodeMeta.season ?? parsed.season ?? '', episodeMeta.episode ?? parsed.episode ?? '', path.basename(mediaPath)),
       showId,
       showTitle,

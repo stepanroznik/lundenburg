@@ -39,6 +39,7 @@ export interface SubtitleTrack {
 }
 
 export interface MediaItem {
+  broadcast?: MediaBroadcastPolicy;
   id: string;
   showId: string;
   showTitle: string;
@@ -95,6 +96,7 @@ export interface PlayoutPlan {
 }
 
 export interface ScheduleEntry {
+  presentation?: EventPresentation;
   id: string;
   sequence: number;
   // DVB identity survives sequence renumbering when continuity is inserted.
@@ -146,6 +148,7 @@ export interface AdvertisingConfig {
 }
 
 export interface AppConfig {
+  station?: StationConfig;
   comingUp?: ComingUpConfig;
   intermissions?: IntermissionConfig;
   advertising?: AdvertisingConfig;
@@ -178,6 +181,50 @@ export interface AppConfig {
     bind: string; port: number; hlsDirectory: string; segmentSeconds: number;
     playlistSegments: number; audioBitrate: string;
   };
+}
+
+export type ProfileId = 'lkp' | 'ln';
+export type Retention = 'latest-only' | 'protected' | 'standard' | 'temporary';
+export interface MediaBroadcastPolicy {
+  profiles: ProfileId[];
+  recommendedAge: 0 | 6 | 12 | 16 | 18 | null;
+  ratingSource: 'editorial' | 'manual' | 'unknown';
+  category: string;
+  topics: string[];
+  intensity: 'calm' | 'moderate' | 'high';
+  timeOfNight: 'any' | 'evening' | 'late' | 'quiet';
+  retention: Retention;
+  pinned?: boolean;
+  priority: number;
+  expiresAtMs?: number;
+  seriesId?: string;
+  seriesOrder?: number;
+  confidence?: number;
+}
+export interface EventPresentation {
+  profile: ProfileId;
+  kind: 'programme' | 'handover' | 'ident' | 'intro' | 'outro' | 'gap';
+  block?: string;
+  genre?: number;
+  loop?: boolean;
+  publicationDate?: string;
+}
+export interface ChannelProfile {
+  id: ProfileId; name: string; abbreviation: string;
+  logo: string; logoWidth: number; animateProgrammeLogo: boolean; advertising: boolean;
+  languages: string[]; categories: string[];
+}
+export interface StationConfig {
+  activateAtMs?: number;
+  enabled: boolean; timezone: string;
+  hours: { weekdayStart: string; weekendStart: string; morningEnd: string };
+  profiles: Record<ProfileId, ChannelProfile>;
+  assetManifest: string;
+  newsOffsetMinutes: number;
+  rotation: 'sequential' | 'shuffle';
+  storage: { maxBytes: number; reserveBytes: number; imminentMinutes: number };
+  classifier: { provider: 'configured'; model: string; maxRequestsPerRun: number; maxRequestsPerDay: number; confidence: number };
+  showPolicies: Record<string, MediaBroadcastPolicy>;
 }
 
 export interface ComingUpConfig {

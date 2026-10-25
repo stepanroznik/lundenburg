@@ -41,7 +41,10 @@
     "ai": "tsx src/ai/cli.ts",
     "subtitles:prepare": "tsx src/subtitles-cli.ts prepare",
     "acquisition": "node scripts/acquisition-status.mjs",
-    "acquisition:watch": "node scripts/acquisition-status.mjs --watch"
+    "acquisition:watch": "node scripts/acquisition-status.mjs --watch",
+    "branding:stills": "node --import tsx src/branding/render.tsx stills",
+    "branding:preview": "node --import tsx src/branding/render.tsx preview",
+    "branding:masters": "node --import tsx src/branding/render.tsx masters"
   },
   "dependencies": {
     "@remotion/bundler": "4.0.526",

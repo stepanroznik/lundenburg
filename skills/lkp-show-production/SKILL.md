@@ -1,6 +1,6 @@
 ---
 name: lkp-show-production
-description: Design, script, voice, animate, review, render, or extend Lundenburg Kids Premium weather programmes, intermission skits, channel idents, and reusable character scenes in the existing TypeScript/Remotion production pipeline. Use for LKP character dialogue, multilingual ElevenLabs speech, silent seasonal shorts, branded graphics, maps, props, foley, storyboards, contact-sheet review, or render preparation.
+description: Design, script, voice, animate, review, render, or extend Lundenburg Kids Premium weather programmes, intermission skits, channel idents, reusable character scenes, or Lundenburg Nacht branding and bumpers in the existing TypeScript/Remotion production pipeline. Use for LKP character dialogue, multilingual ElevenLabs speech, silent seasonal shorts, branded graphics, maps, props, foley, storyboards, contact-sheet review, or render preparation.
 ---
 
 # LKP Show Production
@@ -48,6 +48,21 @@ Inspect the repository before editing. Treat these files as the current source o
 - `scripts/review-intermissions.tsx` for frame sheets and visual review.
 
 Read [characters-and-voices.md](references/characters-and-voices.md) before writing dialogue or generating speech. Read [animation-and-sound.md](references/animation-and-sound.md) before building or revising a scene. Use [production-workflow.md](references/production-workflow.md) for implementation, review, rendering, and delivery.
+
+For Lundenburg Nacht identity, idents, programme intros/outros, or transition work,
+read the repository's [NACHT-DESIGN.md](../../NACHT-DESIGN.md) first. Use the
+shared palette and reusable components in `src/branding/`; keep LN's adult public-
+television tone, DejaVu typography, and original foley separate from LKP's Fredoka
+wordmark and character rig. Preview motion at broadcast size, preserve the full
+screen transition timing at the wall-clock profile boundary, and render large
+masters to the external media drive instead of Git.
+Read [NACHT.md](../../NACHT.md) for profile hours, age policy, acquisition and
+asset validation. The Pi configuration may already enable profiles; inspect the
+current configuration and runtime manifest rather than assuming LN is inactive.
+Source synchronization does not activate assets or regenerate the schedule.
+Repository document links here are relative to the maintained skill under
+`skills/lkp-show-production/`; when using an installed copy, open those documents
+from the active repository root.
 
 ## Preserve the programme's purpose
 

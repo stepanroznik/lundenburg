@@ -57,10 +57,12 @@ export function generateEpgXml(entries: ScheduleEntry[], config: AppConfig): str
     const name = prefixBytes(eventName(entry), 200);
     const shortText = prefixBytes(description, 244 - Buffer.byteLength(name, 'utf8'));
     const parts = descriptionParts(description);
+    const genre = entry.presentation?.genre;
+    const content = genre === undefined ? '' : `\n      <content_descriptor><content content_nibble_level_1="${genre >> 4}" content_nibble_level_2="${genre & 15}" user_byte="0"/></content_descriptor>`;
     const extended = description.length > shortText.length
       ? parts.map((part, index) => `\n      <extended_event_descriptor language_code="${xml(config.epg.language)}" descriptor_number="${index}" last_descriptor_number="${parts.length - 1}">\n        <text>${xml(part)}</text>\n      </extended_event_descriptor>`).join('')
       : '';
-    return `    <event event_id="${id}" start_time="${start}" duration="${durationClock(endsAtMs - startsAtMs)}" running_status="undefined">\n      <short_event_descriptor language_code="${xml(config.epg.language)}">\n        <event_name>${xml(name)}</event_name>\n        <text>${xml(shortText)}</text>\n      </short_event_descriptor>${extended}\n    </event>`;
+    return `    <event event_id="${id}" start_time="${start}" duration="${durationClock(endsAtMs - startsAtMs)}" running_status="undefined">\n      <short_event_descriptor language_code="${xml(config.epg.language)}">\n        <event_name>${xml(name)}</event_name>\n        <text>${xml(shortText)}</text>\n      </short_event_descriptor>${extended}${content}\n    </event>`;
   }).join('\n');
   return `<?xml version="1.0" encoding="UTF-8"?>\n<tsduck>\n  <EIT service_id="${config.channel.serviceId}" transport_stream_id="${config.channel.transportStreamId}" original_network_id="${config.channel.originalNetworkId}">\n${body}\n  </EIT>\n</tsduck>\n`;
 }

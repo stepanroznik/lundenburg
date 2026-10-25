@@ -59,6 +59,7 @@ export function preserveEpisodeIdentity(previous: EpisodeIdentity, next: Episode
 }
 
 interface YoutubeSubscription {
+  profile?: string; deterministicSeries?: 'unusual' | 'breclav';
   id: string; language: string; urls: string[]; channelId?: string;
   minDuration: number; maxDuration: number;
   title?: string; editorialClassification?: boolean;
@@ -72,6 +73,7 @@ interface Playlist {
   id?: string; channel_id?: string; entries?: PlaylistEntry[];
 }
 export interface YoutubeCandidate {
+  channelId?: string; episode?: number;
   source: 'youtube'; sourceId: string; sourceUrl: string; showId: string; title: string;
   language: Language; description: string; descriptionLanguage: string;
   durationMs: number; size: number; broadcaster: string; components: string[];
@@ -93,6 +95,15 @@ export function youtubeEstimatedBytes(metadata: { filesize?: number; filesize_ap
 }
 
 export function validateYoutubeSubscription(s: YoutubeSubscription): void {
+  if (s.profile === 'ln') {
+    if (s.channelId && !/^UC[\w-]{22}$/.test(s.channelId)) throw new Error('Invalid canonical LN channel ID');
+    if (!['en', 'cs', 'de'].includes(s.language) || !s.urls.length) throw new Error('Invalid LN YouTube subscription');
+    for (const value of s.urls) {
+      const u = new URL(value);
+      if (u.protocol !== 'https:' || u.hostname !== 'www.youtube.com' || u.search || u.hash || !/^\/(?:@[\w.-]+|channel\/UC[\w-]{22})\/videos$/.test(u.pathname)) throw new Error('LN discovery requires an official channel videos inventory');
+    }
+    return;
+  }
   if (s.editorialClassification) {
     if (!/^UC[\w-]{22}$/.test(s.channelId ?? '') || !['de', 'en'].includes(s.language) ||
       s.urls.length !== 3 || !['videos', 'streams', 'shorts'].every(tab =>
@@ -115,6 +126,18 @@ export function playlistCandidates(data: Playlist, s: YoutubeSubscription): Yout
     throw new Error('YouTube playlist does not belong to the approved channel');
   const seen = new Set<string>();
   return data.entries.flatMap<YoutubeCandidate>(e => {
+    if (s.profile === 'ln') {
+      if (!e.id || !/^[\w-]{11}$/.test(e.id) || seen.has(e.id) || !e.title) return [];
+      if (e.channel_id && e.channel_id !== s.channelId) throw new Error('Channel entry identity mismatch');
+      seen.add(e.id);
+      const duration = Number(e.duration) > 0 ? Number(e.duration) : 0;
+      return [{ source: 'youtube', sourceId: e.id, sourceUrl: `https://www.youtube.com/watch?v=${e.id}`, showId: s.id,
+        title: e.title, originalTitle: e.title, language: s.language as Language, description: (e.description ?? '').slice(0, 4000), descriptionLanguage: s.language,
+        durationMs: Math.round(duration * 1000), size: Math.max(1, Math.ceil(duration * 1_500_000)), broadcaster: `YouTube: ${s.title ?? s.id}`,
+        components: [], compilation: false, format: 'episode', available: true, channelId: s.channelId!,
+        ...((e.timestamp ?? e.release_timestamp) ? { publishedAt: (e.timestamp ?? e.release_timestamp)! * 1000 } : {}),
+        ...((e.live_status && e.live_status !== 'not_live') || (e.availability && !['public', 'unlisted'].includes(e.availability)) ? { invalidReason: 'Live or inaccessible source' } : {}) }];
+    }
     if (s.editorialClassification) {
       if (!e.id || !/^[\w-]{11}$/.test(e.id) || seen.has(e.id) || !e.title) return [];
       if (e.channel_id && e.channel_id !== s.channelId) throw new Error('Channel entry identity mismatch');
@@ -159,12 +182,13 @@ export async function discoverYoutube(
     let data: Playlist;
     try { data = JSON.parse(await execute(downloader, [
       '--ignore-config', '--flat-playlist', '--dump-single-json', '--no-warnings',
-      '--socket-timeout', '20', '--retries', '2', ...(s.editorialClassification ? [] : ['--playlist-end', String(limit)]), url,
+      '--socket-timeout', '20', '--retries', '2', ...(s.editorialClassification || s.profile === 'ln' ? [] : ['--playlist-end', String(limit)]), url,
     ], guard, 120_000)) as Playlist; }
     catch (error) {
       if (s.editorialClassification && !url.endsWith('/videos') && error instanceof AcquisitionCommandError && error.kind === 'missing-tab') continue;
       throw error;
     }
+    if (s.profile === 'ln' && !s.channelId && /^UC[\w-]{22}$/.test(data.channel_id ?? '')) s.channelId = data.channel_id!;
     if (s.editorialClassification) for (const entry of data.entries ?? []) {
       if (url.endsWith('/streams')) entry.live_status = 'was_live';
       if (url.endsWith('/shorts')) entry.url = `https://www.youtube.com/shorts/${entry.id}`;

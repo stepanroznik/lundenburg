@@ -9,6 +9,8 @@ import { LkpDatabase } from './database.js';
 import { writeEpgAtomic } from './epg.js';
 import { ensureSchedule } from './schedule.js';
 import { prepareLogo, type PreparedLogo } from './logo.js';
+import { channelEntryAllowed, loadStationConfig, profileConfig, profileWindow } from './channels.js';
+import { stationAssets } from './channel-schedule.js';
 import { locatePlayoutPosition } from './editorial.js';
 import { TransportPacer } from './transport.js';
 import { writePlayoutStatus, type PlayoutStatus } from './playout-status.js';
@@ -45,10 +47,14 @@ export function buildFfmpegArgs(
   animate: boolean, config: AppConfig, logo: PreparedLogo, outputOffsetMs = seekMs,
   comingUp?: ComingUpOverlay,
 ): string[] {
-  const intermission = entry.showId === 'lkp-intermissions' || entry.listingVisibility === 'hidden';
+  if (config.station?.enabled) {
+    config = profileConfig(config, entry.presentation?.profile ?? profileWindow(entry.startsAtMs, config.station).profile);
+    if (entry.presentation?.profile === 'ln') animate = false;
+  }
+  const intermission = entry.showId === 'lkp-intermissions' || entry.listingVisibility === 'hidden' || (entry.presentation && entry.presentation.kind !== 'programme');
   const args = ['-hide_banner', '-loglevel', 'warning', '-nostdin',
     '-filter_complex_threads', String(config.video.filterThreads),
-    '-threads', String(config.video.decoderThreads), '-ss', seconds(seekMs), '-i', entry.mediaPath];
+    '-threads', String(config.video.decoderThreads), ...(entry.presentation?.loop ? ['-stream_loop', '-1'] : []), '-ss', seconds(seekMs), '-i', entry.mediaPath];
   if (!intermission) args.push('-threads', '1', '-framerate', String(config.video.fps), '-i', logo.path);
   const prepared = intermission ? [] : preparedSubtitleTracks(entry, media, config);
   const subtitleInput = intermission ? 1 : 2;
@@ -183,20 +189,26 @@ class EncoderQueue {
   private active: PreparedEncoder | undefined;
   stopped = false;
   readonly continuity = new Map<number, number>();
+  private nachtLogo: PreparedLogo | undefined;
 
   constructor(private readonly config: AppConfig, private readonly logo: PreparedLogo,
-    private readonly verbose: boolean, private readonly clips: RotationClip[], private readonly db: LkpDatabase) {}
+    private readonly verbose: boolean, private readonly clips: RotationClip[], private readonly db: LkpDatabase) {
+    this.nachtLogo = config.station?.enabled ? prepareLogo(profileConfig(config, 'ln')) : undefined;
+  }
 
   private launch(target: EncoderTarget): PreparedEncoder {
+    const targetConfig = this.config.station && target.entry.presentation ? { ...this.config, station: { ...this.config.station, enabled: true } } : this.config;
+    if (targetConfig.station?.enabled && !this.nachtLogo) this.nachtLogo = prepareLogo(profileConfig(targetConfig, 'ln'));
+    if (!target.media && target.entry.presentation?.kind === 'programme') target.media = this.db.listMedia(false).find(m => m.id === target.entry.mediaId);
     const startsAtMs = target.entry.startsAtMs + target.outputOffsetMs;
-    const durationMs = target.limitMs ?? (target.intermission ? target.entry.durationMs : Number.POSITIVE_INFINITY);
+    const durationMs = target.limitMs ?? (target.intermission || target.entry.presentation ? target.entry.durationMs - target.seekMs : Number.POSITIVE_INFINITY);
     const programme = target.programme ?? target.entry;
     const programmeOffsetMs = target.programmeOffsetMs ?? target.seekMs;
     const comingUp = comingUpForPiece(programme, programmeOffsetMs,
       target.limitMs ?? target.entry.durationMs - (target.plannedOffsetMs ?? target.seekMs),
       () => this.db.nextPublicEntries(programme.endsAtMs), this.config);
     const ffmpegArgs = buildFfmpegArgs(target.entry, target.media, target.seekMs, durationMs,
-      target.animate, this.config, this.logo, target.outputOffsetMs, comingUp);
+      target.animate, targetConfig, target.entry.presentation?.profile === 'ln' ? this.nachtLogo ?? this.logo : this.logo, target.outputOffsetMs, comingUp);
     const command = this.config.video.cpuAffinity ? 'taskset' : 'ffmpeg';
     const args = this.config.video.cpuAffinity ? ['--cpu-list', this.config.video.cpuAffinity, 'ffmpeg', ...ffmpegArgs] : ffmpegArgs;
     const child = spawnLogged(command, args, { stdio: ['ignore', 'pipe', 'pipe'] }, this.verbose);
@@ -220,7 +232,7 @@ class EncoderQueue {
 
   prepare(target: EncoderTarget | undefined, leadMs: number): void {
     if (this.stopped || !target) return;
-    if (target.intermission) {
+    if (target.intermission && (!this.config.station?.enabled || target.entry.presentation?.profile === 'lkp')) {
       const clip = recoveryIntermission(this.clips, target.entry.durationMs, leadMs, target.entry.startsAtMs);
       if (clip) {
         log('info', 'Recovery intermission prepared', {
@@ -354,6 +366,7 @@ async function transcodePlayout(
     const runtimeEntry = { ...entry, startsAtMs: Date.now() - pastOffsetMs };
     const result = await transcodeEntry({ entry: runtimeEntry, media, seekMs: elapsedMs,
       outputOffsetMs: 0, animate, intermission: entry.showId === 'lkp-intermissions',
+      ...(config.station?.enabled ? { limitMs: entry.durationMs - elapsedMs } : {}),
       plannedStartsAtMs: entry.startsAtMs, plannedOffsetMs: elapsedMs, programme: entry, programmeOffsetMs: elapsedMs },
       config, sinks, stopAtMs, pastOffsetMs, onChild, queue, nextProgramme, phase);
     phase.leadMs = entry.endsAtMs + pastOffsetMs - result.endedAtMs;
@@ -482,6 +495,7 @@ function startInternetPipeline(config: AppConfig): { sink: Writable; relay: Chil
 }
 
 export async function runBroadcast(db: LkpDatabase, config: AppConfig, options: BroadcastOptions): Promise<void> {
+  if (config.station?.enabled && (config.station.activateAtMs ?? 0) > Date.now()) config.station = { ...config.station, enabled: false };
   const pastOffsetMs = options.pastOffsetMs ?? 0;
   if (!Number.isSafeInteger(pastOffsetMs)) throw new Error('pastOffsetMs must be a non-negative safe integer');
   const epgOffsetMs = options.dryRun ? 0 : pastOffsetMs;
@@ -537,6 +551,7 @@ export async function runBroadcast(db: LkpDatabase, config: AppConfig, options: 
   process.once('SIGINT', stop); process.once('SIGTERM', stop);
   let first = true;
   let cursor: ScheduleEntry | undefined;
+  const completedProfileEntries = new Set<string>();
   const phase: ContinuityState = { leadMs: 0 };
   const statusFile = path.join(config.storage.runtimeDirectory, options.dryRun ? 'playout-preview-status.json' : 'playout-status.json');
   const publishStatus = (state: PlayoutStatus['state'] = 'running'): void => {
@@ -546,6 +561,7 @@ export async function runBroadcast(db: LkpDatabase, config: AppConfig, options: 
     const leadMs = current ? current.plannedStartMs + Math.min(current.plannedDurationMs,
       current.plannedOffsetMs + elapsedMs) - scheduleTimeForBroadcast(updatedAtMs, pastOffsetMs) : phase.leadMs;
     writePlayoutStatus(statusFile, { version: 1, state, updatedAtMs, pid: process.pid,
+      capabilities: ['channel-profiles-v1'],
       leadMs, driftMs: -leadMs, direction: Math.abs(leadMs) < 250 ? 'on-time' : leadMs > 0 ? 'ahead' : 'behind',
       current: current ? { scheduleEntryId: current.scheduleEntryId, title: current.title,
         actualStartMs: current.actualStartMs, plannedStartMs: current.plannedStartMs } : null,
@@ -558,13 +574,52 @@ export async function runBroadcast(db: LkpDatabase, config: AppConfig, options: 
       if (outputFailure) throw outputFailure;
       const realNowMs = Date.now();
       const scheduleNowMs = scheduleTimeForBroadcast(realNowMs, pastOffsetMs);
-      const entry = cursor ?? db.currentAt(scheduleNowMs) ?? db.nextAfter(scheduleNowMs);
+      if (config.station && !config.station.enabled) {
+        const updated = loadStationConfig(config.projectRoot);
+        if (updated?.enabled && ((updated.activateAtMs ?? 0) <= scheduleNowMs || cursor?.presentation)) config.station = updated;
+      }
+      let entry = (config.station?.enabled ? db.currentAt(scheduleNowMs) : cursor) ?? db.currentAt(scheduleNowMs) ?? db.nextAfter(scheduleNowMs);
+      let committedProfileEntryId = entry?.id;
+      if (entry && committedProfileEntryId && config.station?.enabled && completedProfileEntries.has(committedProfileEntryId)) {
+        const window = profileWindow(scheduleNowMs, config.station), end = Math.min(entry.endsAtMs, window.endsAtMs);
+        if (end - scheduleNowMs <= 80) {
+          await waitUntil(end + pastOffsetMs, () => stopping);
+          continue;
+        }
+        const asset = stationAssets(config).get(window.profile === 'ln' ? 'continuity' : 'day-continuity')!;
+        entry = { ...entry, id: `${entry.id}:completed-recovery`, mediaId: `station-${window.profile}`,
+          showId: `station-${window.profile}`, showTitle: config.station.profiles[window.profile].name,
+          episodeTitle: 'Eine kleine Pause', description: 'Das Programm geht gleich weiter.', startsAtMs: scheduleNowMs,
+          endsAtMs: end, durationMs: end - scheduleNowMs, mediaPath: asset.path, listingVisibility: 'hidden',
+          presentation: { profile: window.profile, kind: 'gap', loop: true } };
+      }
+      if (entry && config.station?.enabled) {
+        if (!mediaById.has(entry.mediaId)) {
+          const found = db.listMedia(false).find(m => m.id === entry!.mediaId); if (found) mediaById.set(found.id, found);
+        }
+        if (!channelEntryAllowed(entry, mediaById.get(entry.mediaId), config.station, scheduleNowMs) || !fs.existsSync(entry.mediaPath)) {
+          const window = profileWindow(scheduleNowMs, config.station), asset = stationAssets(config).get(window.profile === 'ln' ? 'continuity' : 'day-continuity')!;
+          const end = Math.min(entry.endsAtMs, window.endsAtMs);
+          entry = { ...entry, id: `${entry.id}:profile-fallback`, mediaId: `station-${window.profile}`, showId: `station-${window.profile}`,
+            showTitle: config.station.profiles[window.profile].name, episodeTitle: 'Eine kleine Pause', description: 'Das Programm geht gleich weiter.',
+            startsAtMs: scheduleNowMs, endsAtMs: end, durationMs: end - scheduleNowMs, mediaPath: asset.path, listingVisibility: 'hidden',
+            presentation: { profile: window.profile, kind: 'gap', loop: true } };
+        }
+      }
+      if (config.station?.enabled && cursor && cursor.startsAtMs > scheduleNowMs + 80) {
+        const profile = profileWindow(scheduleNowMs, config.station).profile;
+        const assets = stationAssets(config), asset = assets.get(profile === 'ln' ? 'continuity' : 'day-continuity')!;
+        entry = { ...cursor, id: `${cursor.id}:clock-recovery`, startsAtMs: scheduleNowMs, endsAtMs: cursor.startsAtMs,
+          durationMs: cursor.startsAtMs - scheduleNowMs, mediaPath: asset.path, listingVisibility: 'hidden',
+          presentation: { profile, kind: 'gap', loop: true } };
+        committedProfileEntryId = undefined;
+      }
       if (!entry) throw new Error(`Schedule does not cover ${new Date(scheduleNowMs).toISOString()}`);
       if (first && entry.startsAtMs > scheduleNowMs) await waitUntil(entry.startsAtMs + pastOffsetMs, () => stopping);
       if (stopping || Date.now() >= serviceDeadline) break;
       const actualStartMs = Date.now();
       const actualScheduleStartMs = scheduleTimeForBroadcast(actualStartMs, pastOffsetMs);
-      const seekMs = first ? Math.max(0, actualScheduleStartMs - entry.startsAtMs) : 0;
+      const seekMs = first || config.station?.enabled ? Math.max(0, actualScheduleStartMs - entry.startsAtMs) : 0;
       const coldStartResume = first && seekMs > 1000;
       const eventId = randomUUID();
       db.startPlayback({
@@ -573,11 +628,25 @@ export async function runBroadcast(db: LkpDatabase, config: AppConfig, options: 
       });
       log('info', 'Programme playout started', { scheduleEntryId: entry.id, title: `${entry.showTitle}: ${entry.episodeTitle}`, seekMs, coldStartResume });
       try {
-        const result = await transcodePlayout(entry, mediaById.get(entry.mediaId), seekMs, !first && seekMs < 1000, config, sinks, serviceDeadline, pastOffsetMs, (child) => { currentFfmpeg = child; }, encoderQueue, () => {
+        const deadline = config.station?.enabled ? Math.min(serviceDeadline, entry.endsAtMs + pastOffsetMs,
+          profileWindow(actualScheduleStartMs, config.station).endsAtMs + pastOffsetMs) : serviceDeadline;
+        const nextProgramme = () => {
           if (options.once) return undefined;
           const nextEntry = db.currentAt(entry.endsAtMs) ?? db.nextAfter(entry.endsAtMs);
           return nextEntry ? firstEncoderTarget(nextEntry, mediaById.get(nextEntry.mediaId), true) : undefined;
-        }, phase);
+        };
+        const result = await transcodePlayout(entry, mediaById.get(entry.mediaId), seekMs, !first && seekMs < 1000, config, sinks, deadline, pastOffsetMs, (child) => { currentFfmpeg = child; }, encoderQueue, nextProgramme, phase);
+        if (config.station?.enabled && !stopping && Date.now() < deadline - 80) {
+          // EOF recovery stays on this profile until its committed boundary.
+          // It never reopens a completed programme or carries night content into daytime.
+          const profile = profileWindow(scheduleTimeForBroadcast(Date.now(), pastOffsetMs), config.station).profile;
+          const assets = stationAssets(config), asset = assets.get(profile === 'ln' ? 'continuity' : 'day-continuity') ?? assets.get('ident')!;
+          const start = scheduleTimeForBroadcast(Date.now(), pastOffsetMs), duration = deadline - Date.now();
+          const filler: ScheduleEntry = { ...entry, id: `${entry.id}:recovery`, mediaId: `station-${profile}`, showId: `station-${profile}`,
+            startsAtMs: start, endsAtMs: start + duration, durationMs: duration, mediaPath: asset.path,
+            listingVisibility: 'hidden', presentation: { profile, kind: 'gap', loop: true } };
+          await transcodePlayout(filler, undefined, 0, false, config, sinks, deadline, pastOffsetMs, child => { currentFfmpeg = child; }, encoderQueue, nextProgramme, phase);
+        }
         if (outputFailure) throw outputFailure;
         const realEntryEndMs = entry.endsAtMs + pastOffsetMs;
         if (Date.now() >= serviceDeadline || stopping) {
@@ -587,12 +656,37 @@ export async function runBroadcast(db: LkpDatabase, config: AppConfig, options: 
         const earlyByMs = realEntryEndMs - result.endedAtMs;
         if (result.code !== 0 && earlyByMs > 1000) throw new Error(`FFmpeg exited ${Math.round(earlyByMs)} ms before boundary (code ${result.code})`);
         db.finishPlayback(eventId, 'completed');
+        if (config.station?.enabled && committedProfileEntryId) completedProfileEntries.add(committedProfileEntryId);
       } catch (error) {
         db.finishPlayback(eventId, 'failed', error instanceof Error ? error.message : String(error));
+        if (config.station?.enabled && committedProfileEntryId) completedProfileEntries.add(committedProfileEntryId);
         log('error', 'Programme playout failed; wall-clock schedule remains authoritative', { scheduleEntryId: entry.id, error: String(error) });
         if (stopping) break;
         if (outputFailure) throw outputFailure;
         phase.leadMs = entry.endsAtMs + pastOffsetMs - Date.now();
+        if (config.station?.enabled) {
+          const fallbackNowMs = scheduleTimeForBroadcast(Date.now(), pastOffsetMs);
+          const fallbackWindow = profileWindow(fallbackNowMs, config.station);
+          const fallbackProfile = fallbackWindow.profile;
+          const fallbackDeadline = Math.min(serviceDeadline, entry.endsAtMs + pastOffsetMs,
+            fallbackWindow.endsAtMs + pastOffsetMs);
+          if (fallbackDeadline > Date.now() + 80) {
+            const id = fallbackProfile === 'ln' ? 'continuity' : 'day-continuity';
+            const asset = stationAssets(config).get(id);
+            if (!asset) throw new Error(`Missing safe fallback asset: ${id}`);
+            const start = scheduleTimeForBroadcast(Date.now(), pastOffsetMs);
+            const end = scheduleTimeForBroadcast(fallbackDeadline, pastOffsetMs);
+            const filler: ScheduleEntry = { ...entry, id: `${entry.id}:failure-recovery`, mediaId: `station-${fallbackProfile}`,
+              showId: `station-${fallbackProfile}`, showTitle: config.station.profiles[fallbackProfile].name,
+              episodeTitle: 'Eine kleine Pause', description: 'Das Programm geht gleich weiter.', startsAtMs: start,
+              endsAtMs: end, durationMs: end - start, mediaPath: asset.path, listingVisibility: 'hidden',
+              presentation: { profile: fallbackProfile, kind: 'gap', loop: true } };
+            await transcodePlayout(filler, undefined, 0, false, config, sinks, fallbackDeadline, pastOffsetMs,
+              child => { currentFfmpeg = child; }, encoderQueue, () => undefined, phase);
+          } else if (fallbackDeadline > Date.now()) {
+            await waitUntil(fallbackDeadline, () => stopping);
+          }
+        }
       }
       cursor = db.currentAt(entry.endsAtMs) ?? db.nextAfter(entry.endsAtMs);
       if (!cursor && !options.once) throw new Error('Schedule has no next item');

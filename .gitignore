@@ -8,6 +8,7 @@ runtime/*.ts
 *.xlsx
 .env
 .DS_Store
+.codex-attachments/
 
 __pycache__/
 *.pyc

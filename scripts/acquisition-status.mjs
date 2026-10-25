@@ -22,8 +22,9 @@ async function collect() {
   // Resolve on each refresh so a deployed acquisition fix is reflected immediately.
   const release = fs.realpathSync(process.env.LKP_ACQUISITION_RELEASE ?? '/home/lundenburg/lkp-content/current');
   const load = name => import(pathToFileURL(path.join(release, `dist/src/${name}.js`)));
-  const [{ loadConfig }, { LkpDatabase }, { ContentAcquisition }, { AcquisitionStore }, { loadAcquisitionConfig, candidateScore }, { processAlive }, { usesStreamExtractor }] = await Promise.all([
+  const [{ loadConfig }, { LkpDatabase }, { ContentAcquisition }, { AcquisitionStore }, { loadAcquisitionConfig, candidateScore }, { processAlive }, { usesStreamExtractor }, { NachtStorage }] = await Promise.all([
     load('config'), load('database'), load('acquisition/service'), load('acquisition/store'), load('acquisition/model'), load('acquisition/io'), load('acquisition/adapters'),
+    fs.existsSync(path.join(release, 'dist/src/acquisition/nacht-storage.js')) ? load('acquisition/nacht-storage') : Promise.resolve({}),
   ]);
   const app = loadConfig(), config = loadAcquisitionConfig(app);
   const { rankPriority } = fs.existsSync(path.join(release, 'dist/src/acquisition/classification.js'))
@@ -42,6 +43,14 @@ async function collect() {
       store.state = key => states.get(key);
       catalogue.listMedia = enabled => enabled === false ? media : media.filter(m => m.enabled);
       const service = Object.assign(Object.create(ContentAcquisition.prototype), { app, config, db: catalogue, store, root: path.join(app.media.root, '.acquisition') });
+      if (NachtStorage) {
+        // Keep the report read-only: the normal constructor creates tables.
+        // Snapshot disk usage once rather than rescanning it for every candidate.
+        const storage = Object.assign(Object.create(NachtStorage.prototype), { app, store, subscriptions: config.subscriptions });
+        const snapshot = storage.report();
+        storage.report = () => snapshot;
+        service.nachtStorage = storage;
+      }
       const newBytes = service.newBytes();
       service.newBytes = () => newBytes;
       const usage = new Map(config.subscriptions.map(s => [s.id, service.usage(s.id)]));
@@ -60,6 +69,7 @@ async function collect() {
         for (const row of rows) {
           if (['manual', 'quarantine'].includes(row.state)) addReason(row.reason || row.state);
           if (!['discovered', 'deferred', 'processing', 'bounded'].includes(row.state) || row.id === activeId) continue;
+          if (s.profile === 'ln' && !row.metadata.broadcastPolicy) { addReason('Awaiting LN curation'); continue; }
           if (row.attempts >= 5 && !usesStreamExtractor(row.metadata)) { addReason('Retry limit reached; manual preparation required'); continue; }
           const reason = service.budget(row.metadata, s);
           if (reason) { if (!reason.startsWith('duplicate:')) addReason(reason); continue; }

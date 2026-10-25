@@ -13,7 +13,7 @@ export interface RotationClip {
 }
 export interface PublishedLibrary { version: 1; revision: string; clips: RotationClip[]; }
 const unit = (seed: string, id: string, purpose: string) => createHash('sha256').update(`${seed}\0${id}\0${purpose}`).digest().readUInt32BE(0) / 0x1_0000_0000;
-export const isProgramme = (e: ScheduleEntry) => e.showId !== intermissionShowId && e.showId !== 'lkp-weather';
+export const isProgramme = (e: ScheduleEntry) => e.showId !== intermissionShowId && e.showId !== 'lkp-weather' && (!e.presentation || e.presentation.kind === 'programme');
 
 export function readRotationLibrary(config: AppConfig): RotationClip[] {
   if (!config.intermissions?.enabled || !fs.existsSync(config.intermissions.manifest)) return [];
@@ -68,6 +68,7 @@ export function planIntermissions(entries: ScheduleEntry[], clips: RotationClip[
 }
 
 export function reconcileIntermissions(db: LkpDatabase, config: AppConfig, now = Date.now()): number {
+  if (config.station?.enabled) return 0; // Profile planning already accounts for fixed barriers.
   const clips=readRotationLibrary(config);
   if(!clips.length||!config.intermissions)return 0;
   return db.db.transaction(()=>{

@@ -25,12 +25,17 @@ import { admission, unsupportedEdition, candidateScore, logicalKeys, normalize }
 import { austrianDiscovery, ceskaTelevize, mediathek } from './sources.js';
 import { BroadcastGuard, Deferred, Quarantined, DownloadHttpError, download, execute, reserve, progressWatch, processAlive, sameSignature, signature } from './io.js';
 import { enrichEditorial, enrichSubtitles, germanDescription, credential } from './enrichment.js';
+import { classifyNachtPending, deterministicNacht } from './nacht-classification.js';
+import { NachtStorage } from './nacht-storage.js';
+import { validateMediaPolicy } from '../channels.js';
+import { nachtPolicy, type NachtClassification } from './nacht-classification.js';
 export class ContentAcquisition {
 
 
 
     readonly store:AcquisitionStore;
     readonly root:string;
+    readonly nachtStorage: NachtStorage;
     private guard:BroadcastGuard;
     private paidRequests=0;
     private batchDeadline=Infinity;
@@ -41,6 +46,11 @@ export class ContentAcquisition {
   };
     constructor(readonly app:AppConfig,readonly db:LkpDatabase,readonly config:AcquisitionConfig) {
     this.store=new AcquisitionStore(db);this.root=path.join(app.media.root,'.acquisition');
+    this.nachtStorage = new NachtStorage(app, this.store, config.subscriptions);
+    for (const s of config.subscriptions.filter(s => s.profile === 'ln' && s.source === 'youtube')) {
+      const pinned = this.store.state(`nacht-channel:${s.id}`);
+      if (pinned) { if (s.channelId && s.channelId !== pinned) throw new Error('LN channel pin mismatch'); s.channelId = pinned; }
+    }
     this.guard=new BroadcastGuard(app,db,config,Infinity);
   }
     private dirs():void {assertMediaStorage(this.app);for(const name of ['incoming','staging','quarantine'])fs.mkdirSync(path.join(this.root,name),{recursive:true});}
@@ -141,6 +151,9 @@ export class ContentAcquisition {
         let discovered = 0, errors = 0;
         for (const s of [...this.config.subscriptions].sort((a, b) => b.priority - a.priority)) {
             this.guard.check();
+            if (s.enabled === false) continue;
+            const previousScan = Number(this.store.state(`subscription-scan:${s.id}`) ?? 0);
+            if (s.scanSeconds && Date.now() - previousScan < s.scanSeconds * 1000) continue;
             if (s.source === 'existing')
                 continue;
             if (s.source === 'manual' && this.usage(s.id).episodes >= s.targetEpisodes)
@@ -154,8 +167,19 @@ export class ContentAcquisition {
                 const found = await (s.source === 'youtube'
                     ? discoverYoutube(s, this.config.discoveryLimit, downloader, execute, () => this.guard.check())
                     : s.source === 'mediathek' ? mediathek(s, this.config.discoveryLimit) : ceskaTelevize(s, this.config.discoveryLimit));
+                if (s.profile === 'ln' && s.channelId) this.store.set(`nacht-channel:${s.id}`, s.channelId);
+                let latestChosen = false;
                 for (const c of found) {
                     const id = this.store.remember(c);
+                    if (s.retention === 'latest-only') {
+                      const matches = deterministicNacht(c, s)?.eligible === true;
+                      if (!matches || latestChosen) {
+                        const existing = this.store.candidates().find(row => row.id === id);
+                        if (existing?.state !== 'imported') this.store.transition(id, matches ? 'superseded' : 'rejected', matches ? 'Historical bulletin; latest-only subscription' : 'Title does not match Břeclavská televize');
+                        continue;
+                      }
+                      latestChosen = true;
+                    }
                     discovered++;
                     if (!c.available && !s.editorialClassification && !this.duplicate(c))
                         this.store.manual(`candidate:${id}`, s.id, 'Discovered episode cannot be acquired automatically', id);
@@ -163,6 +187,7 @@ export class ContentAcquisition {
                 if (!found.length && this.usage(s.id).episodes < s.targetEpisodes)
                     this.store.manual(`show:${s.id}`, s.id, 'No currently discoverable approved episodes; monitoring remains active');
                 this.store.set(`discovery:${s.id}`, JSON.stringify({ at: Date.now(), candidates: found.length }));
+                this.store.set(`subscription-scan:${s.id}`, String(Date.now()));
             }
             catch {
                 errors++;
@@ -196,7 +221,17 @@ export class ContentAcquisition {
       const left=logicalKeys(c),right=logicalKeys(row.metadata);
       if(c.components.some(k=>right.includes(k))||row.metadata.components.some(k=>left.includes(k)))return 'Known compilation/episode overlap';
     }
-    return admission(c,s,this.usage(s.id),this.newBytes(),this.config);
+    const denied = admission(c,s,this.usage(s.id),this.newBytes(),this.config);
+    if (denied) return denied;
+    if (s.profile === 'ln') {
+      const report = this.nachtStorage.report();
+      const staged = path.join(this.root, 'staging', stableId(c.source, c.sourceId));
+      const already = fs.existsSync(staged) ? this.directoryBytes(staged) : 0;
+      const required = Math.max(0, c.size * 3 - already);
+      if (report.bytes + required > report.maxBytes) return 'LN storage budget reached';
+      if (report.freeBytes - required < report.reserveBytes) return 'LN reserved filesystem space budget reached';
+    }
+    return undefined;
   }
     private async downloadCandidate(c:Candidate,dir:string,s:Subscription):Promise<string> {
     this.store.set('active-download',JSON.stringify({id:stableId(c.source,c.sourceId),pid:process.pid}));
@@ -243,13 +278,17 @@ export class ContentAcquisition {
             const formats = (metadata.formats as Array<Record<string,unknown>>|undefined);
             if (!formats?.length || metadata.has_drm === true || formats.every(f => f.has_drm === true))
                 throw new Quarantined('No supported non-DRM media format; manual acquisition required');
-            if (c.source === 'youtube' && (metadata.channel_id !== s.channelId || (!s.editorialClassification && metadata.language && !/^en(?:-|$)/i.test(String(metadata.language)))))
+            if (c.source === 'youtube' && (metadata.channel_id !== s.channelId || metadata.id !== c.sourceId || (!s.editorialClassification && metadata.language && !(new RegExp(`^${s.language}(?:-|$)`, 'i')).test(String(metadata.language)))))
                 throw new Quarantined('Video does not match the approved English YouTube channel');
             if (c.source === 'youtube' && !acceptableAcquisitionHeight(metadata.height))
                 throw new Deferred('No source at or above the 480p acquisition minimum; retry scheduled');
             applyEpisodeIdentity(c, s, metadata);
             this.store.remember(c);
             const subtitles = (metadata.subtitles as Record<string,Array<{url?:string}>>|undefined);
+            if (s.profile === 'ln') c.subtitleSources = ['en', 'de', 'cs'].flatMap(language => {
+              const track = subtitles?.[language]?.find(t => t.url);
+              return track?.url ? [{ language, url: track.url }] : [];
+            });
             const subtitleLanguage = c.language === 'neutral' ? 'cs' : c.language;
             const caption = subtitles?.[subtitleLanguage]?.find(t => t.url);
             if (caption?.url) {
@@ -262,13 +301,14 @@ export class ContentAcquisition {
             if (!Number.isFinite(duration) || duration <= 0)
                 throw new Quarantined('Source duration is unknown');
             c.durationMs = duration;
-            c.size = s.editorialClassification ? youtubeEstimatedBytes(metadata, duration) : Math.ceil(duration / 1000 * 1_500_000);
+            c.size = s.editorialClassification || s.profile === 'ln' ? youtubeEstimatedBytes(metadata, duration) : Math.ceil(duration / 1000 * 1_500_000);
+            this.store.remember(c);
             const denied = this.budget(c, s);
             if (denied)
                 throw new Deferred(denied);
             reserve(this.root, c.size * 2, this.config.reserveBytes);
             const progress = progressWatch(() => fs.readdirSync(dir).filter(n => /\.(?:part|mp4|mkv|webm|mov|ytdl|ts)$/.test(n)).reduce((sum, n) => sum + signature(path.join(dir, n)).size, 0), this.config.downloadStallSeconds);
-            const watch = () => { progress(); this.guard.check(); reserve(this.root, Math.max(0, c.size), this.config.reserveBytes); const bytes = fs.readdirSync(dir).filter(n => fs.statSync(path.join(dir, n)).isFile()).reduce((a, n) => a + signature(path.join(dir, n)).size, 0); if (bytes > ceiling)
+            const watch = () => { progress(); this.guard.check(); if (s.profile === 'ln') this.nachtStorage.assertAdmission(this.config.downloadBytesPerSecond * 2); reserve(this.root, Math.max(0, c.size), this.config.reserveBytes); const bytes = fs.readdirSync(dir).filter(n => fs.statSync(path.join(dir, n)).isFile()).reduce((a, n) => a + signature(path.join(dir, n)).size, 0); if (bytes > ceiling)
                 throw new Quarantined('Downloader staging exceeds byte budget'); };
             try {
                 await execute(downloader, [...extractorArgs(c.source, this.app.projectRoot), '--ignore-config', '--no-playlist', '--no-geo-bypass', '--no-warnings', '--no-progress', '--socket-timeout', String(this.config.connectTimeoutSeconds), '--continue', '--retries', '2', '--fragment-retries', '2', '--concurrent-fragments', '1', '--limit-rate', String(this.config.downloadBytesPerSecond), ...(c.source === 'youtube' ? youtubeQualityArgs : ['-f', 'bv*[height>=480]+ba/b[height>=480]', '--format-sort-force', '-S', 'height,vcodec:h264']), '--merge-output-format', 'mkv', '-o', path.join(dir, 'source.%(ext)s'), mediaUrl], watch, 0);
@@ -321,6 +361,7 @@ export class ContentAcquisition {
         return complete;
     }
     canUseVpn(c:Candidate,status:number):boolean {
+    if (this.sub(c.showId)?.profile === 'ln') return false;
     const vpn=this.config.vpnFallback;
     if(status!==403||c.source!=='mediathek'||c.language!=='de'||/\bORF\b/i.test(c.broadcaster)||!vpn?.enabled)return false;
     try{return fs.statSync(vpn.helper).isFile()&&fs.statSync(vpn.tokenFile).isFile()&&(fs.statSync(vpn.tokenFile).mode&0o077)===0;}catch{return false;}
@@ -332,6 +373,7 @@ export class ContentAcquisition {
     const video=probe.streams.find(s=>s.codec_type==='video'&&!s.disposition?.attached_pic);
     if (!acceptableAcquisitionHeight(video?.height)) throw new Quarantined('Video resolution is below the 480p acquisition minimum or unknown');
     const needsAudio=!probe.streams.some(s=>s.codec_type==='audio');
+    if (s.profile === 'ln' && (needsAudio || !(Number(probe.format.duration) > 0))) throw new Quarantined('LN programme lacks valid audio or duration');
     let prepared=file;
     if(video?.codec_name!=='h264'||needsAudio) {
       // Both playout outputs need audio; neutral silent sources receive silence.
@@ -343,7 +385,7 @@ export class ContentAcquisition {
       const videoCodec=video?.codec_name==='h264'?['-c:v','copy']:['-c:v','libx264','-preset','slow','-crf','18','-threads','1'];
       const audioCodec=needsAudio?['-c:a','aac','-b:a','192k','-t',String(probe.format.duration)]:['-c:a','copy'];
       const progress=progressWatch(()=>fs.existsSync(prepared)?signature(prepared).size:0,this.config.downloadStallSeconds);
-      await execute('ffmpeg',['-nostdin','-v','error','-y','-threads','1','-i',file,...audioInput,'-map','0:v:0','-map',needsAudio?'1:a:0':'0:a?','-map','0:s?','-map_metadata','0','-map_chapters','0',...videoCodec,...audioCodec,'-c:s','copy',prepared],()=>{progress();this.guard.check(file);reserve(this.root,1024*1024,this.config.reserveBytes);if(fs.existsSync(prepared)&&signature(prepared).size>estimate)throw new Deferred('Conversion exceeds reserved output budget');},0);
+      await execute('ffmpeg',['-nostdin','-v','error','-y','-threads','1','-i',file,...audioInput,'-map','0:v:0','-map',needsAudio?'1:a:0':'0:a?','-map','0:s?','-map_metadata','0','-map_chapters','0',...videoCodec,...audioCodec,'-c:s','copy',prepared],()=>{progress();this.guard.check(file);if(s.profile==='ln')this.nachtStorage.assertAdmission(2*1024*1024);reserve(this.root,1024*1024,this.config.reserveBytes);if(fs.existsSync(prepared)&&signature(prepared).size>estimate)throw new Deferred('Conversion exceeds reserved output budget');},0);
       probe=await this.probe(prepared);
     }
     return {file:prepared,probe};
@@ -368,6 +410,7 @@ export class ContentAcquisition {
         const video = source ?? await this.downloadCandidate(c, dir, s);
         this.store.transition(row.id, 'processing');
         const prepared = await this.prepare(video, s, dir), ext = path.extname(prepared.file);
+        if (s.profile === 'ln' && Math.abs(Number(prepared.probe.format.duration) * 1000 - c.durationMs) > Math.max(2000, c.durationMs * .02)) throw new Quarantined('LN programme duration differs from the completed source metadata');
         const output = path.join(dir, `episode${ext}`);
         if (prepared.file !== output) {
             if (source && prepared.file === source) {
@@ -400,9 +443,10 @@ export class ContentAcquisition {
         if (source && sourceSignature && !sameSignature(sourceSignature, signature(source)))
             throw new Deferred('Incoming file changed during processing');
         const canonicalId = stableId('content', row.id), language = s.language === 'neutral' ? 'zxx' : s.language;
-        const description = await germanDescription(c, s, this.config, this.paidRequests++ < this.config.metadataRequestsPerRun, { database: this.db.db, projectRoot: this.app.projectRoot });
+        const description = s.profile === 'ln' && c.nachtClassification ? { text: c.nachtClassification.descriptionDe, provenance: { method: 'ln-classification', version: 'nacht-v1' } }
+          : await germanDescription(c, s, this.config, this.paidRequests++ < this.config.metadataRequestsPerRun, { database: this.db.db, projectRoot: this.app.projectRoot });
         const listing = normalizeCatalogueText({ showTitle: s.title, episodeTitle: c.classification?.title ?? c.title, description: description.text }, s.aliases);
-        const metadata = { id: canonicalId, title: listing.episodeTitle, description: listing.description, catalogue: { version: 1, originalTitle: c.originalTitle ?? c.title }, acquisition: { source: c.source, sourceId: c.sourceId, sourceUrl: c.sourceUrl, broadcaster: c.broadcaster, originalTitle: c.originalTitle ?? c.title, publishedAt: c.publishedAt, classification: c.classification, classificationVersion: c.classificationVersion, classificationModel: c.classificationModel }, ...(c.season !== undefined ? { season: c.season } : {}), ...(c.episode !== undefined ? { episode: c.episode } : {}) };
+        const metadata = { id: canonicalId, title: listing.episodeTitle, description: listing.description, catalogue: { version: 1, originalTitle: c.originalTitle ?? c.title }, acquisition: { profile: s.profile ?? 'lkp', channelId: c.channelId, nachtClassification: c.nachtClassification, source: c.source, sourceId: c.sourceId, sourceUrl: c.sourceUrl, broadcaster: c.broadcaster, originalTitle: c.originalTitle ?? c.title, publishedAt: c.publishedAt, classification: c.classification, classificationVersion: c.classificationVersion, classificationModel: c.classificationModel }, ...(c.season !== undefined ? { season: c.season } : {}), ...(c.episode !== undefined ? { episode: c.episode } : {}) };
         const manualMeta = source ? this.readManualMetadata(source) : {};
         fs.writeFileSync(path.join(dir, 'show.yaml'), stringify({ id: s.id, title: s.title, description: s.description, language, weight: this.db.listMedia(false).find(i => i.showId === s.id)?.weight ?? 1, enabled: true }));
         fs.writeFileSync(path.join(dir, 'episode.yaml'), stringify({ ...manualMeta, ...metadata }));
@@ -420,6 +464,7 @@ export class ContentAcquisition {
         if (!scanned)
             throw new Quarantined('Prepared media did not produce a catalogue item');
         const item = normalizeCatalogue([scanned], this.db.listMedia(false))[0]!;
+        if (s.profile === 'ln' && c.broadcastPolicy) item.broadcast = c.broadcastPolicy;
         item.audioLanguage = language;
         item.defaultLanguage = language;
         item.subtitles = await enrichSubtitles(item, c, this.config, () => this.guard.check(), this.subtitleBudget);
@@ -433,12 +478,12 @@ export class ContentAcquisition {
         const finalReason = this.budget(c, s);
         if (finalReason)
             throw new Deferred(finalReason);
-        item.technical = { ...item.technical, acquisition: { source: c.source, sourceId: c.sourceId, broadcaster: c.broadcaster, sourceUrl: c.sourceUrl, publishedAt: c.publishedAt, expiresAt: c.expiresAt, originalTitle: c.originalTitle ?? c.title, classification: c.classification, classificationVersion: c.classificationVersion, classificationModel: c.classificationModel, description: description.provenance, ...(source ? { originalFilename: path.basename(source) } : {}) } };
+        item.technical = { ...item.technical, acquisition: { profile: s.profile ?? 'lkp', channelId: c.channelId, nachtClassification: c.nachtClassification, source: c.source, sourceId: c.sourceId, broadcaster: c.broadcaster, sourceUrl: c.sourceUrl, acquiredAt: Date.now(), rightsStatus: 'unknown', technicalAvailability: 'validated-accessible', publishedAt: c.publishedAt, expiresAt: c.expiresAt, originalTitle: c.originalTitle ?? c.title, classification: c.classification, classificationVersion: c.classificationVersion, classificationModel: c.classificationModel, description: description.provenance, ...(source ? { originalFilename: path.basename(source) } : {}) } };
         const mapPath = (p:string) => p.startsWith(`${dir}${path.sep}`) ? path.join(finalDir, path.relative(dir, p)) : p;
         item.mediaPath = mapPath(item.mediaPath);
         item.subtitles = item.subtitles.map(t => t.path ? { ...t, path: mapPath(t.path) } : t);
         // Persist enriched markers in the immutable sidecar so a later ordinary scan retains them.
-        fs.writeFileSync(path.join(dir, 'episode.yaml'), stringify({ ...manualMeta, ...metadata, season: item.season, episode: item.episode, catalogue: item.technical.catalogue, externalIds: item.externalIds, markers: item.editorialMarkers, breakpoints: item.breakpoints, creditsPolicy: item.creditsPolicy }));
+        fs.writeFileSync(path.join(dir, 'episode.yaml'), stringify({ ...manualMeta, ...metadata, season: item.season, episode: item.episode, catalogue: item.technical.catalogue, externalIds: item.externalIds, markers: item.editorialMarkers, breakpoints: item.breakpoints, creditsPolicy: item.creditsPolicy, ...(item.broadcast ? { broadcast: item.broadcast } : {}) }));
         // Keep only the canonical movie, subtitles, provenance and sidecars.
         for (const name of fs.readdirSync(dir))
             if (/^source\.|^prepared\./.test(name))
@@ -485,6 +530,7 @@ export class ContentAcquisition {
             throw new Quarantined('Prepared asset changed before catalogue commit');
         this.db.db.transaction(() => {
             this.db.upsertMedia([manifest.item]);
+            this.nachtStorage.registerLatest(manifest.item, manifest.candidate);
             const tracked = this.tracked(manifest.item, 1);
             tracked.keys_json = JSON.stringify([...new Set([...JSON.parse(tracked.keys_json), ...logicalKeys(manifest.candidate)])]);
             this.store.file(tracked);
@@ -526,6 +572,13 @@ export class ContentAcquisition {
       ...(typeof season==='number'?{season}:{}),...(typeof episode==='number'?{episode}:{}),description:String(meta.sourceDescription??meta.description??''),descriptionLanguage:String(meta.descriptionLanguage??s.language),
       durationMs:Math.round(Number(probe.format.duration)*1000),size:signature(file).size,broadcaster:'manual',components:[],compilation:/compilation|XXL|best.of|sammlung/i.test(stem),format:'episode',available:true};
     if(!c.title.trim())throw new Quarantined('Episode identity is missing');
+    if (s.profile === 'ln' && (s.source === 'manual' || meta.broadcast)) {
+      const result: NachtClassification = { eligible: true, standalone: true, category: (s.category ?? 'movie') as NachtClassification['category'],
+        timeOfNight: 'any', intensity: 'moderate', topics: [], evergreen: true, series: null, episode: null, recommendedAge: 16, confidence: 1,
+        reason: 'Manually acquired programme with explicit LN show identity.', descriptionDe: String(meta.description ?? s.description) };
+      c.nachtClassification = result; c.broadcastPolicy = meta.broadcast ? validateMediaPolicy(meta.broadcast) : nachtPolicy(c, s, result);
+      if (c.broadcastPolicy.profiles.includes('lkp')) throw new Quarantined('LN incoming assets cannot grant children’s eligibility');
+    }
     const keys=logicalKeys(c),matches=this.store.candidates(['manual','discovered']).filter(r=>r.metadata.source!=='manual'&&logicalKeys(r.metadata).some(k=>keys.includes(k)));
     if(matches.length===1&&!c.description){c.description=matches[0]!.metadata.description;c.descriptionLanguage=matches[0]!.metadata.descriptionLanguage;}
     return c;
@@ -568,7 +621,7 @@ export class ContentAcquisition {
             const status = readPlayoutStatus(path.join(this.app.storage.runtimeDirectory, 'playout-status.json'));
             const protectedIds = [status?.current?.scheduleEntryId, status?.next?.scheduleEntryId].filter(Boolean);
             const weather = (this.db.db.prepare("SELECT MAX(ends_at_ms) end FROM schedule_entries WHERE show_id='lkp-weather' AND ends_at_ms>?").get(now) as {end:number|null});
-            let earliest = Math.max(now + this.config.scheduleGuardSeconds * 1000, weather.end ?? 0);
+            let earliest = Math.max(now + this.config.scheduleGuardSeconds * 1000, this.app.station?.enabled ? 0 : weather.end ?? 0);
             for (const id of protectedIds) {
                 const row = (this.db.db.prepare('SELECT ends_at_ms FROM schedule_entries WHERE id=?').get(id) as {ends_at_ms:number}|undefined);
                 if (row)
@@ -759,9 +812,11 @@ export class ContentAcquisition {
                 result.discovery = { cached: true };
             checkLease();
             result.classified = await classifyPending(this, { execute, request: fetchText, credential, extractorArgs });
+            result.nachtClassified = await classifyNachtPending({ app: this.app, store: this.store, subscriptions: this.config.subscriptions, check: () => this.guard.check(), deadline: this.batchDeadline });
             checkLease();
             if (options.discoverOnly)
                 return result;
+            result.nachtExpired = this.nachtStorage.expire();
             result.incoming = await this.incoming();
             checkLease();
             result.enriched = await this.enrichExisting();
@@ -779,9 +834,16 @@ export class ContentAcquisition {
                 if (attempts >= Math.max(0, this.config.jobsPerRun - Number(result.incoming ?? 0)))
                     break;
                 const s = this.sub(row.metadata.showId);
-                if (!s)
+                if (!s || s.enabled === false)
                     continue;
+                if (s.profile === 'ln' && !row.metadata.broadcastPolicy) continue;
                 if (s.editorialClassification && !row.metadata.classification) continue;
+                const firstReason = this.budget(row.metadata, s);
+                if (s.profile === 'ln' && (firstReason === 'LN storage budget reached' || firstReason === 'LN reserved filesystem space budget reached')) {
+                  const staged = this.directoryBytes(path.join(this.root, 'staging', row.id));
+                  try { await this.nachtStorage.makeRoom(Math.max(0, row.metadata.size * 3 - staged), () => this.regenerate()); }
+                  catch (error) { if (error instanceof Deferred) { this.store.transition(row.id, 'bounded', error.message, Date.now()+30*60_000); continue; } throw error; }
+                }
                 const reason = this.budget(row.metadata, s);
                 if (reason) {
                     if (reason.startsWith('duplicate:')) {
@@ -827,6 +889,7 @@ export class ContentAcquisition {
             }
             result.imported = imported;
             await this.regenerate();
+            result.nachtRetired = this.nachtStorage.cleanup();
             this.store.set('last-run-end', String(Date.now()));
             return result;
         }
@@ -858,7 +921,7 @@ export class ContentAcquisition {
     if(command==='pending-manual')return this.db.db.prepare("SELECT * FROM acquisition_manual WHERE state='pending' ORDER BY show_id,first_seen").all();
     if(command==='history')return this.db.db.prepare(`SELECT h.*,json_extract(c.metadata_json,'$.title') AS title,json_extract(c.metadata_json,'$.showId') AS show FROM acquisition_history h LEFT JOIN acquisition_candidates c ON c.id=h.item ORDER BY h.id DESC LIMIT 100`).all();
     if(command==='quarantine')return {candidates:this.store.candidates(['quarantine','manual']),existing:this.store.files().filter(f=>f.state==='quarantine'),directory:path.join(this.root,'quarantine'),files:this.quarantineReports()};
-    if(command==='storage')return {reserveBytes:this.config.reserveBytes,maxNewBytes:this.config.maxNewBytes,newBytes:this.newBytes(),shows:[...new Set([...this.config.subscriptions.map(s=>s.id),...this.store.files().map(f=>f.show_id)])].map(show=>({show,title:this.sub(show)?.title??show,...this.usage(show)})),staging:this.directoryBytes(path.join(this.root,'staging')),quarantine:this.directoryBytes(path.join(this.root,'quarantine'))};
+    if(command==='storage')return {...(this.app.station?{nacht:this.nachtStorage.report()}:{}),reserveBytes:this.config.reserveBytes,maxNewBytes:this.config.maxNewBytes,newBytes:this.newBytes(),shows:[...new Set([...this.config.subscriptions.map(s=>s.id),...this.store.files().map(f=>f.show_id)])].map(show=>({show,title:this.sub(show)?.title??show,...this.usage(show)})),staging:this.directoryBytes(path.join(this.root,'staging')),quarantine:this.directoryBytes(path.join(this.root,'quarantine'))};
     const currentDownloads=this.currentDownloads(),lease=this.db.db.prepare('SELECT owner,expires FROM acquisition_lock').get();
     return {activity:currentDownloads.length?'downloading':lease?'processing-or-discovering':'waiting',currentDownloads,lease,nextAutomaticRunAt:this.store.state('next-automatic-run'),spokenLanguageTargets:this.app.schedule.spokenLanguageTargets,inventoryComplete:this.store.state('inventory-complete')==='1',lastRunStart:this.store.state('last-run-start'),lastRunEnd:this.store.state('last-run-end'),scheduleDirty:this.store.state('schedule-dirty')==='1',files:this.store.files().length,
       candidateStates:this.db.db.prepare('SELECT state,count(*) count FROM acquisition_candidates GROUP BY state').all(),incoming:path.join(this.root,'incoming'),manualPending:(this.db.db.prepare("SELECT count(*) count FROM acquisition_manual WHERE state='pending'").get() as {count:number}).count,

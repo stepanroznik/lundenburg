@@ -3,6 +3,7 @@ import path from 'node:path';
 import Database from 'better-sqlite3';
 import type { AdAsset, MediaItem, PlaybackEvent, ScheduleEntry } from './types.js';
 import { normalizeCatalogue } from './catalogue.js';
+import { validateMediaPolicy } from './channels.js';
 
 type Db = InstanceType<typeof Database>;
 
@@ -120,6 +121,15 @@ export class LkpDatabase {
     this.ensureColumn('schedule_entries', 'listing_visibility', "TEXT NOT NULL DEFAULT 'public'");
     this.ensureColumn('schedule_entries', 'playout_plan_json', 'TEXT');
     this.ensureColumn('schedule_entries', 'epg_event_id', 'INTEGER');
+    this.ensureColumn('schedule_entries', 'presentation_json', 'TEXT');
+    this.ensureColumn('media_items', 'broadcast_policy_json', 'TEXT');
+    this.db.exec(`CREATE TABLE IF NOT EXISTS show_broadcast_policies (
+      show_id TEXT PRIMARY KEY, policy_json TEXT NOT NULL, updated_at_ms INTEGER NOT NULL);
+      CREATE TABLE IF NOT EXISTS media_rotation_history (
+      media_id TEXT PRIMARY KEY, played_count INTEGER NOT NULL DEFAULT 0, last_played_at_ms INTEGER NOT NULL);
+      CREATE TABLE IF NOT EXISTS playback_media (
+      playback_id TEXT PRIMARY KEY, media_id TEXT NOT NULL, profile TEXT, completed INTEGER NOT NULL DEFAULT 0);
+      INSERT OR IGNORE INTO schema_migrations(version,applied_at_ms) VALUES(4,${Date.now()});`);
     this.db.prepare('UPDATE schedule_entries SET epg_event_id=(sequence % 65535)+1 WHERE epg_event_id IS NULL').run();
     this.db.exec('CREATE INDEX IF NOT EXISTS schedule_epg_identity ON schedule_entries(epg_event_id, starts_at_ms)');
     this.db.prepare('INSERT OR IGNORE INTO schema_migrations(version, applied_at_ms) VALUES(2, ?)').run(Date.now());
@@ -180,6 +190,8 @@ export class LkpDatabase {
         enabled: row.enabled ? 1 : 0,
         scannedAtMs,
       });
+        if (row.broadcast) this.db.prepare('UPDATE media_items SET broadcast_policy_json=? WHERE id=?')
+          .run(JSON.stringify(validateMediaPolicy(row.broadcast)), row.id);
         upsertShow.run(row.showId, row.showTitle, row.showDescription, row.defaultLanguage ?? null, row.weight, row.enabled ? 1 : 0);
         upsertEpisode.run(row.id, row.showId, row.season ?? null, row.episode ?? null, row.episodeTitle, row.description, JSON.stringify(row.externalIds ?? {}));
         upsertAsset.run(row.id, row.id, row.mediaPath, path.basename(row.mediaPath), row.durationMs, JSON.stringify(row.technical), row.effectiveEditorialDurationMs ?? row.durationMs, row.creditsPolicy ?? 'full', row.ingestState ?? 'review', JSON.stringify(row.qcWarnings ?? []), row.enabled ? 1 : 0);
@@ -198,7 +210,7 @@ export class LkpDatabase {
   upsertMedia(items: MediaItem[]): void { this.replaceMedia(items, false); }
 
   listMedia(enabledOnly = true): MediaItem[] {
-    const rows = this.db.prepare(`SELECT * FROM media_items ${enabledOnly ? 'WHERE enabled=1' : ''} ORDER BY show_title, season, episode, episode_title`).all() as Array<Record<string, unknown>>;
+    const rows = this.db.prepare(`SELECT m.*, s.policy_json AS show_policy FROM media_items m LEFT JOIN show_broadcast_policies s ON s.show_id=m.show_id ${enabledOnly ? 'WHERE m.enabled=1' : ''} ORDER BY show_title, season, episode, episode_title`).all() as Array<Record<string, unknown>>;
     return rows.map((r) => ({
       id: String(r.id), showId: String(r.show_id), showTitle: String(r.show_title), showDescription: String(r.show_description),
       ...(r.default_language ? { defaultLanguage: String(r.default_language) } : {}), weight: Number(r.weight),
@@ -213,6 +225,7 @@ export class LkpDatabase {
       breakpoints: JSON.parse(String(r.breakpoints_json ?? '[]')),
       ingestState: String(r.ingest_state ?? 'review') as NonNullable<MediaItem['ingestState']>,
       qcWarnings: JSON.parse(String(r.qc_warnings_json ?? '[]')),
+      ...(r.broadcast_policy_json || r.show_policy ? { broadcast: validateMediaPolicy(JSON.parse(String(r.broadcast_policy_json ?? r.show_policy))) } : {}),
     }));
   }
 
@@ -249,6 +262,7 @@ export class LkpDatabase {
           subtitleLanguagesJson: JSON.stringify(row.subtitleLanguages), createdAtMs: Date.now(),
           listingVisibility: row.listingVisibility ?? 'public', playoutPlanJson: row.playoutPlan ? JSON.stringify(row.playoutPlan) : null,
         });
+        if (row.presentation) this.db.prepare('UPDATE schedule_entries SET presentation_json=? WHERE id=?').run(JSON.stringify(row.presentation), row.id);
       }
     })(entries);
   }
@@ -307,10 +321,19 @@ export class LkpDatabase {
       VALUES (@id,@scheduleEntryId,@plannedStartMs,@plannedEndMs,@actualStartMs,@actualEndMs,@initialSeekMs,@coldStartResume,@status,@error)`).run({
         ...event, actualEndMs: event.actualEndMs ?? null, coldStartResume: event.coldStartResume ? 1 : 0, error: event.error ?? null,
       });
+    const scheduled = this.db.prepare('SELECT media_id,presentation_json FROM schedule_entries WHERE id=?').get(event.scheduleEntryId) as { media_id: string; presentation_json: string | null } | undefined;
+    if (scheduled) this.db.prepare('INSERT OR IGNORE INTO playback_media(playback_id,media_id,profile) VALUES(?,?,?)')
+      .run(event.id, scheduled.media_id, scheduled.presentation_json ? JSON.parse(scheduled.presentation_json).profile : 'lkp');
   }
 
   finishPlayback(id: string, status: PlaybackEvent['status'], error?: string): void {
     this.db.prepare('UPDATE playback_log SET actual_end_ms=?, status=?, error=? WHERE id=?').run(Date.now(), status, error ?? null, id);
+    if (status === 'completed') this.db.transaction(() => {
+      const media = this.db.prepare('SELECT media_id FROM playback_media WHERE playback_id=? AND completed=0').get(id) as { media_id: string } | undefined;
+      if (!media) return;
+      this.db.prepare('INSERT INTO media_rotation_history VALUES(?,1,?) ON CONFLICT(media_id) DO UPDATE SET played_count=played_count+1,last_played_at_ms=excluded.last_played_at_ms').run(media.media_id, Date.now());
+      this.db.prepare('UPDATE playback_media SET completed=1 WHERE playback_id=?').run(id);
+    })();
   }
 
   listPlayback(fromMs: number, toMs: number): PlaybackEvent[] {
@@ -336,6 +359,7 @@ export class LkpDatabase {
       subtitleLanguages: JSON.parse(String(r.subtitle_languages_json)),
       listingVisibility: String(r.listing_visibility ?? 'public') as NonNullable<ScheduleEntry['listingVisibility']>,
       ...(r.playout_plan_json ? { playoutPlan: JSON.parse(String(r.playout_plan_json)) } : {}),
+      ...(r.presentation_json ? { presentation: JSON.parse(String(r.presentation_json)) } : {}),
     };
   }
 }

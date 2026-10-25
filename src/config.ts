@@ -4,6 +4,7 @@ import { fileURLToPath } from 'node:url';
 import { parse } from 'yaml';
 import type { AppConfig, OutputMode } from './types.js';
 import { defaultComingUpConfig, validateComingUpConfig } from './coming-up.js';
+import { loadStationConfig } from './channels.js';
 
 const sourceRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
@@ -100,6 +101,8 @@ export function loadConfig(explicitPath?: string): AppConfig {
       audioBitrate: stringValue(internet, 'audioBitrate'),
     },
   };
+  const station = loadStationConfig(projectRoot);
+  if (station) result.station = station;
   const comingUp = raw.comingUp === undefined ? {} : requiredObject(raw.comingUp, 'comingUp');
   if (comingUp.enabled !== undefined && typeof comingUp.enabled !== 'boolean') throw new Error('comingUp.enabled must be boolean');
   result.comingUp = {

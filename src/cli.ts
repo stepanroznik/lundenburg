@@ -2,6 +2,7 @@
 import path from 'node:path';
 import fs from 'node:fs';
 import { registerContent } from './acquisition/cli.js';
+import { registerChannels } from './channels-cli.js';
 import { Command, Option } from 'commander';
 import { DateTime } from 'luxon';
 import { loadConfig } from './config.js';
@@ -23,6 +24,7 @@ const program = new Command();
 program.name('lkp').description('Lundenburg Kids Premium channel control').version('1.0.0');
 program.option('-c, --config <file>', 'configuration YAML');
 registerContent(program);
+registerChannels(program);
 
 function context(): { config: ReturnType<typeof loadConfig>; db: LkpDatabase } {
   const config = loadConfig(program.opts<{ config?: string }>().config);

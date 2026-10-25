@@ -1,0 +1,328 @@
+enabled: true
+timezone: Europe/Prague
+hours:
+  weekdayStart: 20:00
+  weekendStart: 21:00
+  morningEnd: 06:00
+assetManifest: runtime/ln-brand/active.json
+newsOffsetMinutes: 8
+rotation: sequential
+storage:
+  maxBytes: 161061273600
+  reserveBytes: 85899345920
+  imminentMinutes: 30
+classifier:
+  provider: configured
+  model: auto-small
+  maxRequestsPerRun: 8
+  maxRequestsPerDay: 60
+  confidence: 0.8
+profiles:
+  lkp:
+    id: lkp
+    name: Lundenburg Kids Premium
+    abbreviation: LKP
+    logo: assets/logo/lkp-logo.svg
+    logoWidth: 120
+    animateProgrammeLogo: true
+    advertising: true
+    languages:
+      - de
+      - en
+      - cs
+      - zxx
+      - mul
+    categories:
+      - children
+      - education
+      - family
+      - animation
+  ln:
+    id: ln
+    name: Lundenburg Nacht
+    abbreviation: LN
+    logo: assets/logo/ln-logo.svg
+    logoWidth: 180
+    animateProgrammeLogo: false
+    advertising: false
+    languages:
+      - en
+      - de
+      - cs
+      - zxx
+      - mul
+    categories:
+      - science
+      - history
+      - society
+      - regional
+      - comedy
+      - calm
+      - news
+      - sitcom
+      - movie
+      - education
+      - family
+showPolicies:
+  bluey:
+    profiles:
+      - lkp
+    recommendedAge: 0
+    ratingSource: editorial
+    category: children
+    topics: []
+    intensity: calm
+    timeOfNight: any
+    retention: standard
+    priority: 50
+  bob-a-bobek:
+    profiles:
+      - lkp
+    recommendedAge: 0
+    ratingSource: editorial
+    category: children
+    topics: []
+    intensity: moderate
+    timeOfNight: any
+    retention: standard
+    priority: 50
+  bobo-siebenschlaefer:
+    profiles:
+      - lkp
+    recommendedAge: 0
+    ratingSource: editorial
+    category: children
+    topics: []
+    intensity: calm
+    timeOfNight: any
+    retention: standard
+    priority: 50
+  byl-jednou-jeden-zivot:
+    profiles:
+      - lkp
+      - ln
+    recommendedAge: 6
+    ratingSource: editorial
+    category: education
+    topics: []
+    intensity: moderate
+    timeOfNight: any
+    retention: standard
+    priority: 50
+  der-kleine-maulwurf:
+    profiles:
+      - lkp
+    recommendedAge: 0
+    ratingSource: editorial
+    category: children
+    topics: []
+    intensity: calm
+    timeOfNight: any
+    retention: standard
+    priority: 50
+  miss-josi:
+    profiles:
+      - lkp
+    recommendedAge: 0
+    ratingSource: editorial
+    category: children
+    topics: []
+    intensity: moderate
+    timeOfNight: any
+    retention: standard
+    priority: 50
+  ms-rachel:
+    profiles:
+      - lkp
+    recommendedAge: 0
+    ratingSource: editorial
+    category: children
+    topics: []
+    intensity: moderate
+    timeOfNight: any
+    retention: standard
+    priority: 50
+  rakosnicek:
+    profiles:
+      - lkp
+    recommendedAge: 0
+    ratingSource: editorial
+    category: children
+    topics: []
+    intensity: calm
+    timeOfNight: any
+    retention: standard
+    priority: 50
+  sendung-mit-dem-elefanten:
+    profiles:
+      - lkp
+    recommendedAge: 0
+    ratingSource: editorial
+    category: children
+    topics: []
+    intensity: moderate
+    timeOfNight: any
+    retention: standard
+    priority: 50
+  servus-kasperl:
+    profiles:
+      - lkp
+    recommendedAge: 0
+    ratingSource: editorial
+    category: children
+    topics: []
+    intensity: moderate
+    timeOfNight: any
+    retention: standard
+    priority: 50
+  sesamstrasse:
+    profiles:
+      - lkp
+    recommendedAge: 0
+    ratingSource: editorial
+    category: children
+    topics: []
+    intensity: moderate
+    timeOfNight: any
+    retention: standard
+    priority: 50
+  teletubbies:
+    profiles:
+      - lkp
+    recommendedAge: 0
+    ratingSource: editorial
+    category: children
+    topics: []
+    intensity: calm
+    timeOfNight: any
+    retention: standard
+    priority: 50
+  byl-jednou-jeden-clovek:
+    profiles:
+      - lkp
+      - ln
+    recommendedAge: 6
+    ratingSource: editorial
+    category: history
+    topics: []
+    intensity: moderate
+    timeOfNight: any
+    retention: standard
+    priority: 50
+  byl-jednou-jeden-vynalezce:
+    profiles:
+      - lkp
+      - ln
+    recommendedAge: 6
+    ratingSource: editorial
+    category: education
+    topics: []
+    intensity: moderate
+    timeOfNight: any
+    retention: standard
+    priority: 50
+  byl-jednou-jeden-objevitel:
+    profiles:
+      - lkp
+      - ln
+    recommendedAge: 6
+    ratingSource: editorial
+    category: education
+    topics: []
+    intensity: moderate
+    timeOfNight: any
+    retention: standard
+    priority: 50
+  byl-jednou-jeden-vesmir:
+    profiles:
+      - lkp
+      - ln
+    recommendedAge: 6
+    ratingSource: editorial
+    category: science
+    topics: []
+    intensity: moderate
+    timeOfNight: any
+    retention: standard
+    priority: 50
+  byl-jednou-jeden-nase-zeme:
+    profiles:
+      - lkp
+      - ln
+    recommendedAge: 6
+    ratingSource: editorial
+    category: education
+    topics: []
+    intensity: moderate
+    timeOfNight: any
+    retention: standard
+    priority: 50
+  byl-jednou-jeden-amerika:
+    profiles:
+      - lkp
+      - ln
+    recommendedAge: 6
+    ratingSource: editorial
+    category: history
+    topics: []
+    intensity: moderate
+    timeOfNight: any
+    retention: standard
+    priority: 50
+  the-man-from-earth:
+    profiles:
+      - ln
+    recommendedAge: 12
+    ratingSource: editorial
+    category: movie
+    topics: []
+    intensity: calm
+    timeOfNight: any
+    retention: standard
+    priority: 50
+  tolle-tiere:
+    profiles:
+      - lkp
+    recommendedAge: 0
+    ratingSource: editorial
+    category: children
+    topics: []
+    intensity: calm
+    timeOfNight: any
+    retention: standard
+    priority: 50
+  tom-und-jerry:
+    profiles:
+      - lkp
+    recommendedAge: 6
+    ratingSource: editorial
+    category: animation
+    topics: []
+    intensity: high
+    timeOfNight: any
+    retention: standard
+    priority: 50
+  unser-sandmaennchen:
+    profiles:
+      - lkp
+    recommendedAge: 0
+    ratingSource: editorial
+    category: children
+    topics: []
+    intensity: calm
+    timeOfNight: any
+    retention: standard
+    priority: 50
+  wreck-it-ralph:
+    profiles:
+      - lkp
+      - ln
+    recommendedAge: 6
+    ratingSource: editorial
+    category: family
+    topics: []
+    intensity: high
+    timeOfNight: any
+    retention: standard
+    priority: 50
+activateAtMs: 1792370515411

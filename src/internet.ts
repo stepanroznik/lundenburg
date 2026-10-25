@@ -6,6 +6,7 @@ import { timingSafeEqual } from 'node:crypto';
 import Database from 'better-sqlite3';
 import { readPlayoutStatus } from './playout-status.js';
 import { loadConfig } from './config.js';
+import { createPlaybackHealthHandler } from './internet-health.js';
 import { serveHlsFile } from './internet-hls.js';
 import { createCastHandler } from './internet-cast.js';
 import { castPlayerJs } from './internet-cast-player.js';
@@ -53,11 +54,13 @@ const queryPlans = database.prepare(`SELECT id,media_id mediaId,show_title showT
   FROM schedule_entries WHERE starts_at_ms>=? AND playout_plan_json IS NOT NULL ORDER BY starts_at_ms LIMIT 20`);
 const hlsPattern = /^\/(hls)\/((?:master|stream)\.m3u8|segment-\d+\.ts)$/;
 
+const handleHealth = createPlaybackHealthHandler({ authorized, security });
 const handleCast = createCastHandler({ hlsDirectory: config.internet.hlsDirectory, authorized, security });
 const server = http.createServer((request, response) => {
   let url: URL;
   try { url = new URL(request.url ?? '/', 'http://localhost'); }
   catch { return send(response, 400, 'text/plain; charset=utf-8', 'Invalid URL'); }
+  if (handleHealth(request, response, url)) return;
   if (handleCast(request, response, url)) return;
   if (!authorized(request)) { security(response); response.writeHead(401, { 'WWW-Authenticate': 'Basic realm="LKP Live", charset="UTF-8"', 'Cache-Control': 'no-store' }); response.end('Authentication required'); return; }
   if (url.pathname === '/') return send(response, 200, 'text/html; charset=utf-8', player);

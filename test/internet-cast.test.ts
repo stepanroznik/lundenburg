@@ -95,6 +95,7 @@ function browser() {
     if (!elements.has(id)) elements.set(id, { hidden: true, textContent: '', listeners: new Map(), addEventListener(type: string, fn: Function) { this.listeners.set(type, fn); } });
     return elements.get(id);
   };
+  const reports: any[] = [];
   const events: any[] = [], listeners = new Map<string, Function>();
   const remoteListeners = new Map<string, Function>();
   let remote: any;
@@ -106,7 +107,7 @@ function browser() {
     endCurrentSession: () => { session = undefined; listeners.get('session')!({ sessionState: 'ended' }); },
   };
   const context: any = {
-    URL, location: { origin: 'https://stream.example.test' },
+    lkpReportPlayback: (sample: any) => reports.push(sample), URL, location: { origin: 'https://stream.example.test' },
     document: { getElementById: element },
     CustomEvent: class { constructor(public type: string, public detail: any) { Object.assign(this, detail); } },
     dispatchEvent: (event: any) => events.push(event),
@@ -121,12 +122,12 @@ function browser() {
       CastContextEventType: { SESSION_STATE_CHANGED: 'session', CAST_STATE_CHANGED: 'state' },
       SessionState: { SESSION_STARTED: 'started', SESSION_RESUMED: 'resumed', SESSION_ENDED: 'ended', SESSION_START_FAILED: 'failed' },
       RemotePlayer: class { isMediaLoaded = true; constructor() { remote = this; } }, RemotePlayerController: class { addEventListener(name: string, fn: Function) { remoteListeners.set(name, fn); } playOrPause() {} },
-      RemotePlayerEventType: { IS_PAUSED_CHANGED: 'paused', IS_MEDIA_LOADED_CHANGED: 'loaded' },
+      RemotePlayerEventType: { IS_PAUSED_CHANGED: 'paused', IS_MEDIA_LOADED_CHANGED: 'loaded', PLAYER_STATE_CHANGED: 'playerState' },
     } },
   };
   context.window = context;
   vm.runInNewContext(castPlayerJs, context);
-  return { context, events, element, mediaLoaded(value: boolean) { remote.isMediaLoaded = value; remoteListeners.get('loaded')!(); }, get request() { return loadRequest; }, get fetches() { return fetchCount; },
+  return { context, events, element, reports, receiverState(value: string) { remote.playerState = value; remoteListeners.get('playerState')!(); }, mediaLoaded(value: boolean) { remote.isMediaLoaded = value; remoteListeners.get('loaded')!(); }, get request() { return loadRequest; }, get fetches() { return fetchCount; },
     get pickerCalls() { return pickerCalls; }, set pickerError(value: unknown) { pickerError = value; },
     async connect(resumed = false, failure = false) {
       fail = failure;
@@ -259,4 +260,14 @@ test('casting destroys MSE and blocks local play attempts until disconnect', () 
   assert.equal(instances, 1); assert.equal(loads, 1);
   listeners.get('lkp-cast-state')!({ detail: { active: false } });
   assert.equal(instances, 2); assert.equal(video.controls, true);
+});
+
+test('receiver state diagnostics observe buffering and recovery without seeking or reloading', async () => {
+  const b = browser(); b.context.__onGCastApiAvailable(true); await b.connect(true);
+  const fetches = b.fetches;
+  b.receiverState('BUFFERING'); b.receiverState('PLAYING'); b.receiverState('PAUSED');
+  assert.deepEqual(b.reports.slice(-3).map(sample => sample.event), ['buffering', 'playing', 'paused']);
+  assert.equal(b.fetches, fetches);
+  assert.ok(b.events.every(event => event.detail.active));
+  assert.ok(!JSON.stringify(b.reports).includes('/cast/'));
 });

@@ -14,6 +14,14 @@ Jerry are index-only. Existing unapproved programmes are retained, not acquired.
 The explicit Czech Life series exception remains enabled. There are no generic
 Večerníček, historical Sesamstraße, daily Sandmännchen or commercial mirrors.
 
+## Lundenburg Nacht acquisition
+
+The shared worker also loads `config/nacht-acquisition.yaml` and the station
+policy in `config/channels.yaml`. LN has separate curation, classification,
+retention and storage limits. See [NACHT.md](NACHT.md) for subscriptions,
+review commands, protected assets and quota behavior. The daytime acquisition
+policy below continues to apply to the children's library.
+
 ## Deployment and first run
 
 From this checkout, with the repository's Node version on PATH:
@@ -297,7 +305,9 @@ season/episode metadata retain source/sidecar subtitle handling. API requests ti
 out after five seconds. Local counters persist across runs and cap searches at
 200 and downloads at 40 per UTC day, below the published free allowances.
 OpenSubtitles remains optional and disabled by default. No fuzzy title result is
-attached. Existing text-to-DVB subtitle limitations remain unchanged.
+attached. Acquired text tracks require offline `npm run subtitles:prepare`
+before DVB playout; see the [DVB subtitle workflow](README.md#important-dvb-subtitle-boundary).
+Internet HLS currently carries video/audio only.
 
 Create a free SubDL account and API key at <https://subdl.com/panel/api>. On the Pi,
 edit `/home/lundenburg/lundenburg/runtime/weather/credentials.env`, preserving
