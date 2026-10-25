@@ -311,6 +311,8 @@ export async function exportWeeklyGuide(output: string, entries: ScheduleEntry[]
     if (!fit.kids || !fit.night || fit.featuresOverflow) throw new Error(`This week is too dense for a legible one-page guide (${JSON.stringify(fit)}); no PDF was replaced`);
     const pdf = await page._client().send('Page.printToPDF', { printBackground: true, preferCSSPageSize: true,
       paperWidth: 297 / 25.4, paperHeight: 420 / 25.4, marginTop: 0, marginBottom: 0, marginLeft: 0, marginRight: 0 });
+    // Chromium on the Pi needs a repaint after returning from print layout.
+    await page.evaluate(() => new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))));
     const screenshot = await page._client().send('Page.captureScreenshot', { format: 'png', captureBeyondViewport: true });
     fs.writeFileSync(path.join(work, 'guide.pdf'), Buffer.from(pdf.value.data, 'base64'));
     fs.writeFileSync(path.join(work, 'guide.png'), Buffer.from(screenshot.value.data, 'base64'));
