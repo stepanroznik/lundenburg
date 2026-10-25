@@ -10,6 +10,7 @@ import type { AdAsset } from './types.js';
 import { programmeEligible, programmeOrder } from './acquisition/programming.js';
 import { isCatalogueMovie } from './catalogue.js';
 import { stableId } from './util.js';
+import { adAvailableAt } from './advertising/availability.js';
 
 export interface ChildrenFillers { clips: RotationClip[]; ads: AdAsset[]; bumpers: AdBumper[] }
 interface Source { media: MediaItem; fromMs: number; toMs: number; part?: number; parts?: number }
@@ -99,13 +100,13 @@ export function buildChildrenSchedule(catalogue: MediaItem[], seed: string, star
     if(!config.advertising?.enabled || !config.station?.profiles.lkp.advertising) return false;
     const bumper=fillers?.bumpers.filter(b=>fs.existsSync(b.mediaPath)).sort((a,b)=>a.mediaPath.localeCompare(b.mediaPath))[0];
     if(!bumper) return false;
-    const available=(fillers?.ads ?? []).filter(ad=>ad.enabled && /^(?:all(?:-ages)?|children|family|0\+?)$/i.test(ad.ageSuitability ?? '') && fs.existsSync(ad.mediaPath) && (fillerLastUse.get(`ad-${ad.id}`) ?? 0)<=cursor-10*60_000 && ad.durationMs+bumper.durationMs<=until-cursor+(hard?0:toleranceMs));
+    const available=(fillers?.ads ?? []).filter(ad=>ad.enabled && adAvailableAt(ad,cursor+bumper.durationMs) && /^(?:all(?:-ages)?|children|family|0\+?)$/i.test(ad.ageSuitability ?? '') && fs.existsSync(ad.mediaPath) && (fillerLastUse.get(`ad-${ad.id}`) ?? 0)<=cursor-10*60_000 && ad.durationMs+bumper.durationMs<=until-cursor+(hard?0:toleranceMs));
     available.sort((a,b)=>Math.abs(until-cursor-a.durationMs-bumper.durationMs)-Math.abs(until-cursor-b.durationMs-bumper.durationMs) || a.id.localeCompare(b.id));
     const ad=available[0];if(!ad)return false;
     const durationMs=ad.durationMs+bumper.durationMs,id=stableId(seed,'ad-filler',ad.id,cursor);
     push({id,sequence,mediaId:`ad-${ad.id}`,showId:'lkp-advertising',showTitle:'Werbung',episodeTitle:ad.title,description:ad.title,
       startsAtMs:cursor,endsAtMs:cursor+durationMs,durationMs,mediaPath:bumper.mediaPath,audioLanguage:ad.language,subtitleLanguages:[],listingVisibility:'hidden',presentation:{profile:'lkp',kind:'programme'},
-      playoutPlan:{version:1,programmeEventId:id,sourceDurationMs:durationMs,durationMs,segments:[{type:'ad-ident',mediaPath:bumper.mediaPath,durationMs:bumper.durationMs,character:bumper.character},{type:'ad',mediaPath:ad.mediaPath,durationMs:ad.durationMs,adId:ad.id}],warnings:[],assembly:{slot,premiereDate:date,sources:[]}}});return true;
+      playoutPlan:{version:1,programmeEventId:id,sourceDurationMs:durationMs,durationMs,segments:[{type:'ad-ident',mediaPath:bumper.mediaPath,durationMs:bumper.durationMs,character:bumper.character},{type:'ad',mediaPath:ad.mediaPath,durationMs:ad.durationMs,adId:ad.id,tags:[...ad.tags]}],warnings:[],assembly:{slot,premiereDate:date,sources:[]}}});return true;
   };
   const make = (showId: string | undefined, until: number, slot: string, premiereDate: string): boolean => {
     const budget = until-cursor;

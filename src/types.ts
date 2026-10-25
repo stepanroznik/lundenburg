@@ -83,7 +83,7 @@ export interface AdAsset {
 export type PlayoutSegment =
   | { type: 'content' | 'credits'; mediaId?: string; subtitles?: SubtitleTrack[]; mediaPath: string; fromMs: number; toMs: number; durationMs: number }
   | { type: 'ad-ident'; mediaPath: string; durationMs: number; character: 'knurpsi' | 'sisi' | 'schalinka' | 'haluschka' }
-  | { type: 'ad'; mediaPath: string; durationMs: number; adId: string }
+  | { type: 'ad'; mediaPath: string; durationMs: number; adId: string; tags?: string[] }
   | { type: 'intermission'; mediaPath: string; durationMs: number; intermissionId: string };
 
 export interface PlayoutPlan {

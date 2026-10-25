@@ -225,6 +225,21 @@ test('approved ad fillers include WERBUNG and never admit unknown-age ads',()=>{
   }finally{f.close();}
 });
 
+test('Christmas ad fillers are admitted only on December 1–25 and retain the calendar restriction',()=>{
+  const f=fixture();try{
+    f.app.advertising={enabled:true,root:f.root,programmeInterval:2,minEditorialMinutes:16,targetSeconds:{min:30,max:60},searchWindowMinutes:2,minimumBreakpointScore:50,bumperManifest:path.join(f.root,'bumpers.json')};
+    const media=f.media.filter(m=>m.showId==='bluey');
+    const ad={id:'christmas',title:'Christmas family ad',sourceUrl:'https://example.test/ad',language:'de',durationMs:25_000,mediaPath:media[0]!.mediaPath,enabled:true,tags:['christmas'],ageSuitability:'all-ages',sourceMetadata:{}};
+    const fillers={ads:[ad],clips:JSON.parse(fs.readFileSync(f.app.intermissions!.manifest,'utf8')).clips,bumpers:[{character:'sisi' as const,mediaPath:media[0]!.mediaPath,durationMs:5000}]};
+    for(const [date,expected] of [['2026-11-30',false],['2026-12-01',true],['2026-12-25',true],['2026-12-26',false]] as const) {
+      const rows=buildChildrenSchedule(media,'ads',ms(`${date}T09:30`),ms(`${date}T10:00`),0,[],f.app,fillers);
+      const spots=rows.flatMap(e=>e.playoutPlan?.segments ?? []).filter(s=>s.type==='ad');
+      assert.equal(spots.length>0,expected,date);
+      for(const spot of spots) assert.deepEqual(spot.tags,['christmas']);
+    }
+  }finally{f.close();}
+});
+
 test('a pre-upgrade acquisition compiler cannot overwrite the active age-aware schedule',()=>{
   const f=fixture();try{
     const from=ms('2026-10-26T06:00'),end=ms('2026-10-28T06:00');

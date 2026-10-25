@@ -114,6 +114,11 @@ using a one-file size estimate. Recover completed streams locally after interrup
 
 ## Work economically
 
+Advertisements tagged `christmas` may run only on December 1–25 inclusive each
+year in Europe/Prague. Preserve the tag in saved ad segments and enforce the
+whole-spot window in both scheduling paths and at playout, including midnight
+crossings. Do not use the broader winter season for Christmas-only spots.
+
 Lock scripts and pronunciation before paid TTS. Reuse cached speech and alignment whenever the full cache identity matches. Render stills or contact sheets first, then short previews, then masters. Write masters atomically so a failed render cannot overwrite the last good file.
 
 When the user requests background rendering, detach it with a persistent log and PID or job identifier. Report the tracking location. Chat-sized preview copies must remain separate from broadcast masters.

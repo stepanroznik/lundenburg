@@ -11,6 +11,7 @@ import { refreshChildrenAge } from './children-settings.js';
 import { ensureSchedule } from './schedule.js';
 import { prepareLogo, type PreparedLogo } from './logo.js';
 import { channelEntryAllowed, loadStationConfig, profileConfig, profileWindow } from './channels.js';
+import { adAvailableAt } from './advertising/availability.js';
 import { stationAssets } from './channel-schedule.js';
 import { locatePlayoutPosition } from './editorial.js';
 import { TransportPacer } from './transport.js';
@@ -383,6 +384,11 @@ async function transcodePlayout(
     const segment = plan.segments[index]!;
     const segmentEndMs = entry.startsAtMs + cumulativeMs + segment.durationMs;
     const segmentElapsedMs = index === position.segmentIndex ? position.offsetMs : 0;
+    if (segment.type === 'ad' && !adAvailableAt({ ...segment, durationMs: segment.durationMs - segmentElapsedMs }, Date.now())) {
+      log('warn', 'Seasonal advertisement omitted outside its permitted dates', { adId: segment.adId });
+      cumulativeMs += segment.durationMs;
+      continue;
+    }
     const internal = segment.type !== 'content' && segment.type !== 'credits';
     const target: EncoderTarget = {
       entry: { ...baseEntry, id: `${entry.id}:${index}`, startsAtMs: Date.now() - pastOffsetMs,

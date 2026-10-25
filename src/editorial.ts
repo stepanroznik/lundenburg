@@ -5,6 +5,7 @@ import type {
 } from './types.js';
 import type { RotationClip } from './intermissions/rotation.js';
 import { seasonAt } from './intermissions/season.js';
+import { adAvailableAt } from './advertising/availability.js';
 
 export interface BreakSignal {
   atMs: number;
@@ -144,13 +145,13 @@ export function deterministicCharacter(eventId: string, breakIndex: number, seed
   return characters[Math.floor(unit(seed, eventId, breakIndex, 'character') * characters.length)]!;
 }
 
-export function chooseAds(ads: AdAsset[], eventId: string, breakIndex: number, seed: string, previousAdId?: string, maxSeconds = 60): AdAsset[] {
-  let choices = ads.filter((ad) => ad.enabled).sort((a, b) => a.id.localeCompare(b.id));
+export function chooseAds(ads: AdAsset[], eventId: string, breakIndex: number, seed: string, previousAdId?: string, maxSeconds = 60, atMs = Date.now()): AdAsset[] {
+  let choices = ads.filter((ad) => ad.enabled && adAvailableAt(ad, atMs)).sort((a, b) => a.id.localeCompare(b.id));
   if (choices.length > 1 && previousAdId) choices = choices.filter((ad) => ad.id !== previousAdId);
   if (!choices.length) return [];
   const first = choices[Math.floor(unit(seed, eventId, breakIndex, 'ad-0') * choices.length)]!;
   const selected = [first];
-  const secondChoices = choices.filter((ad) => ad.id !== first.id && first.durationMs + ad.durationMs <= maxSeconds * 1000);
+  const secondChoices = choices.filter((ad) => ad.id !== first.id && first.durationMs + ad.durationMs <= maxSeconds * 1000 && adAvailableAt(ad, atMs + first.durationMs));
   if (first.durationMs < 30_000 && secondChoices.length) selected.push(secondChoices[Math.floor(unit(seed, eventId, breakIndex, 'ad-1') * secondChoices.length)]!);
   return selected;
 }
@@ -195,12 +196,13 @@ export function buildPlayoutPlan(input: {
     let cursor = range.fromMs;
     for (const point of inside) {
       result.push(segment(range, media.mediaPath, cursor, point.atMs));
-      const ads = chooseAds(input.ads ?? [], eventId, breakIndex, seed, previousAdId, advertising?.targetSeconds.max);
       const character = deterministicCharacter(eventId, breakIndex, seed);
       const bumper = input.bumpers?.find((candidate) => candidate.character === character);
+      const adStartMs = eventStartMs + result.reduce((sum, part) => sum + part.durationMs, 0) + (bumper?.durationMs ?? 0);
+      const ads = chooseAds(input.ads ?? [], eventId, breakIndex, seed, previousAdId, advertising?.targetSeconds.max, adStartMs);
       if (ads.length && bumper) {
         result.push({ type: 'ad-ident', mediaPath: bumper.mediaPath, durationMs: bumper.durationMs, character });
-        for (const ad of ads) result.push({ type: 'ad', mediaPath: ad.mediaPath, durationMs: ad.durationMs, adId: ad.id });
+        for (const ad of ads) result.push({ type: 'ad', mediaPath: ad.mediaPath, durationMs: ad.durationMs, adId: ad.id, tags: [...ad.tags] });
         previousAdId = ads.at(-1)?.id;
         const intermission = chooseIntermission(input.intermissions ?? [], eventId, breakIndex, seed, eventStartMs + point.atMs);
         if (intermission) result.push({ type: 'intermission', mediaPath: intermission.mediaPath, durationMs: intermission.durationMs, intermissionId: intermission.id });
