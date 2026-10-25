@@ -81,12 +81,13 @@ export interface AdAsset {
 }
 
 export type PlayoutSegment =
-  | { type: 'content' | 'credits'; mediaPath: string; fromMs: number; toMs: number; durationMs: number }
+  | { type: 'content' | 'credits'; mediaId?: string; subtitles?: SubtitleTrack[]; mediaPath: string; fromMs: number; toMs: number; durationMs: number }
   | { type: 'ad-ident'; mediaPath: string; durationMs: number; character: 'knurpsi' | 'sisi' | 'schalinka' | 'haluschka' }
   | { type: 'ad'; mediaPath: string; durationMs: number; adId: string }
   | { type: 'intermission'; mediaPath: string; durationMs: number; intermissionId: string };
 
 export interface PlayoutPlan {
+  assembly?: { slot: string; premiereDate: string; rerunOf?: string; sources: Array<{ mediaId: string; fromMs: number; toMs: number; part?: number; parts?: number }> };
   version: 1;
   programmeEventId: string;
   sourceDurationMs: number;
@@ -148,6 +149,7 @@ export interface AdvertisingConfig {
 }
 
 export interface AppConfig {
+  children?: import('./children-policy.js').ChildrenConfig;
   station?: StationConfig;
   comingUp?: ComingUpConfig;
   intermissions?: IntermissionConfig;

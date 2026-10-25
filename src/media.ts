@@ -7,9 +7,11 @@ import { normalizeLanguage, stableId } from './util.js';
 import { assertMediaStorage } from './media-storage.js';
 import { editorialEnd, scoreBreakSignal } from './editorial.js';
 import { normalizeCatalogueText, isCatalogueMovie } from './catalogue.js';
+import { validateChildrenPolicy, childrenPolicy } from './children-policy.js';
 import { validateMediaPolicy } from './channels.js';
 
 interface ShowMetadata {
+  children?: unknown;
   broadcast?: unknown;
   kind?: 'series' | 'movie';
   id?: string;
@@ -24,6 +26,7 @@ interface ShowMetadata {
 }
 
 interface EpisodeMetadata {
+  children?: unknown;
   broadcast?: unknown;
   catalogue?: Record<string, unknown>;
   acquisition?: Record<string, unknown>;
@@ -295,6 +298,12 @@ export async function scanMedia(config: AppConfig, onProgress?: (message: string
     };
     if (!item.showId || !item.showTitle || !item.episodeTitle) throw new Error(`Incomplete metadata for ${mediaPath}`);
     if (!Number.isFinite(item.weight) || item.weight <= 0) throw new Error(`Show weight must be positive for ${mediaPath}`);
+    const override = episodeMeta.children ?? show.children;
+    if (override) item.technical.childrenPolicy = validateChildrenPolicy({ ...(config.children ? childrenPolicy(item,config.children) : {}), ...(show.children as object ?? {}), ...(episodeMeta.children as object ?? {}) });
+    else if (config.children) {
+      const policy = childrenPolicy(item,config.children);
+      if (policy) item.technical.childrenPolicy = policy;
+    }
     const normalized = normalizeCatalogueText(item);
     if (isCatalogueMovie(normalized)) {
       delete normalized.season;

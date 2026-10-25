@@ -1,3 +1,4 @@
+import { ageEligible, type ChildrenConfig } from './children-policy.js';
 import fs from 'node:fs';
 import path from 'node:path';
 import { parse } from 'yaml';
@@ -74,8 +75,20 @@ export function eligibleFor(item: MediaItem, profile: ProfileId, station?: Stati
 }
 
 /** Independent runtime guard, including stale/corrupted persisted schedules. */
-export function channelEntryAllowed(entry: ScheduleEntry, media: MediaItem | undefined, station: StationConfig, atMs: number): boolean {
+export function channelEntryAllowed(entry: ScheduleEntry, media: MediaItem | undefined, station: StationConfig, atMs: number, children?: ChildrenConfig, catalogue?: Map<string, MediaItem>): boolean {
   const window = profileWindow(atMs, station);
+  if (window.profile==='lkp' && children?.enabled && entry.startsAtMs >= (children.effectiveAtMs ?? 0) && !entry.showId.startsWith('station-') && !['lkp-weather','lkp-intermissions'].includes(entry.showId)) {
+    if (!media || !ageEligible(media,children)) return false;
+    const sources=entry.playoutPlan?.assembly?.sources ?? [];
+    const segments=entry.playoutPlan?.segments.filter(s=>s.type==='content') ?? [];
+    if (sources.length && sources.length!==segments.length) return false;
+    for (const [index,source] of sources.entries()) {
+      const item=catalogue?.get(source.mediaId);
+      const segment=segments[index];
+      if (!segment || segment.type!=='content' || segment.mediaPath!==item?.mediaPath || segment.fromMs!==source.fromMs || segment.toMs!==source.toMs || source.fromMs<0 || source.toMs>(item?.durationMs ?? 0)) return false;
+      if (!item || !ageEligible(item,children) || !eligibleFor(item,'lkp',station,atMs) || !fs.existsSync(item.mediaPath)) return false;
+    }
+  }
   if (entry.presentation && entry.presentation.profile !== window.profile) return false;
   if (entry.endsAtMs > window.endsAtMs) return false;
   if (entry.presentation && entry.presentation.kind !== 'programme') {

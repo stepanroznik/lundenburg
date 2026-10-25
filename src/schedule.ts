@@ -1,3 +1,6 @@
+import { buildChildrenSchedule } from './children-schedule.js';
+import { validateAge } from './children-policy.js';
+import { childrenSettings, saveChildrenAge } from './children-settings.js';
 import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -14,6 +17,7 @@ import { buildProfileSchedule, type RotationRecord } from './channel-schedule.js
 interface ShowBucket { id: string; weight: number; episodes: MediaItem[] }
 export interface SchedulePlanning { config: AppConfig; ads: AdAsset[]; clips: RotationClip[]; bumpers: AdBumper[]; partitionEndMs?: number; history?: RotationRecord[]; reserved?: ScheduleEntry[] }
 export function schedulePlanning(db: LkpDatabase, config: AppConfig): SchedulePlanning {
+  childrenSettings(db,config);
   return { config, ads: db.listAds(), clips: readRotationLibrary(config), bumpers: readBumpers(config),
     history: db.db.prepare('SELECT media_id AS mediaId,played_count AS count,last_played_at_ms AS lastAtMs FROM media_rotation_history').all() as RotationRecord[] };
 }
@@ -67,6 +71,7 @@ export function buildScheduleEntries(
     return buildProfileSchedule(catalogue, seed, startMs, targetEndMs, initialSequence, previousEntries, planning,
       (from, until, sequence, previous) => buildScheduleEntries(catalogue, seed, from, until, sequence, previous, { ...planning, partitionEndMs: until }));
   }
+  if (planning?.config.children?.enabled) return buildChildrenSchedule(catalogue,seed,startMs,targetEndMs,initialSequence,previousEntries,planning.config);
   const enabled = catalogue.filter((item) => eligibleFor(item, 'lkp', planning?.config.station, startMs));
   if (enabled.length === 0) throw new Error('Cannot generate a schedule without enabled media');
   const byShow = new Map<string, ShowBucket>();
@@ -256,6 +261,7 @@ export function reconcilePlayoutPlans(db: LkpDatabase, config: AppConfig, earlie
 export function ensureSchedule(
   db: LkpDatabase, config: AppConfig, options: { fromMs?: number; horizonDays?: number; force?: boolean } = {},
 ): { added: number; firstMs: number; lastMs: number } {
+  childrenSettings(db,config);
   if (options.force) db.clearSchedule();
   const now = Date.now();
   const existing = db.scheduleBounds();
@@ -264,7 +270,7 @@ export function ensureSchedule(
   const horizonDays = options.horizonDays ?? config.schedule.horizonDays;
   const targetEnd = DateTime.fromMillis(Math.max(now, requestedStart), { zone }).plus({ days: horizonDays }).endOf('day').toMillis();
   if (existing && existing.lastMs >= targetEnd) {
-    const added=reconcileIntermissions(db,config);
+    const added=config.children?.enabled ? 0 : reconcileIntermissions(db,config);
     const bounds=db.scheduleBounds()!;
     return {added,firstMs:bounds.firstMs,lastMs:bounds.lastMs};
   }
@@ -275,7 +281,7 @@ export function ensureSchedule(
   const planning: SchedulePlanning = schedulePlanning(db, config);
   const entries = buildScheduleEntries(db.listMedia(), config.schedule.seed, startMs, targetEnd, sequence, previous, planning);
   db.insertSchedule(entries);
-  const intermissions = reconcileIntermissions(db, config);
+  const intermissions = config.children?.enabled ? 0 : reconcileIntermissions(db, config);
   const bounds = db.scheduleBounds()!;
   return { added: entries.length + intermissions, firstMs: bounds.firstMs, lastMs: bounds.lastMs };
 }
@@ -320,4 +326,67 @@ export function validateTimeline(entries: ScheduleEntry[]): string[] {
     if (previous && previous.endsAtMs !== entry.startsAtMs) errors.push(`${entry.id}: ${previous.endsAtMs < entry.startsAtMs ? 'gap' : 'overlap'} before entry`);
   }
   return errors;
+}
+
+/** Replace daytime only; all Nacht entries retain identities, times and plans. */
+export function setChildrenAge(db: LkpDatabase, config: AppConfig, age: number, tolerance?: number,
+  earliestMs = Date.now()+120_000): { startMs: number; replaced: number; added: number } {
+  validateAge(age,tolerance ?? config.children?.ageToleranceYears ?? 1);
+  if (!config.children?.enabled || !config.station?.enabled) throw new Error('Age regeneration requires the children clock and station profile barriers');
+  childrenSettings(db,config);
+  tolerance ??= config.children!.ageToleranceYears;
+  const bounds=db.scheduleBounds();
+  if (!bounds) {
+    saveChildrenAge(db,age,tolerance,earliestMs);
+    config.children={...config.children,targetAgeYears:age,ageToleranceYears:tolerance,effectiveAtMs:earliestMs};
+    return {startMs:earliestMs,replaced:0,added:0};
+  }
+  const old=db.listSchedule(bounds.firstMs,bounds.lastMs+1);
+  const first=old.find(e=>e.startsAtMs>=earliestMs && e.presentation?.profile==='lkp' && e.presentation.kind==='programme' && e.showId!=='lkp-weather');
+  if (!first) throw new Error('No safe future children programme boundary');
+  const nextConfig={...config,children:{...config.children,targetAgeYears:age,ageToleranceYears:tolerance,effectiveAtMs:first.startsAtMs}};
+  const prefix=old.filter(e=>e.sequence<first.sequence), tail=old.filter(e=>e.sequence>=first.sequence);
+  const preserved=(e:ScheduleEntry)=>e.presentation?.profile==='ln' || e.showId==='lkp-weather' || e.presentation?.kind==='handover';
+  const generated:ScheduleEntry[]=[];
+  let index=0,sequence=first.sequence;
+  while(index<tail.length) {
+    const e=tail[index]!;
+    if(preserved(e)) { generated.push({...e,sequence:sequence++}); index++; continue; }
+    const start=e.startsAtMs;
+    let end=e.endsAtMs;
+    while(index<tail.length && !preserved(tail[index]!)) {end=tail[index]!.endsAtMs;index++;}
+    const entries=buildChildrenSchedule(db.listMedia(),config.schedule.seed,start,end,sequence,[...prefix,...generated].filter(e=>e.presentation?.profile!=='ln'),nextConfig);
+    generated.push(...entries);sequence+=entries.length;
+  }
+  const errors=validateTimeline([...prefix.slice(-1),...generated]);
+  if(errors.length) throw new Error(`Invalid age regeneration: ${errors[0]}`);
+  preserveEpgIdentities(generated,tail.filter(preserved),prefix);
+  db.db.transaction(()=>{
+    const current=db.nextAfter(first.startsAtMs);
+    if(current?.id!==first.id || JSON.stringify(db.listSchedule(first.startsAtMs,bounds.lastMs+1))!==JSON.stringify(tail)) throw new Error('Schedule changed during age regeneration');
+    db.db.prepare('DELETE FROM schedule_entries WHERE sequence>=?').run(first.sequence);
+    db.insertSchedule(generated);
+    saveChildrenAge(db,age,tolerance,first.startsAtMs);
+  }).immediate();
+  config.children=nextConfig.children;
+  return {startMs:first.startsAtMs,replaced:tail.filter(e=>!preserved(e)).length,added:generated.length};
+}
+
+/** Allocate new IDs around all retained events, including events inserted later in the transaction. */
+export function preserveEpgIdentities(entries:ScheduleEntry[],retained:ScheduleEntry[],prefix:ScheduleEntry[]=[]):void {
+  const immutable=new Set(retained.map(e=>e.id)), occupied=new Map<number,number[]>();
+  const occupy=(e:ScheduleEntry)=>{
+    if(e.epgEventId===undefined) return;
+    const dates=occupied.get(e.epgEventId) ?? [];dates.push(e.startsAtMs);occupied.set(e.epgEventId,dates);
+  };
+  [...prefix,...retained].forEach(occupy);
+  for(const e of entries) {
+    if(immutable.has(e.id)) continue;
+    let candidate=(e.sequence%65535)+1, attempts=0;
+    while(occupied.get(candidate)?.some(at=>Math.abs(at-e.startsAtMs)<=32*86_400_000)) {
+      candidate=candidate%65535+1;
+      if(++attempts>=65535) throw new Error('DVB event namespace exhausted');
+    }
+    e.epgEventId=candidate;occupy(e);
+  }
 }

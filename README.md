@@ -44,6 +44,10 @@ npm test
 
 The runtime needs `tsp` only for RF/EIT output. Catalogue, schedule, export, tests, and file-only dry runs work independently.
 
+## Children’s age and programme clock
+
+[Age-aware scheduling](CHILDREN-SCHEDULING.md) documents the full catalogue’s editorial age ranges, exact recurring slots, short-episode assemblies, next-day repeats and safe persistent age changes. Initial target age: 3; tolerance: 1 year. Rachel and Josi have a strict target-age ceiling of 5.
+
 ## Media library
 
 Media stays outside Git on the mounted USB hard drive. The Pi default is

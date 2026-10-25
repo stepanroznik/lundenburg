@@ -7,6 +7,7 @@ import { finished } from 'node:stream/promises';
 import type { AppConfig, MediaItem, OutputMode, ScheduleEntry } from './types.js';
 import { LkpDatabase } from './database.js';
 import { writeEpgAtomic } from './epg.js';
+import { refreshChildrenAge } from './children-settings.js';
 import { ensureSchedule } from './schedule.js';
 import { prepareLogo, type PreparedLogo } from './logo.js';
 import { channelEntryAllowed, loadStationConfig, profileConfig, profileWindow } from './channels.js';
@@ -300,7 +301,7 @@ function firstEncoderTarget(entry: ScheduleEntry, media: MediaItem | undefined, 
     entry: { ...base, id: `${entry.id}:0`, mediaPath: segment.mediaPath, durationMs: segment.durationMs,
       endsAtMs: entry.startsAtMs + segment.durationMs,
       ...(internal ? { showId: 'lkp-internal', listingVisibility: 'hidden' as const } : {}) },
-    media: internal ? undefined : media,
+    media: internal ? undefined : segment.type === 'content' && segment.subtitles && media ? { ...media, mediaPath: segment.mediaPath, subtitles: segment.subtitles } : media,
     seekMs: internal ? 0 : segment.fromMs, outputOffsetMs: 0, animate: animate && !internal,
     ...(internal ? {} : { limitMs: segment.durationMs }), intermission: segment.type === 'intermission',
     programme: entry, programmeOffsetMs: 0,
@@ -387,7 +388,7 @@ async function transcodePlayout(
       entry: { ...baseEntry, id: `${entry.id}:${index}`, startsAtMs: Date.now() - pastOffsetMs,
         endsAtMs: segmentEndMs, durationMs: segment.durationMs, mediaPath: segment.mediaPath,
         ...(internal ? { showId: 'lkp-internal', listingVisibility: 'hidden' as const } : {}) },
-      media: internal ? undefined : media, seekMs: (internal ? 0 : segment.fromMs) + segmentElapsedMs,
+      media: internal ? undefined : segment.type === 'content' && segment.subtitles && media ? { ...media, mediaPath: segment.mediaPath, subtitles: segment.subtitles } : media, seekMs: (internal ? 0 : segment.fromMs) + segmentElapsedMs,
       outputOffsetMs: 0, animate: animate && index === 0,
       ...(internal ? {} : { limitMs: segment.durationMs - segmentElapsedMs }),
       intermission: segment.type === 'intermission',
@@ -403,7 +404,7 @@ async function transcodePlayout(
           endsAtMs: segmentEndMs + following.durationMs, durationMs: following.durationMs,
           mediaPath: following.mediaPath,
           ...(followingInternal ? { showId: 'lkp-internal', listingVisibility: 'hidden' as const } : {}) },
-        media: followingInternal ? undefined : media,
+        media: followingInternal ? undefined : following.type === 'content' && following.subtitles && media ? { ...media, mediaPath: following.mediaPath, subtitles: following.subtitles } : media,
         seekMs: followingInternal ? 0 : following.fromMs, outputOffsetMs: 0, animate: false,
         ...(followingInternal ? {} : { limitMs: following.durationMs }),
         intermission: following.type === 'intermission',
@@ -574,6 +575,7 @@ export async function runBroadcast(db: LkpDatabase, config: AppConfig, options: 
       if (outputFailure) throw outputFailure;
       const realNowMs = Date.now();
       const scheduleNowMs = scheduleTimeForBroadcast(realNowMs, pastOffsetMs);
+      refreshChildrenAge(db,config);
       if (config.station && !config.station.enabled) {
         const updated = loadStationConfig(config.projectRoot);
         if (updated?.enabled && ((updated.activateAtMs ?? 0) <= scheduleNowMs || cursor?.presentation)) config.station = updated;
@@ -594,10 +596,10 @@ export async function runBroadcast(db: LkpDatabase, config: AppConfig, options: 
           presentation: { profile: window.profile, kind: 'gap', loop: true } };
       }
       if (entry && config.station?.enabled) {
-        if (!mediaById.has(entry.mediaId)) {
-          const found = db.listMedia(false).find(m => m.id === entry!.mediaId); if (found) mediaById.set(found.id, found);
+        if (!mediaById.has(entry.mediaId) || entry.playoutPlan?.assembly?.sources.some(s=>!mediaById.has(s.mediaId))) {
+          for (const found of db.listMedia(false)) mediaById.set(found.id,found);
         }
-        if (!channelEntryAllowed(entry, mediaById.get(entry.mediaId), config.station, scheduleNowMs) || !fs.existsSync(entry.mediaPath)) {
+        if (!channelEntryAllowed(entry, mediaById.get(entry.mediaId), config.station, scheduleNowMs, config.children, mediaById) || !fs.existsSync(entry.mediaPath)) {
           const window = profileWindow(scheduleNowMs, config.station), asset = stationAssets(config).get(window.profile === 'ln' ? 'continuity' : 'day-continuity')!;
           const end = Math.min(entry.endsAtMs, window.endsAtMs);
           entry = { ...entry, id: `${entry.id}:profile-fallback`, mediaId: `station-${window.profile}`, showId: `station-${window.profile}`,

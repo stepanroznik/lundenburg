@@ -16,7 +16,9 @@ import { scanMedia } from './media.js';
 import { catalogueChanges, writeCatalogue } from './catalogue-maintenance.js';
 import { runBroadcast } from './playout.js';
 import { readPlayoutStatus, timingLabel } from './playout-status.js';
-import { ensureSchedule, rebuildFutureSchedule, reconcilePlayoutPlans, validateTimeline } from './schedule.js';
+import { setChildrenAge, ensureSchedule, rebuildFutureSchedule, reconcilePlayoutPlans, validateTimeline } from './schedule.js';
+import { childrenSettings } from './children-settings.js';
+import { ageEligible, childrenPolicy } from './children-policy.js';
 import { durationClock, formatLocal, parseDateTime } from './util.js';
 import { AdBumperService, AdIngestService, initialAdUrls } from './ads.js';
 
@@ -119,6 +121,27 @@ ads.command('bootstrap').description('ingest the six initial approved TV spots')
 });
 
 const schedule = program.command('schedule').description('persistent programme schedule operations');
+schedule.command('age').description('atomically change the target age and regenerate future children programmes')
+  .argument('<years>', 'target age', Number)
+  .option('--tolerance <years>', 'editorial age tolerance', Number)
+  .action(async (years: number, options: { tolerance?: number }) => {
+    const {config,db}=context();
+    try {
+      await db.db.backup(`${config.storage.database}.before-age-${Date.now()}.sqlite`);
+      const result=setChildrenAge(db,config,years,options.tolerance);
+      writeEpgAtomic(db.listSchedule(Date.now()-86_400_000,Date.now()+config.schedule.epgDays*86_400_000),config);
+      console.log(JSON.stringify(result));
+    } finally {db.close();}
+  });
+schedule.command('ratings').description('show persisted editorial age ranges and current eligibility for the entire catalogue')
+  .action(()=>{
+    const {config,db}=context();
+    try {
+      childrenSettings(db,config);
+      const shows=new Map(db.listMedia(false).map(m=>[m.showId,{showId:m.showId,title:m.showTitle,policy:config.children?childrenPolicy(m,config.children):null,eligible:ageEligible(m,config.children)}]));
+      console.log(JSON.stringify([...shows.values()],null,2));
+    } finally {db.close();}
+  });
 schedule.command('generate').description('create or safely extend the persistent schedule')
   .option('--from <dateTime>', 'initial local date/time (only applies to an empty schedule)')
   .option('--days <days>', 'horizon in days', Number)

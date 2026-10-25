@@ -65,7 +65,7 @@ export function buildProfileSchedule(catalogue: MediaItem[], seed: string, start
       const end = Math.min(special?.startsAtMs ?? windowEnd, targetEndMs);
       const previous = [...previousEntries, ...result].filter(e => !e.presentation || e.presentation.profile === 'lkp');
       const entries = dayPlanner(cursor, end, sequence, previous);
-      for (const e of entries) push({ ...e, presentation: { profile: 'lkp', kind: e.listingVisibility === 'hidden' ? 'ident' : 'programme' } });
+      for (const e of entries) push({ ...e, presentation: e.presentation ?? { profile: 'lkp', kind: e.listingVisibility === 'hidden' ? 'ident' : 'programme' } });
       if (cursor < end) continuity('day-continuity', 'lkp', 'gap', end - cursor);
       if (special && cursor === special.startsAtMs && cursor < targetEndMs) {
         if (special.endsAtMs > windowEnd) throw new Error('Published weather would cross a channel boundary');

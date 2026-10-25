@@ -1,0 +1,517 @@
+# Editorial LKP estimates, not certification ratings. Tolerance applies once.
+# maximumTargetAge is an independent developmental ceiling.
+enabled: true
+targetAgeYears: 3
+ageToleranceYears: 1
+policies:
+  kikaninchen:
+    recommendedAgeMin: 2
+    recommendedAgeMax: 6
+    schedulingPriority: flagship
+    preferredDayparts:
+      morning: 2
+    preferredSlotDurationMinutes: 15
+    targetWeeklyAirtimeMinutes: 210
+    energyLevel: moderate
+    nextDayRerun: true
+  bobo-siebenschlaefer:
+    recommendedAgeMin: 2
+    recommendedAgeMax: 6
+    schedulingPriority: flagship
+    preferredDayparts:
+      morning: 2
+      bedtime: 2
+    preferredSlotDurationMinutes: 15
+    targetWeeklyAirtimeMinutes: 210
+    energyLevel: calm
+    nextDayRerun: true
+  byl-jednou-jeden-zivot:
+    recommendedAgeMin: 6
+    recommendedAgeMax: 12
+    schedulingPriority: flagship
+    preferredDayparts:
+      afternoon: 2
+    preferredSlotDurationMinutes: 30
+    targetWeeklyAirtimeMinutes: 210
+    energyLevel: moderate
+    nextDayRerun: true
+  miss-josi:
+    recommendedAgeMin: 1
+    recommendedAgeMax: 5
+    maximumTargetAge: 5
+    schedulingPriority: flagship
+    preferredDayparts:
+      morning: 2
+      daytime: 2
+    preferredSlotDurationMinutes: 30
+    targetWeeklyAirtimeMinutes: 210
+    energyLevel: moderate
+    nextDayRerun: true
+  ms-rachel:
+    recommendedAgeMin: 1
+    recommendedAgeMax: 5
+    maximumTargetAge: 5
+    schedulingPriority: flagship
+    preferredDayparts:
+      morning: 2
+      daytime: 2
+    preferredSlotDurationMinutes: 60
+    targetWeeklyAirtimeMinutes: 210
+    energyLevel: moderate
+    nextDayRerun: true
+  teletubbies:
+    recommendedAgeMin: 1
+    recommendedAgeMax: 5
+    schedulingPriority: flagship
+    preferredDayparts:
+      morning: 2
+    preferredSlotDurationMinutes: 30
+    targetWeeklyAirtimeMinutes: 210
+    energyLevel: calm
+    nextDayRerun: true
+  bluey:
+    recommendedAgeMin: 2
+    recommendedAgeMax: 10
+    schedulingPriority: flagship
+    preferredDayparts:
+      morning: 2
+      afternoon: 2
+    preferredSlotDurationMinutes: 30
+    targetWeeklyAirtimeMinutes: 420
+    energyLevel: moderate
+    nextDayRerun: true
+  bob-a-bobek:
+    recommendedAgeMin: 3
+    recommendedAgeMax: 10
+    schedulingPriority: filler
+    preferredDayparts:
+      daytime: 2
+      afternoon: 2
+    preferredSlotDurationMinutes: 30
+    targetWeeklyAirtimeMinutes: 70
+    energyLevel: moderate
+    nextDayRerun: false
+  maxipes-fik:
+    recommendedAgeMin: 3
+    recommendedAgeMax: 10
+    schedulingPriority: filler
+    preferredDayparts:
+      daytime: 2
+      afternoon: 2
+    preferredSlotDurationMinutes: 30
+    targetWeeklyAirtimeMinutes: 70
+    energyLevel: moderate
+    nextDayRerun: false
+  rakosnicek:
+    recommendedAgeMin: 2
+    recommendedAgeMax: 9
+    schedulingPriority: filler
+    preferredDayparts:
+      evening: 2
+      bedtime: 2
+    preferredSlotDurationMinutes: 15
+    targetWeeklyAirtimeMinutes: 70
+    energyLevel: calm
+    nextDayRerun: false
+  pat-a-mat:
+    recommendedAgeMin: 2
+    recommendedAgeMax: 12
+    schedulingPriority: filler
+    preferredDayparts:
+      daytime: 2
+      afternoon: 2
+    preferredSlotDurationMinutes: 30
+    targetWeeklyAirtimeMinutes: 70
+    energyLevel: moderate
+    nextDayRerun: false
+  pingu:
+    recommendedAgeMin: 2
+    recommendedAgeMax: 8
+    schedulingPriority: filler
+    preferredDayparts:
+      daytime: 2
+      afternoon: 2
+    preferredSlotDurationMinutes: 30
+    targetWeeklyAirtimeMinutes: 70
+    energyLevel: moderate
+    nextDayRerun: false
+  timmy-time:
+    recommendedAgeMin: 2
+    recommendedAgeMax: 8
+    schedulingPriority: filler
+    preferredDayparts:
+      daytime: 2
+      afternoon: 2
+    preferredSlotDurationMinutes: 30
+    targetWeeklyAirtimeMinutes: 70
+    energyLevel: moderate
+    nextDayRerun: false
+  sarah-and-duck:
+    recommendedAgeMin: 2
+    recommendedAgeMax: 8
+    schedulingPriority: filler
+    preferredDayparts:
+      afternoon: 2
+      evening: 2
+      bedtime: 2
+    preferredSlotDurationMinutes: 30
+    targetWeeklyAirtimeMinutes: 70
+    energyLevel: calm
+    nextDayRerun: false
+  puffin-rock:
+    recommendedAgeMin: 2
+    recommendedAgeMax: 8
+    schedulingPriority: filler
+    preferredDayparts:
+      afternoon: 2
+      evening: 2
+      bedtime: 2
+    preferredSlotDurationMinutes: 30
+    targetWeeklyAirtimeMinutes: 70
+    energyLevel: calm
+    nextDayRerun: false
+  kipper:
+    recommendedAgeMin: 2
+    recommendedAgeMax: 8
+    schedulingPriority: filler
+    preferredDayparts:
+      afternoon: 2
+      evening: 2
+      bedtime: 2
+    preferredSlotDurationMinutes: 30
+    targetWeeklyAirtimeMinutes: 70
+    energyLevel: calm
+    nextDayRerun: false
+  der-kleine-maulwurf:
+    recommendedAgeMin: 2
+    recommendedAgeMax: 10
+    schedulingPriority: filler
+    preferredDayparts:
+      morning: 2
+      daytime: 2
+      afternoon: 2
+      evening: 2
+      bedtime: 2
+    preferredSlotDurationMinutes: 30
+    targetWeeklyAirtimeMinutes: 70
+    energyLevel: calm
+    nextDayRerun: false
+  tom-und-jerry:
+    recommendedAgeMin: 3
+    recommendedAgeMax: 12
+    schedulingPriority: filler
+    preferredDayparts:
+      daytime: 2
+      afternoon: 2
+    preferredSlotDurationMinutes: 30
+    targetWeeklyAirtimeMinutes: 70
+    energyLevel: high
+    nextDayRerun: false
+  sendung-mit-dem-elefanten:
+    recommendedAgeMin: 3
+    recommendedAgeMax: 7
+    schedulingPriority: regular
+    preferredDayparts:
+      morning: 2
+      afternoon: 2
+    preferredSlotDurationMinutes: 30
+    targetWeeklyAirtimeMinutes: 70
+    energyLevel: moderate
+    nextDayRerun: false
+  servus-kasperl:
+    recommendedAgeMin: 3
+    recommendedAgeMax: 8
+    schedulingPriority: regular
+    preferredDayparts:
+      morning: 2
+      daytime: 2
+    preferredSlotDurationMinutes: 30
+    targetWeeklyAirtimeMinutes: 70
+    energyLevel: moderate
+    nextDayRerun: false
+  sesamstrasse:
+    recommendedAgeMin: 3
+    recommendedAgeMax: 8
+    schedulingPriority: regular
+    preferredDayparts:
+      morning: 2
+      daytime: 2
+    preferredSlotDurationMinutes: 30
+    targetWeeklyAirtimeMinutes: 70
+    energyLevel: moderate
+    nextDayRerun: false
+  abc-baer:
+    recommendedAgeMin: 3
+    recommendedAgeMax: 8
+    schedulingPriority: regular
+    preferredDayparts:
+      morning: 2
+      daytime: 2
+    preferredSlotDurationMinutes: 30
+    targetWeeklyAirtimeMinutes: 70
+    energyLevel: moderate
+    nextDayRerun: false
+  peppa-wutz:
+    recommendedAgeMin: 2
+    recommendedAgeMax: 7
+    schedulingPriority: regular
+    preferredDayparts:
+      morning: 2
+      daytime: 2
+    preferredSlotDurationMinutes: 30
+    targetWeeklyAirtimeMinutes: 70
+    energyLevel: moderate
+    nextDayRerun: false
+  bing:
+    recommendedAgeMin: 2
+    recommendedAgeMax: 7
+    schedulingPriority: regular
+    preferredDayparts:
+      morning: 2
+      daytime: 2
+    preferredSlotDurationMinutes: 30
+    targetWeeklyAirtimeMinutes: 70
+    energyLevel: moderate
+    nextDayRerun: false
+  tolle-tiere:
+    recommendedAgeMin: 3
+    recommendedAgeMax: 10
+    schedulingPriority: regular
+    preferredDayparts:
+      daytime: 2
+      afternoon: 2
+    preferredSlotDurationMinutes: 30
+    targetWeeklyAirtimeMinutes: 70
+    energyLevel: moderate
+    nextDayRerun: false
+  unser-sandmaennchen:
+    recommendedAgeMin: 2
+    recommendedAgeMax: 8
+    schedulingPriority: regular
+    preferredDayparts:
+      bedtime: 2
+    preferredSlotDurationMinutes: 10
+    targetWeeklyAirtimeMinutes: 70
+    energyLevel: calm
+    nextDayRerun: false
+  byl-jednou-jeden-clovek:
+    recommendedAgeMin: 6
+    recommendedAgeMax: 12
+    schedulingPriority: regular
+    preferredDayparts:
+      daytime: 2
+      afternoon: 2
+    preferredSlotDurationMinutes: 30
+    targetWeeklyAirtimeMinutes: 70
+    energyLevel: moderate
+    nextDayRerun: false
+  byl-jednou-jeden-vynalezce:
+    recommendedAgeMin: 6
+    recommendedAgeMax: 12
+    schedulingPriority: regular
+    preferredDayparts:
+      daytime: 2
+      afternoon: 2
+    preferredSlotDurationMinutes: 30
+    targetWeeklyAirtimeMinutes: 70
+    energyLevel: moderate
+    nextDayRerun: false
+  byl-jednou-jeden-objevitel:
+    recommendedAgeMin: 6
+    recommendedAgeMax: 12
+    schedulingPriority: regular
+    preferredDayparts:
+      daytime: 2
+      afternoon: 2
+    preferredSlotDurationMinutes: 30
+    targetWeeklyAirtimeMinutes: 70
+    energyLevel: moderate
+    nextDayRerun: false
+  byl-jednou-jeden-vesmir:
+    recommendedAgeMin: 6
+    recommendedAgeMax: 12
+    schedulingPriority: regular
+    preferredDayparts:
+      daytime: 2
+      afternoon: 2
+    preferredSlotDurationMinutes: 30
+    targetWeeklyAirtimeMinutes: 70
+    energyLevel: moderate
+    nextDayRerun: false
+  byl-jednou-jeden-nase-zeme:
+    recommendedAgeMin: 6
+    recommendedAgeMax: 12
+    schedulingPriority: regular
+    preferredDayparts:
+      daytime: 2
+      afternoon: 2
+    preferredSlotDurationMinutes: 30
+    targetWeeklyAirtimeMinutes: 70
+    energyLevel: moderate
+    nextDayRerun: false
+  byl-jednou-jeden-amerika:
+    recommendedAgeMin: 6
+    recommendedAgeMax: 12
+    schedulingPriority: regular
+    preferredDayparts:
+      daytime: 2
+      afternoon: 2
+    preferredSlotDurationMinutes: 30
+    targetWeeklyAirtimeMinutes: 70
+    energyLevel: moderate
+    nextDayRerun: false
+  wreck-it-ralph:
+    recommendedAgeMin: 6
+    recommendedAgeMax: 12
+    schedulingPriority: regular
+    preferredDayparts:
+      afternoon: 2
+    preferredSlotDurationMinutes: 120
+    targetWeeklyAirtimeMinutes: 70
+    energyLevel: high
+    nextDayRerun: false
+  lkp-weather:
+    recommendedAgeMin: 0
+    recommendedAgeMax: 18
+    schedulingPriority: filler
+    preferredDayparts:
+      morning: 2
+      daytime: 2
+      afternoon: 2
+      evening: 2
+      bedtime: 2
+    preferredSlotDurationMinutes: 5
+    targetWeeklyAirtimeMinutes: 70
+    energyLevel: calm
+    nextDayRerun: false
+  lkp-intermissions:
+    recommendedAgeMin: 0
+    recommendedAgeMax: 18
+    schedulingPriority: filler
+    preferredDayparts:
+      morning: 2
+      daytime: 2
+      afternoon: 2
+      evening: 2
+      bedtime: 2
+    preferredSlotDurationMinutes: 5
+    targetWeeklyAirtimeMinutes: 70
+    energyLevel: calm
+    nextDayRerun: false
+  the-man-from-earth:
+    recommendedAgeMin: 12
+    recommendedAgeMax: 18
+    schedulingPriority: regular
+    preferredDayparts:
+      daytime: 2
+      afternoon: 2
+    preferredSlotDurationMinutes: 30
+    targetWeeklyAirtimeMinutes: 70
+    energyLevel: moderate
+    nextDayRerun: false
+  breclav-tv:
+    recommendedAgeMin: 6
+    recommendedAgeMax: 18
+    schedulingPriority: regular
+    preferredDayparts:
+      daytime: 2
+      afternoon: 2
+    preferredSlotDurationMinutes: 30
+    targetWeeklyAirtimeMinutes: 70
+    energyLevel: moderate
+    nextDayRerun: false
+  unsere-heimat:
+    recommendedAgeMin: 6
+    recommendedAgeMax: 18
+    schedulingPriority: regular
+    preferredDayparts:
+      daytime: 2
+      afternoon: 2
+    preferredSlotDurationMinutes: 30
+    targetWeeklyAirtimeMinutes: 70
+    energyLevel: moderate
+    nextDayRerun: false
+  unusualvideos:
+    recommendedAgeMin: 12
+    recommendedAgeMax: 18
+    schedulingPriority: regular
+    preferredDayparts:
+      daytime: 2
+    preferredSlotDurationMinutes: 30
+    targetWeeklyAirtimeMinutes: 70
+    energyLevel: high
+    nextDayRerun: false
+slots:
+  - time: "06:05"
+    minutes: 5
+    showId: lkp-weather
+  - time: "15:00"
+    minutes: 5
+    showId: lkp-weather
+  - time: "18:30"
+    minutes: 5
+    showId: lkp-weather
+  - time: 07:00
+    minutes: 15
+    showId: bobo-siebenschlaefer
+  - time: 07:15
+    minutes: 15
+    showId: kikaninchen
+  - time: 07:30
+    minutes: 30
+    showId: teletubbies
+  - time: 08:00
+    minutes: 30
+    showId: miss-josi
+  - time: 08:30
+    minutes: 60
+    showId: ms-rachel
+  - time: 09:30
+    minutes: 30
+    showId: bluey
+  - time: 10:00
+    minutes: 30
+    showId: sendung-mit-dem-elefanten
+    rerunOf: 17:00
+  - time: 11:00
+    minutes: 60
+    showId: ms-rachel
+    rerunOf: 08:30
+  - time: 12:00
+    minutes: 30
+    showId: miss-josi
+    rerunOf: 08:00
+  - time: 12:30
+    minutes: 30
+    showId: teletubbies
+    rerunOf: 07:30
+  - time: 13:00
+    minutes: 30
+    showId: bluey
+    rerunOf: 09:30
+  - time: 13:30
+    minutes: 15
+    showId: bobo-siebenschlaefer
+    rerunOf: 07:00
+  - time: 13:45
+    minutes: 15
+    showId: kikaninchen
+    rerunOf: 07:15
+  - time: 14:00
+    minutes: 30
+    showId: bluey
+    rerunOf: 16:00
+  - time: 16:00
+    minutes: 30
+    showId: bluey
+  - time: 17:00
+    minutes: 30
+    showId: sendung-mit-dem-elefanten
+    olderShowId: byl-jednou-jeden-zivot
+  - time: 18:50
+    minutes: 10
+    showId: unser-sandmaennchen
+  - time: "19:00"
+    minutes: 120
+    showId: weekend-film
+    weekdays: [6, 7]

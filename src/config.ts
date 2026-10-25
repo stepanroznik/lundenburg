@@ -4,6 +4,7 @@ import { fileURLToPath } from 'node:url';
 import { parse } from 'yaml';
 import type { AppConfig, OutputMode } from './types.js';
 import { defaultComingUpConfig, validateComingUpConfig } from './coming-up.js';
+import { loadChildrenConfig } from './children-policy.js';
 import { loadStationConfig } from './channels.js';
 
 const sourceRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -101,6 +102,8 @@ export function loadConfig(explicitPath?: string): AppConfig {
       audioBitrate: stringValue(internet, 'audioBitrate'),
     },
   };
+  const children = loadChildrenConfig(projectRoot);
+  if (children) result.children = children;
   const station = loadStationConfig(projectRoot);
   if (station) result.station = station;
   const comingUp = raw.comingUp === undefined ? {} : requiredObject(raw.comingUp, 'comingUp');

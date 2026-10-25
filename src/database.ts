@@ -130,6 +130,10 @@ export class LkpDatabase {
       CREATE TABLE IF NOT EXISTS playback_media (
       playback_id TEXT PRIMARY KEY, media_id TEXT NOT NULL, profile TEXT, completed INTEGER NOT NULL DEFAULT 0);
       INSERT OR IGNORE INTO schema_migrations(version,applied_at_ms) VALUES(4,${Date.now()});`);
+    this.db.exec(`CREATE TABLE IF NOT EXISTS playback_assembly_sources (
+      playback_id TEXT NOT NULL, media_id TEXT NOT NULL, from_ms INTEGER NOT NULL, to_ms INTEGER NOT NULL,
+      completed INTEGER NOT NULL DEFAULT 0, PRIMARY KEY(playback_id,media_id,from_ms));
+      INSERT OR IGNORE INTO schema_migrations(version,applied_at_ms) VALUES(5,${Date.now()});`);
     this.db.prepare('UPDATE schedule_entries SET epg_event_id=(sequence % 65535)+1 WHERE epg_event_id IS NULL').run();
     this.db.exec('CREATE INDEX IF NOT EXISTS schedule_epg_identity ON schedule_entries(epg_event_id, starts_at_ms)');
     this.db.prepare('INSERT OR IGNORE INTO schema_migrations(version, applied_at_ms) VALUES(2, ?)').run(Date.now());
@@ -321,17 +325,22 @@ export class LkpDatabase {
       VALUES (@id,@scheduleEntryId,@plannedStartMs,@plannedEndMs,@actualStartMs,@actualEndMs,@initialSeekMs,@coldStartResume,@status,@error)`).run({
         ...event, actualEndMs: event.actualEndMs ?? null, coldStartResume: event.coldStartResume ? 1 : 0, error: event.error ?? null,
       });
-    const scheduled = this.db.prepare('SELECT media_id,presentation_json FROM schedule_entries WHERE id=?').get(event.scheduleEntryId) as { media_id: string; presentation_json: string | null } | undefined;
+    const scheduled = this.db.prepare('SELECT media_id,presentation_json,playout_plan_json FROM schedule_entries WHERE id=?').get(event.scheduleEntryId) as { media_id: string; presentation_json: string | null; playout_plan_json: string | null } | undefined;
     if (scheduled) this.db.prepare('INSERT OR IGNORE INTO playback_media(playback_id,media_id,profile) VALUES(?,?,?)')
       .run(event.id, scheduled.media_id, scheduled.presentation_json ? JSON.parse(scheduled.presentation_json).profile : 'lkp');
+    const sources=scheduled?.playout_plan_json ? (JSON.parse(scheduled.playout_plan_json) as NonNullable<ScheduleEntry['playoutPlan']>).assembly?.sources : undefined;
+    for(const source of sources ?? []) this.db.prepare('INSERT OR IGNORE INTO playback_assembly_sources(playback_id,media_id,from_ms,to_ms) VALUES(?,?,?,?)').run(event.id,source.mediaId,source.fromMs,source.toMs);
+
   }
 
   finishPlayback(id: string, status: PlaybackEvent['status'], error?: string): void {
     this.db.prepare('UPDATE playback_log SET actual_end_ms=?, status=?, error=? WHERE id=?').run(Date.now(), status, error ?? null, id);
     if (status === 'completed') this.db.transaction(() => {
-      const media = this.db.prepare('SELECT media_id FROM playback_media WHERE playback_id=? AND completed=0').get(id) as { media_id: string } | undefined;
-      if (!media) return;
-      this.db.prepare('INSERT INTO media_rotation_history VALUES(?,1,?) ON CONFLICT(media_id) DO UPDATE SET played_count=played_count+1,last_played_at_ms=excluded.last_played_at_ms').run(media.media_id, Date.now());
+      const assembly=this.db.prepare('SELECT media_id FROM playback_assembly_sources WHERE playback_id=? AND completed=0').all(id) as {media_id:string}[];
+      const media=this.db.prepare('SELECT media_id FROM playback_media WHERE playback_id=? AND completed=0').get(id) as {media_id:string}|undefined;
+      if(!media) return;
+      for(const source of assembly.length ? assembly : [media]) this.db.prepare('INSERT INTO media_rotation_history VALUES(?,1,?) ON CONFLICT(media_id) DO UPDATE SET played_count=played_count+1,last_played_at_ms=excluded.last_played_at_ms').run(source.media_id,Date.now());
+      this.db.prepare('UPDATE playback_assembly_sources SET completed=1 WHERE playback_id=?').run(id);
       this.db.prepare('UPDATE playback_media SET completed=1 WHERE playback_id=?').run(id);
     })();
   }

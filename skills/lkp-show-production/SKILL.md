@@ -33,6 +33,17 @@ compiled release or only on one machine. Report any synchronization/deployment
 step that remains incomplete. Synchronization does not authorize unrelated
 rendering, scheduling, or starting/stopping playout.
 
+## Children’s scheduling
+
+Read [CHILDREN-SCHEDULING.md](../../CHILDREN-SCHEDULING.md) before changing LKP
+ratings, programme slots, assemblies or weather publication. Audience ranges in
+`config/children.yaml` are editorial estimates; apply tolerance once and preserve
+independent developmental ceilings. Rachel and Josi must remain excluded after
+age 5. Preserve every Nacht event during age changes. Generate review schedules
+with the read-only preview script; activating source does not authorize changing
+the live schedule. Do not generate continuation voiceovers or masters as a side
+effect of scheduling work.
+
 ## Start from the current production sources
 
 Inspect the repository before editing. Treat these files as the current source of truth when present:
