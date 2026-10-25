@@ -276,8 +276,11 @@ and helper output is discarded. Install its isolated dependencies with:
 
 ```bash
 LKP_DENO=/path/to/deno bash scripts/setup-youtube-ads.sh
-LKP_YT_DLP="$PWD/scripts/youtube-ad-downloader.py" npm run ads:add -- 'https://www.youtube.com/watch?v=VIDEO_ID'
+npm run ads:add -- 'https://www.youtube.com/watch?v=VIDEO_ID'
 ```
+
+Once installed, ad ingestion selects this downloader automatically.
+`LKP_YT_DLP` remains an explicit override.
 
 The same 480p–1080p selection applies to metadata and download. A video available
 only at 360p cannot be ingested under the production quality policy. A playback

@@ -64,7 +64,9 @@ export class AdIngestService {
     if (!this.config.advertising) throw new Error('Advertising is not configured');
     const url = allowedUrl(sourceUrl);
     const projectDownloader = path.join(this.config.projectRoot, 'runtime/tools/yt-dlp/bin/yt-dlp');
-    const downloader = process.env.LKP_YT_DLP ?? (fs.existsSync(projectDownloader) ? projectDownloader : 'yt-dlp');
+    const authenticatedDownloader = path.join(this.config.projectRoot, 'scripts/youtube-ad-downloader.py');
+    const authenticationInstalled = fs.existsSync(path.join(this.config.projectRoot, 'runtime/tools/youtube-ads/venv/bin/yt-dlp')) && fs.existsSync(authenticatedDownloader);
+    const downloader = process.env.LKP_YT_DLP ?? (authenticationInstalled ? authenticatedDownloader : fs.existsSync(projectDownloader) ? projectDownloader : 'yt-dlp');
     const metadata = JSON.parse(await execute(downloader, ['--dump-single-json', '--no-playlist', url.toString()])) as YoutubeMetadata;
     if (!metadata.id || !metadata.title) throw new Error('yt-dlp did not return an advertisement ID and title');
     const root = this.config.advertising.root;
