@@ -1,6 +1,7 @@
 # Editorial LKP estimates, not certification ratings. Tolerance applies once.
 # maximumTargetAge is an independent developmental ceiling.
 enabled: true
+boundaryToleranceSeconds: 5
 targetAgeYears: 3
 ageToleranceYears: 1
 policies:

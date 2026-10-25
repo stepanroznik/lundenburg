@@ -23,6 +23,7 @@ export function loadStationConfig(projectRoot: string, filename = 'config/channe
   const file = path.resolve(projectRoot, filename);
   if (!fs.existsSync(file)) return undefined;
   const c = parse(fs.readFileSync(file, 'utf8')) as StationConfig;
+  if(c.avoidHandoverLogoPadding!==undefined && typeof c.avoidHandoverLogoPadding!=='boolean') throw new Error('Invalid handover padding policy');
   if (c.activateAtMs !== undefined && !Number.isSafeInteger(c.activateAtMs)) throw new Error('Invalid channel activation time');
   const validTime = (s: string) => /^(?:[01]\d|2[0-3]):[0-5]\d$/.test(s);
   if (typeof c.enabled !== 'boolean' || c.timezone !== 'Europe/Prague' || !c.hours ||
@@ -77,7 +78,7 @@ export function eligibleFor(item: MediaItem, profile: ProfileId, station?: Stati
 /** Independent runtime guard, including stale/corrupted persisted schedules. */
 export function channelEntryAllowed(entry: ScheduleEntry, media: MediaItem | undefined, station: StationConfig, atMs: number, children?: ChildrenConfig, catalogue?: Map<string, MediaItem>): boolean {
   const window = profileWindow(atMs, station);
-  if (window.profile==='lkp' && children?.enabled && entry.startsAtMs >= (children.effectiveAtMs ?? 0) && !entry.showId.startsWith('station-') && !['lkp-weather','lkp-intermissions'].includes(entry.showId)) {
+  if (window.profile==='lkp' && children?.enabled && entry.startsAtMs >= (children.effectiveAtMs ?? 0) && !entry.showId.startsWith('station-') && !['lkp-weather','lkp-intermissions','lkp-advertising'].includes(entry.showId)) {
     if (!media || !ageEligible(media,children)) return false;
     const sources=entry.playoutPlan?.assembly?.sources ?? [];
     const segments=entry.playoutPlan?.segments.filter(s=>s.type==='content') ?? [];
@@ -107,6 +108,7 @@ export function channelEntryAllowed(entry: ScheduleEntry, media: MediaItem | und
       return Boolean(asset?.fullScreen && asset.path && path.resolve(asset.path) === path.resolve(entry.mediaPath));
     } catch { return false; }
   }
+  if(entry.showId==='lkp-advertising') return window.profile==='lkp' && Boolean(entry.playoutPlan?.segments.length && entry.playoutPlan.segments[0]?.type==='ad-ident' && entry.playoutPlan.segments.some(s=>s.type==='ad') && entry.playoutPlan.segments.every(s=>(s.type==='ad' || s.type==='ad-ident') && fs.existsSync(s.mediaPath)));
   if (entry.showId === 'lkp-weather' || entry.showId === 'lkp-intermissions') return window.profile === 'lkp';
   return Boolean(media && media.mediaPath === entry.mediaPath && eligibleFor(media, window.profile, station, atMs));
 }

@@ -39,7 +39,11 @@ Read [CHILDREN-SCHEDULING.md](../../CHILDREN-SCHEDULING.md) before changing LKP
 ratings, programme slots, assemblies or weather publication. Audience ranges in
 `config/children.yaml` are editorial estimates; apply tolerance once and preserve
 independent developmental ceilings. Rachel and Josi must remain excluded after
-age 5. Preserve every Nacht event during age changes. Generate review schedules
+age 5. Use short shows, explicitly child-suitable ads with a WERBUNG ident, or
+published intermissions between programmes; never schedule looping daytime
+holding screens. Programme anchors may drift by five seconds. Preserve hard
+profile handovers and every Nacht event during age changes. Keep the original morning/evening handover animations and audio intact;
+remove adjacent static logo padding rather than replacing or shortening the films. Generate review schedules
 with the read-only preview script; activating source does not authorize changing
 the live schedule. Do not generate continuation voiceovers or masters as a side
 effect of scheduling work.

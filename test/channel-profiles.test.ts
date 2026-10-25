@@ -10,6 +10,7 @@ import { channelEntryAllowed, eligibleFor, loadStationConfig, mediaPolicy, profi
 import { buildScheduleEntries, schedulePlanning, validateTimeline } from '../src/schedule.js';
 import { LkpDatabase } from '../src/database.js';
 import { generateEpgXml } from '../src/epg.js';
+import { fitNightTail } from '../src/channel-schedule.js';
 import { buildFfmpegArgs } from '../src/playout.js';
 import { prepareLogo } from '../src/logo.js';
 import { AcquisitionStore } from '../src/acquisition/store.js';
@@ -27,7 +28,7 @@ const policy = (category = 'science', retention: MediaBroadcastPolicy['retention
 function fixture() {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'ln-profiles-')), app = config(root);
   fs.mkdirSync(app.media.root, { recursive: true });
-  app.station = loadStationConfig(project)!; app.station.enabled = true;
+  app.station = loadStationConfig(project)!; app.station.enabled = true; app.station.avoidHandoverLogoPadding=false;
   app.station.assetManifest = path.join(root, 'presentation.json');
   app.station.storage = { maxBytes: 100000, reserveBytes: 1, imminentMinutes: 30 };
   const video = path.join(root, 'presentation.mp4'); fs.writeFileSync(video, 'fixture');
@@ -231,4 +232,32 @@ test('runtime guard rejects adult media in a stale daytime schedule and programm
     assert.equal(channelEntryAllowed(fakeNightGap, undefined, f.app.station!, at), false, 'a mislabeled asset cannot bypass the profile guard');
     assert.equal(channelEntryAllowed(dayGap, undefined, f.app.station!, at), true, 'only the manifest-approved daytime loop is allowed');
   } finally { f.close(); }
+});
+
+
+test('handover padding policy preserves the films, starts news without a logo wait, and uses an intact short before dawn',()=>{
+  const f=fixture();try {
+    f.app.station!.avoidHandoverLogoPadding=true;
+    const news={...item('news',1,9*60_000),broadcast:policy('news','latest-only')};
+    const evening=buildScheduleEntries([news,item('kids',1)],'no-padding',ms('2026-10-23T20:00:00'),ms('2026-10-23T20:09:18'),0,[],schedulePlanning(f.db,f.app));
+    assert.equal(evening[0]!.presentation?.kind,'handover');assert.equal(evening[0]!.durationMs,10_000);
+    assert.ok(evening.every(e=>e.presentation?.kind!=='gap'));
+    assert.equal(evening.find(e=>e.mediaId===news.id)!.startsAtMs,ms('2026-10-23T20:00:14'));
+    const short={...item('independent-short',1,10*60_000-12_000),broadcast:policy('comedy')};
+    const dawn=buildScheduleEntries([short,item('kids',1)],'no-padding',ms('2026-10-24T05:50:00'),ms('2026-10-24T06:00:01'),0,[],schedulePlanning(f.db,f.app));
+    assert.ok(dawn.every(e=>e.presentation?.kind!=='gap' && !e.presentation?.loop));
+    assert.equal(dawn.find(e=>e.mediaId===short.id)!.durationMs,short.durationMs);
+    const morning=dawn.find(e=>e.presentation?.kind==='handover')!;
+    assert.equal(morning.startsAtMs,ms('2026-10-24T06:00:00'));assert.equal(morning.durationMs,10_000);
+    assert.deepEqual(validateTimeline(dawn),[]);
+  }finally{f.close();}
+});
+
+
+test('handover tail fitting can choose four distinct whole shorts when fewer cannot fit',()=>{
+  const pool=[9,10,11,12].map((duration,i)=>item('short',i+1,duration*1000));
+  const plan=fitNightTail(pool,42_000,0,m=>m.durationMs)!;
+  assert.equal(plan.length,4);assert.equal(new Set(plan.map(m=>m.id)).size,4);
+  assert.equal(plan.reduce((sum,m)=>sum+m.durationMs,0),42_000);
+  assert.equal(fitNightTail(pool,43_000,0,m=>m.durationMs),undefined);
 });

@@ -57,7 +57,8 @@ export function buildProfileSchedule(catalogue: MediaItem[], seed: string, start
   };
   const reserved = [...(planning.reserved ?? [])].filter(e => e.startsAtMs >= startMs).sort((a, b) => a.startsAtMs - b.startsAtMs);
   let previousShow = previousEntries.at(-1)?.showId;
-  while (cursor < targetEndMs) {
+  let plannedTail:MediaItem[]=[];
+  timeline: while (cursor < targetEndMs) {
     const window = profileWindow(cursor, station), windowEnd = window.endsAtMs;
     if (cursor === window.startsAtMs) continuity(window.profile === 'ln' ? 'evening' : 'morning', window.profile, 'handover');
     if (window.profile === 'lkp') {
@@ -115,12 +116,71 @@ export function buildProfileSchedule(catalogue: MediaItem[], seed: string, start
         (a.showId === b.showId && station.rotation === 'sequential' ? programmeOrder(a, b) : shuffle(seed, a.id).localeCompare(shuffle(seed, b.id)));
     });
     // Fair collection rotation is stricter than generic programme diversity.
-    const selected = eligible.find(m => {
+    let selected = plannedTail.shift() ?? eligible.find(m => {
       if (mediaPolicy(m, station).retention !== 'protected') return true;
       const collection = catalogue.filter(o => o.showId === m.showId && eligibleFor(o, 'ln', station, cursor));
       return (count.get(m.id) ?? 0) <= Math.min(...collection.map(o => count.get(o.id) ?? 0));
     });
-    if (!selected) { continuity('continuity', 'ln', 'gap', budget); continue; }
+    // The news offset is a preference, not a reason to hold a static station card.
+    if (station.avoidHandoverLogoPadding && !selected && beforeNews && news && news.durationMs+bumperMs<=windowEnd-cursor) selected=news;
+    // Near dawn, use an intact independent short rather than hours/minutes of the logo loop.
+    // Narrative multipart order is retained; independent comedy collections can fill by duration.
+    if (station.avoidHandoverLogoPadding && !selected && !beforeNews && windowEnd-cursor<=30*60_000) {
+      const shorts=catalogue.filter(m=>{
+        if(!eligibleFor(m,'ln',station,cursor) || m.durationMs+bumperMs>windowEnd-cursor || m.durationMs<=0) return false;
+        const p=mediaPolicy(m,station);
+        if(!station.profiles.ln.languages.includes(m.audioLanguage ?? m.defaultLanguage ?? 'unknown') || !station.profiles.ln.categories.includes(p.category) || p.timeOfNight==='evening' || p.retention==='latest-only') return false;
+        if(p.seriesId && p.seriesOrder!==undefined && p.category!=='comedy') return false;
+        if(p.retention==='protected') {
+          const collection=catalogue.filter(o=>o.showId===m.showId && eligibleFor(o,'ln',station,cursor));
+          if((count.get(m.id) ?? 0)>Math.min(...collection.map(o=>count.get(o.id) ?? 0))) return false;
+        }
+        return true;
+      });
+      shorts.sort((a,b)=>b.durationMs-a.durationMs || (count.get(a.id) ?? 0)-(count.get(b.id) ?? 0) || shuffle(seed,a.id).localeCompare(shuffle(seed,b.id)));
+      selected=shorts[0];
+    }
+    if (!selected) {
+      // A finite animated ident can bridge a few frames/seconds; never loop a static card beside a handover.
+      const ident=assets.get('ident')!;
+      if(station.avoidHandoverLogoPadding && windowEnd-cursor<=ident.durationMs) {continuity('ident','ln','ident',windowEnd-cursor);continue;}
+      if(station.avoidHandoverLogoPadding && windowEnd-cursor<=30*60_000) {
+        // Refit the last uncommitted programme block so a short is not stranded
+        // behind an otherwise suitable long documentary. All sources stay intact.
+        const programmeIndices=result.flatMap((e,index)=>e.presentation?.profile==='ln' && e.presentation.kind==='programme' && e.startsAtMs>=window.startsAtMs?[index]:[]);
+        for(let back=1;back<=3;back++) {
+        const lastProgramme=programmeIndices.at(-back) ?? -1;
+        if(lastProgramme>=0) {
+          const first=lastProgramme>0 && result[lastProgramme-1]?.presentation?.kind==='intro' ? lastProgramme-1:lastProgramme;
+          const from=result[first]!.startsAtMs;
+          const pool=catalogue.filter(m=>{
+            const p=mediaPolicy(m,station);
+            if(!eligibleFor(m,'ln',station,from) || !fs.existsSync(m.mediaPath) || p.retention==='latest-only' || p.timeOfNight==='evening' || (p.intensity!=='calm' && p.category!=='comedy')) return false;
+            if(p.seriesId && p.seriesOrder!==undefined && p.category!=='comedy') return false;
+            if(p.retention==='protected') {
+              const collection=catalogue.filter(o=>o.showId===m.showId && eligibleFor(o,'ln',station,from));
+              if((count.get(m.id) ?? 0)>Math.min(...collection.map(o=>count.get(o.id) ?? 0))) return false;
+            }
+            return station.profiles.ln.languages.includes(m.audioLanguage ?? m.defaultLanguage ?? 'unknown') && station.profiles.ln.categories.includes(p.category);
+          });
+          pool.sort((a,b)=>(mediaPolicy(a,station).intensity==='calm'?0:1)-(mediaPolicy(b,station).intensity==='calm'?0:1) || (count.get(a.id) ?? 0)-(count.get(b.id) ?? 0) || shuffle(seed,a.id).localeCompare(shuffle(seed,b.id)));
+          const cost=(m:MediaItem)=>m.durationMs+(assets.get(`intro-${blockFor(mediaPolicy(m,station).category)}`)?.durationMs ?? 0)+assets.get('outro')!.durationMs;
+          const plan=fitNightTail(pool,windowEnd-from,ident.durationMs,cost);
+          if(plan) {
+            const removed=result.splice(first);
+            for(const e of removed.filter(e=>e.presentation?.kind==='programme')) {
+              count.set(e.mediaId,Math.max(0,(count.get(e.mediaId) ?? 0)-1));
+              const prior=[...previousEntries,...result].filter(p=>p.mediaId===e.mediaId).at(-1);
+              last.set(e.mediaId,prior?.startsAtMs ?? planning.history?.find(p=>p.mediaId===e.mediaId)?.lastAtMs ?? 0);
+            }
+            cursor=from;sequence=removed[0]!.sequence;plannedTail=plan;previousShow=result.at(-1)?.showId;continue timeline;
+          }
+        }
+      }
+      }
+      if(station.avoidHandoverLogoPadding && (cursor<=window.startsAtMs+15*60_000 || windowEnd-cursor<=30*60_000)) throw new Error(`No intact LN short fits beside the handover at ${new Date(cursor).toISOString()} (${windowEnd-cursor} ms remaining); refusing static logo padding`);
+      continuity('continuity', 'ln', 'gap', budget);continue;
+    }
     const policy = mediaPolicy(selected, station), block = blockFor(policy.category);
     const intro = assets.get(`intro-${block}`);
     if (intro) continuity(intro.id, 'ln', 'intro', undefined, block);
@@ -139,3 +199,39 @@ export function buildProfileSchedule(catalogue: MediaItem[], seed: string, start
   return result;
 }
 function publication(m: MediaItem): number { return Number((m.technical.acquisition as { publishedAt?: number } | undefined)?.publishedAt ?? 0); }
+
+/** Find up to four whole programmes ending within one animated ident of handover. */
+export function fitNightTail(pool:MediaItem[],budget:number,tolerance:number,cost:(m:MediaItem)=>number):MediaItem[]|undefined {
+  const sorted=[...pool].sort((a,b)=>cost(a)-cost(b) || a.id.localeCompare(b.id));
+  const finish=(remaining:number,excluded:Set<string>)=>{
+    let low=0,high=sorted.length;
+    while(low<high) {const mid=(low+high)>>>1;if(cost(sorted[mid]!)<=remaining)low=mid+1;else high=mid;}
+    for(let i=low-1;i>=0 && remaining-cost(sorted[i]!)<=tolerance;i--) if(!excluded.has(sorted[i]!.id)) return sorted[i];
+    return undefined;
+  };
+  for(const a of pool) {
+    const left=budget-cost(a);if(left<0)continue;
+    if(left<=tolerance)return [a];
+    const b=finish(left,new Set([a.id]));if(b)return [a,b];
+  }
+  for(const a of pool) for(const b of pool) {
+    if(a.id===b.id)continue;
+    const left=budget-cost(a)-cost(b);if(left<0)continue;
+    const c=finish(left,new Set([a.id,b.id]));if(c)return [a,b,c];
+  }
+  // Meet in the middle avoids an O(n^4) search for narrowly timed short libraries.
+  const pairs:Array<{a:MediaItem;b:MediaItem;ms:number}>=[];
+  for(let i=0;i<pool.length;i++) for(let j=i+1;j<pool.length;j++) {
+    const ms=cost(pool[i]!)+cost(pool[j]!);if(ms<=budget)pairs.push({a:pool[i]!,b:pool[j]!,ms});
+  }
+  const sortedPairs=[...pairs].sort((a,b)=>a.ms-b.ms || a.a.id.localeCompare(b.a.id) || a.b.id.localeCompare(b.b.id));
+  for(const p of pairs) {
+    const remaining=budget-p.ms;let low=0,high=sortedPairs.length;
+    while(low<high){const mid=(low+high)>>>1;if(sortedPairs[mid]!.ms<=remaining)low=mid+1;else high=mid;}
+    for(let i=low-1;i>=0 && remaining-sortedPairs[i]!.ms<=tolerance;i--) {
+      const q=sortedPairs[i]!;
+      if(new Set([p.a.id,p.b.id,q.a.id,q.b.id]).size===4)return [p.a,p.b,q.a,q.b];
+    }
+  }
+  return undefined;
+}

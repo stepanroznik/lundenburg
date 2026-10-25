@@ -1,4 +1,6 @@
 enabled: true
+# Keep the original handover films; fill adjacent time with programmes.
+avoidHandoverLogoPadding: true
 timezone: Europe/Prague
 hours:
   weekdayStart: 20:00

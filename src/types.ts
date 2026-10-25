@@ -217,6 +217,7 @@ export interface ChannelProfile {
   languages: string[]; categories: string[];
 }
 export interface StationConfig {
+  avoidHandoverLogoPadding?: boolean;
   activateAtMs?: number;
   enabled: boolean; timezone: string;
   hours: { weekdayStart: string; weekendStart: string; morningEnd: string };

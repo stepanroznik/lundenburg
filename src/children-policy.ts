@@ -17,6 +17,7 @@ export interface ChildrenPolicy {
 }
 export interface ChildrenSlot { time: string; minutes: number; showId: string; rerunOf?: string; olderShowId?: string; weekdays?: number[] }
 export interface ChildrenConfig {
+  boundaryToleranceSeconds?: number;
   effectiveAtMs?: number;
   enabled: boolean; targetAgeYears: number; ageToleranceYears: number;
   policies: Record<string, ChildrenPolicy>; slots: ChildrenSlot[];
@@ -40,6 +41,7 @@ export function loadChildrenConfig(root: string): ChildrenConfig | undefined {
   if (!fs.existsSync(file)) return undefined;
   const c = parse(fs.readFileSync(file, 'utf8')) as ChildrenConfig;
   validateAge(c.targetAgeYears, c.ageToleranceYears);
+  if (c.boundaryToleranceSeconds !== undefined && (!Number.isFinite(c.boundaryToleranceSeconds) || c.boundaryToleranceSeconds<0 || c.boundaryToleranceSeconds>30)) throw new Error('Invalid children boundary tolerance');
   if (typeof c.enabled !== 'boolean' || !c.policies || !Array.isArray(c.slots)) throw new Error('Invalid children configuration');
   Object.values(c.policies).forEach(validateChildrenPolicy);
   const slots = [...c.slots].sort((a,b) => a.time.localeCompare(b.time));

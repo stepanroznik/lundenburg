@@ -303,7 +303,7 @@ function firstEncoderTarget(entry: ScheduleEntry, media: MediaItem | undefined, 
       ...(internal ? { showId: 'lkp-internal', listingVisibility: 'hidden' as const } : {}) },
     media: internal ? undefined : segment.type === 'content' && segment.subtitles && media ? { ...media, mediaPath: segment.mediaPath, subtitles: segment.subtitles } : media,
     seekMs: internal ? 0 : segment.fromMs, outputOffsetMs: 0, animate: animate && !internal,
-    ...(internal ? {} : { limitMs: segment.durationMs }), intermission: segment.type === 'intermission',
+    limitMs: segment.durationMs, intermission: segment.type === 'intermission',
     programme: entry, programmeOffsetMs: 0,
   };
 }
@@ -390,7 +390,7 @@ async function transcodePlayout(
         ...(internal ? { showId: 'lkp-internal', listingVisibility: 'hidden' as const } : {}) },
       media: internal ? undefined : segment.type === 'content' && segment.subtitles && media ? { ...media, mediaPath: segment.mediaPath, subtitles: segment.subtitles } : media, seekMs: (internal ? 0 : segment.fromMs) + segmentElapsedMs,
       outputOffsetMs: 0, animate: animate && index === 0,
-      ...(internal ? {} : { limitMs: segment.durationMs - segmentElapsedMs }),
+      limitMs: segment.durationMs - segmentElapsedMs,
       intermission: segment.type === 'intermission',
       plannedStartsAtMs: entry.startsAtMs + cumulativeMs, plannedOffsetMs: segmentElapsedMs,
       programme: entry, programmeOffsetMs: cumulativeMs + segmentElapsedMs,
@@ -406,7 +406,7 @@ async function transcodePlayout(
           ...(followingInternal ? { showId: 'lkp-internal', listingVisibility: 'hidden' as const } : {}) },
         media: followingInternal ? undefined : following.type === 'content' && following.subtitles && media ? { ...media, mediaPath: following.mediaPath, subtitles: following.subtitles } : media,
         seekMs: followingInternal ? 0 : following.fromMs, outputOffsetMs: 0, animate: false,
-        ...(followingInternal ? {} : { limitMs: following.durationMs }),
+        limitMs: following.durationMs,
         intermission: following.type === 'intermission',
         programme: entry, programmeOffsetMs: cumulativeMs + segment.durationMs,
       };

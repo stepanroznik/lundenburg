@@ -20,7 +20,7 @@ range 2–10, two daily premiere anchors, next-day repeats and a larger weekly t
 Policies include `schedulingPriority`, weighted `preferredDayparts`,
 `preferredSlotDurationMinutes`, `targetWeeklyAirtimeMinutes`, `energyLevel`,
 `nextDayRerun`, optional `excludedDayparts` and the unbuffered age range.
-The configured clock defines actual recurring and rerun slots; weekly airtime,
+The configured clock defines target recurring and rerun slots; weekly airtime,
 language balance, calmness and variety guide flexible selection. These are soft
 objectives, not guaranteed weekly quotas. Neutral programmes do not contribute
 to spoken-language percentages. Existing per-episode seasonal/recycled-content
@@ -67,34 +67,58 @@ IDs with in/out times and multipart indices. This is stored in the existing
 the same show can play consecutively; four Bluey episodes fit its half-hour slot.
 Each content segment carries its own subtitle tracks. `playback_assembly_sources`
 (schema migration 5) records all source episodes for completed-playback accounting.
-Exact next-day repeats copy the original programme, filler and continuity events;
-missing or age-incompatible sources trigger a fresh suitable block.
+Next-day repeats copy the exact original show assembly. Fillers are chosen
+afresh around it so small timing differences do not accumulate. Missing or
+age-incompatible sources trigger a fresh suitable block.
 
-All fixed boundaries are fitted without cutting arbitrary scenes. Longer items
-can be split deterministically at chapter markers or explicit manual breakpoints
+Programme anchors permit `boundaryToleranceSeconds` (default 5) of early or late
+running. Whole short shows, explicitly all-ages approved ads with a WERBUNG ident,
+and published seasonal intermissions fill the remaining time. No holding screen
+or looping "Eine kleine Pause" is generated. The following programme starts
+immediately if it is a few seconds early; a whole filler can finish a few seconds
+late. Ads require advertising to be enabled, an available bumper, and explicit
+all-ages/children/family age metadata; unknown-age advertisements are excluded.
+
+Nacht handovers and already committed weather boundaries remain immutable. Only
+a finite published station ident may be bounded there. Programmes and ads are never truncated to hit the clock. If no eligible
+programme or usable fillers exist, generation fails and preserves the existing
+schedule instead of silently generating hours of a holding screen.
+
+Longer items can be split deterministically at chapter markers or explicit manual breakpoints
 only when **every** resulting part fits. Part boundaries are stable by show slot
 policy; unfinished parts precede fresh episodes. Part labels and continuation
 wording appear in listings. Intact long programmes can use a larger flexible
 window. Weekend 19:00–21:00 permits an eligible intact film, repeated Sunday when
 Saturday’s block exists. Unavailable shows receive eligible substitutions while
-subsequent boundaries remain fixed.
+subsequent target starts remain within the configured tolerance.
 
 Weather reserves 06:05, 15:00 and 18:30 five-minute windows by default. The normal
 weather generator must still produce a finished valid edition. Publication
-replaces only a matching reserved window, retaining all later programme times;
-unavailable editions leave existing station continuity. No weather is invented
+replaces normal programmes in a matching window, fills any remaining time with
+short programmes or intermissions, and retains all later programme times.
+Unavailable editions leave normal programming in place. No weather is invented
 or rendered by the scheduler. Change these times/durations alongside the weather
 validity configuration if required.
 
 Limits: chapter metadata cannot prove a dramatic scene boundary. The compiler
 therefore defers unsegmentable long material if no intact window fits; it does
 not fabricate cuts. Continuation graphics/voiceovers and thematic matching of
-shorts are not generated. Existing reviewed day-continuity fills residual gaps,
-which can be long with an insufficient library. No new broadcast masters, paid
-speech or live Pi transcoding are introduced. The new compiler does not insert
-advertising within assemblies or move fixed slots to accommodate adverts.
+shorts are not generated. An insufficient library is reported as a generation failure. Scheduling creates
+no masters, paid speech or additional live Pi transcoding. Approved ads can fill the space between programme assemblies; they do not
+interrupt dialogue or scenes.
 
 The full weekday examples in `examples/schedules/` were generated read-only from
 the available Pi catalogue. KiKANiNCHEN is configured but currently unavailable,
-so its slot is substituted. Weather windows show continuity until an edition is
-published. Examples are review artifacts, not the active broadcast schedule.
+so its slot is substituted. Weather windows show normal programming until an edition is published. Examples are review artifacts, not the active broadcast schedule.
+
+Keep the original morning/evening transformation animations, their soundtracks
+and full durations. Do not add static logo cards before or after them.
+
+`config/channels.yaml` enables `avoidHandoverLogoPadding`. The news offset is a
+preferred start: if no intact programme fits before it, the bulletin can follow
+the evening animation immediately. Before dawn, the compiler can refit the last
+few uncommitted LN blocks with up to four intact eligible programmes, preferring
+calm material and using independent shorts when necessary. It retains multipart
+order for narrative series and fair rotation for protected collections. The last
+few seconds can use the finite animated LN ident, never a looping static card.
+Handover films and profile boundaries retain their original full timings.

@@ -4,6 +4,7 @@ import { LkpDatabase } from '../database.js';
 import type { AppConfig, ScheduleEntry } from '../types.js';
 import { stableId } from '../util.js';
 import type { ProgrammeMetadata } from './model.js';
+import { buildChildrenSchedule } from '../children-schedule.js';
 import { profileWindow } from '../channels.js';
 import { preserveEpgIdentities, buildScheduleEntries, schedulePlanning, validateTimeline } from '../schedule.js';
 
@@ -19,7 +20,13 @@ export function publishWeather(meta: ProgrammeMetadata, db: LkpDatabase, config:
   const earliest = Math.max(atMs, from, Date.now() + 60_000);
   const boundary = config.station?.enabled ? db.listSchedule(earliest, until).find(e => {
     const window = profileWindow(e.startsAtMs, config.station!);
-    if (config.children?.enabled && (e.presentation?.block !== 'weather' || e.durationMs < meta.durationMs)) return false;
+    if(config.children?.enabled) {
+      if(e.presentation?.block!=='weather') return false;
+      const following=db.listSchedule(e.startsAtMs,until);
+      const stop=following.findIndex(row=>row.presentation?.block!=='weather');
+      const group=stop<0?following:following.slice(0,stop);
+      if((group.at(-1)?.endsAtMs ?? e.endsAtMs)-e.startsAtMs<meta.durationMs) return false;
+    }
     return e.startsAtMs >= earliest && window.profile === 'lkp' && e.startsAtMs + meta.durationMs <= Math.min(window.endsAtMs, until);
   }) : db.nextAfter(earliest);
   if (!boundary || boundary.startsAtMs <= Date.now() + 30_000 || boundary.startsAtMs + meta.durationMs > until) throw new Error('No safe future programme boundary within the forecast validity window');
@@ -28,12 +35,16 @@ export function publishWeather(meta: ProgrammeMetadata, db: LkpDatabase, config:
     // Replace the reserved window only. Preserve every following clock and Nacht event.
     const bounds=db.scheduleBounds()!;
     const future=db.listSchedule(boundary.startsAtMs,bounds.lastMs+1);
-    const remaining=boundary.endsAtMs-entry.endsAtMs;
+    const stop=future.findIndex(e=>e.presentation?.block!=='weather');
+    const window=stop<0?future:future.slice(0,stop);
+    const windowEnd=window.at(-1)!.endsAtMs;
+    const retained=future.slice(window.length);
     const weather={...entry,presentation:{profile:'lkp' as const,kind:'programme' as const,block:'weather'}};
-    const rows:ScheduleEntry[]=[weather];
-    if(remaining>0) rows.push({...boundary,id:stableId(boundary.id,'weather-remainder'),sequence:entry.sequence+1,startsAtMs:entry.endsAtMs,durationMs:remaining});
-    rows.push(...future.slice(1).map((e,i)=>({...e,sequence:entry.sequence+rows.length+i})));
-    preserveEpgIdentities(rows,future.slice(1),db.listSchedule(bounds.firstMs,boundary.startsAtMs));
+    const prefix=db.listSchedule(bounds.firstMs,boundary.startsAtMs);
+    const remainder=buildChildrenSchedule(db.listMedia(),config.schedule.seed,entry.endsAtMs,windowEnd,entry.sequence+1,[...prefix,weather],config,schedulePlanning(db,config));
+    const rows:ScheduleEntry[]=[weather,...remainder];
+    rows.push(...retained.map((e,i)=>({...e,sequence:entry.sequence+rows.length+i})));
+    preserveEpgIdentities(rows,retained,prefix);
     const errors=validateTimeline(rows);
     if(errors.length) throw new Error('Weather window replacement would invalidate the clock');
     db.db.transaction(()=>{

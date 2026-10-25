@@ -12,6 +12,7 @@ import { buildScheduleEntries, schedulePlanning, setChildrenAge, validateTimelin
 import { childrenSettings } from '../src/children-settings.js';
 import { channelEntryAllowed, loadStationConfig, profileWindow } from '../src/channels.js';
 import { LkpDatabase } from '../src/database.js';
+import type { ScheduleEntry } from '../src/types.js';
 import { generateEpgXml } from '../src/epg.js';
 import { locatePlayoutPosition } from '../src/editorial.js';
 
@@ -19,7 +20,7 @@ const ms=(s:string)=>DateTime.fromISO(s,{zone:'Europe/Prague'}).toMillis();
 function fixture(age=3) {
   const root=fs.mkdtempSync(path.join(os.tmpdir(),'lkp-ages-')),app=config(root);
   app.children=loadChildrenConfig(path.resolve('.'))!;app.children.targetAgeYears=age;
-  app.station=loadStationConfig(path.resolve('.'))!;app.station.enabled=true;
+  app.station=loadStationConfig(path.resolve('.'))!;app.station.enabled=true;app.station.avoidHandoverLogoPadding=false;
   const video=path.join(root,'continuity.mp4');fs.writeFileSync(video,'fixture');
   app.station.assetManifest=path.join(root,'assets.json');
   const assets=['morning','evening','ident','outro','continuity','day-continuity'].map(id=>({id,path:video,durationMs:5000,fullScreen:true,destination:'lkp'}));
@@ -29,6 +30,11 @@ function fixture(age=3) {
     const m=item(id,i+1,(id==='bluey'?7:id==='ms-rachel'?23:id==='miss-josi'?12:id==='byl-jednou-jeden-zivot'?25:id==='sendung-mit-dem-elefanten'?25:5)*60_000);
     m.mediaPath=path.join(root,`${m.id}.mp4`);fs.writeFileSync(m.mediaPath,'fixture');return m;
   }));
+  for(let i=13;i<=30;i++) {
+    const m=item('der-kleine-maulwurf',i,43_000);m.mediaPath=path.join(root,`${m.id}.mp4`);fs.writeFileSync(m.mediaPath,'fixture');media.push(m);
+  }
+  app.intermissions={enabled:true,manifest:path.join(root,'intermissions.json'),boundaryRate:.8,weights:{ident:70,silent:20,voiced:10}};
+  fs.writeFileSync(app.intermissions.manifest,JSON.stringify({version:1,revision:'test',clips:[{id:'ident',title:'LKP ident',kind:'ident',mediaPath:video,durationMs:5000,languages:['zxx'],synopsis:'Station ident'},{id:'short',title:'Short film',kind:'silent',mediaPath:video,durationMs:11_000,languages:['zxx'],synopsis:'A short film'}]}));
   const db=new LkpDatabase(app.storage.database);db.upsertMedia(media);
   return {root,app,media,db,close:()=>{db.close();fs.rmSync(root,{recursive:true,force:true});}};
 }
@@ -54,18 +60,21 @@ test('age tolerance applies exactly once, ceilings exclude toddler shows after f
   const classified=item('new-show',1);classified.technical.acquisition={classification:{ageSuitability:'preschool'}};
   assert.equal(childrenPolicy(classified,c)?.recommendedAgeMin,3);
 });
-test('fixed anchors, whole short episodes, day-ahead source identity and deterministic gap-free EPG',()=>{
+const slotEntry=(rows:ScheduleEntry[],time:string,date='2026-10-26')=>rows.find(e=>e.playoutPlan?.assembly?.slot===time && DateTime.fromMillis(e.startsAtMs,{zone:'Europe/Prague'}).toISODate()===date)!;
+
+test('soft anchors, whole short episodes, day-ahead source identity and deterministic gap-free EPG',()=>{
   const f=fixture();try {
     const start=ms('2026-10-26T06:00'),end=ms('2026-10-28T06:00');
     const rows=buildScheduleEntries(f.media,'test',start,end,0,[],schedulePlanning(f.db,f.app));
     assert.deepEqual(validateTimeline(rows),[]);
     for(const slot of f.app.children!.slots.filter(s=>!s.rerunOf)) {
-      const e=rows.find(e=>e.startsAtMs===ms(`2026-10-26T${slot.time}`));assert.ok(e,slot.time);
+      if(slot.weekdays && !slot.weekdays.includes(1))continue;
+      const e=slotEntry(rows,slot.time);assert.ok(e,slot.time);assert.ok(Math.abs(e.startsAtMs-ms(`2026-10-26T${slot.time}`))<=5000,slot.time);
     }
-    const bluey=rows.find(e=>e.startsAtMs===ms('2026-10-26T09:30'))!;
+    const bluey=slotEntry(rows,'09:30');
     assert.equal(bluey.showId,'bluey');assert.equal(bluey.playoutPlan!.assembly!.sources.length,4);
     assert.equal(new Set(bluey.playoutPlan!.assembly!.sources.map(s=>s.mediaId)).size,4);
-    const repeat=rows.find(e=>e.startsAtMs===ms('2026-10-27T13:00'))!;
+    const repeat=slotEntry(rows,'13:00','2026-10-27');
     assert.equal(repeat.playoutPlan!.assembly!.rerunOf,bluey.id);
     assert.deepEqual(repeat.playoutPlan!.segments,bluey.playoutPlan!.segments);
     assert.deepEqual(rows,buildScheduleEntries(f.media,'test',start,end,0,[],schedulePlanning(f.db,f.app)));
@@ -81,7 +90,7 @@ test('age six chooses older flagship, excludes both toddler teachers and tolerat
     fs.unlinkSync(f.media.find(m=>m.showId==='bluey')!.mediaPath);
     const rows=buildChildrenSchedule(f.media,'age6',ms('2026-10-26T06:00'),ms('2026-10-26T20:00'),0,[],f.app);
     assert.deepEqual(validateTimeline(rows),[]);
-    assert.equal(rows.find(e=>e.startsAtMs===ms('2026-10-26T17:00'))!.showId,'byl-jednou-jeden-zivot');
+    assert.equal(slotEntry(rows,'17:00').showId,'byl-jednou-jeden-zivot');
     assert.ok(rows.every(e=>!['miss-josi','ms-rachel'].includes(e.showId)));
     assert.ok(rows.flatMap(e=>e.playoutPlan?.assembly?.sources ?? []).every(s=>s.mediaId!==f.media.find(m=>m.showId==='bluey')!.id));
   }finally{f.close();}
@@ -92,15 +101,14 @@ test('chapter-only segmentation preserves all content and persistent multipart s
     assert.equal(programmeParts(long,30*60_000).length,3);
     assert.equal(programmeParts({...long,editorialMarkers:[]},30*60_000).length,0);
     const rows=buildChildrenSchedule([long],'parts',ms('2026-10-26T08:30'),ms('2026-10-26T09:30'),0,[],f.app);
-    const next=buildChildrenSchedule([long],'parts',ms('2026-10-27T08:30'),ms('2026-10-27T09:30'),rows.length,rows,f.app);
+    const next=buildChildrenSchedule([long],'parts',ms('2026-10-27T08:30'),ms('2026-10-27T09:00'),rows.length,rows,f.app);
     assert.equal(rows[0]!.playoutPlan!.assembly!.sources[0]!.fromMs,0);
     assert.equal(next[0]!.playoutPlan!.assembly!.sources[0]!.fromMs,60*60_000);
   }finally{f.close();}
 });
-test('insufficient library uses validated continuity and never bypasses age',()=>{
+test('an empty age-eligible library refuses generation instead of scheduling holding screens',()=>{
   const f=fixture();try{
-    const rows=buildChildrenSchedule([],'empty',ms('2026-10-26T06:00'),ms('2026-10-26T20:00'),0,[],f.app);
-    assert.deepEqual(validateTimeline(rows),[]);assert.ok(rows.every(e=>e.showId==='station-lkp'));
+    assert.throws(()=>buildChildrenSchedule([],'empty',ms('2026-10-26T06:00'),ms('2026-10-26T20:00'),0,[],f.app),/No playable age-eligible/);
   }finally{f.close();}
 });
 test('atomic age regeneration preserves current, history, Nacht identities and rolls back failure',()=>{
@@ -116,7 +124,7 @@ test('atomic age regeneration preserves current, history, Nacht identities and r
     const reopened=config(f.root);reopened.children=loadChildrenConfig(path.resolve('.'))!;childrenSettings(f.db,reopened);
     assert.equal(reopened.children!.targetAgeYears,6);
     const snapshot=f.db.listSchedule(start,end);assert.deepEqual(validateTimeline(snapshot),[]);
-    fs.unlinkSync(f.app.station!.assetManifest);
+    fs.writeFileSync(f.app.intermissions!.manifest,'{}');
     assert.throws(()=>setChildrenAge(f.db,f.app,3,1,ms('2026-10-27T07:00')));
     assert.deepEqual(f.db.listSchedule(start,end),snapshot);
     assert.equal(f.db.db.prepare('SELECT target_age FROM children_settings').pluck().get(),6);
@@ -147,17 +155,19 @@ test('runtime age guard rejects stale assemblies and checks every source',()=>{
   }finally{f.close();}
 });
 
-test('weather replaces only a reserved gap, preserving fixed clocks and every subsequent EPG identity',async()=>{
+test('weather replaces normal content in its reserved window, preserving fixed clocks and every subsequent EPG identity',async()=>{
   const {publishWeather}=await import('../src/weather/publish.js');
   const f=fixture();try{
     const from=ms('2099-10-26T06:00'),until=ms('2099-10-28T06:00');
     f.db.insertSchedule(buildScheduleEntries(f.media,'weather',from,until,0,[],schedulePlanning(f.db,f.app)));
     const old=f.db.listSchedule(from,until),window=old.find(e=>e.presentation?.block==='weather')!;
+    const following=old.filter(e=>e.startsAtMs>=window.startsAtMs);
+    const windowEnd=following.slice(0,following.findIndex(e=>e.presentation?.block!=='weather')).at(-1)!.endsAtMs;
     const subtitles=path.join(f.root,'weather.srt');fs.writeFileSync(subtitles,'');
     const entry=publishWeather({id:'weather-test',title:'Test weather',edition:'morning',generatedAt:new Date(from).toISOString(),validFrom:new Date(from).toISOString(),validUntil:new Date(ms('2099-10-26T12:00')).toISOString(),durationMs:90_000,mediaPath:f.media[0]!.mediaPath,subtitlePath:subtitles,preview:false},f.db,f.app,from);
     assert.equal(entry.startsAtMs,window.startsAtMs);
     assert.deepEqual(validateTimeline(f.db.listSchedule(from,until)),[]);
-    assert.deepEqual(f.db.listSchedule(window.endsAtMs,until).map(({sequence,...e})=>e),old.filter(e=>e.startsAtMs>=window.endsAtMs).map(({sequence,...e})=>e));
+    assert.deepEqual(f.db.listSchedule(windowEnd,until).map(({sequence,...e})=>e),old.filter(e=>e.startsAtMs>=windowEnd).map(({sequence,...e})=>e));
     assert.throws(()=>publishWeather({id:'too-long',title:'Too long',edition:'morning',generatedAt:new Date(from).toISOString(),validFrom:new Date(from).toISOString(),validUntil:new Date(ms('2099-10-26T12:00')).toISOString(),durationMs:6*60_000,mediaPath:f.media[0]!.mediaPath,subtitlePath:subtitles,preview:false},f.db,f.app,from));
   }finally{f.close();}
 });
@@ -179,5 +189,38 @@ test('weekend films stay intact and repeat the exact Saturday block on Sunday',(
     const sunday=buildChildrenSchedule([...f.media,film],'film',ms('2026-10-25T19:00'),ms('2026-10-25T21:00'),saturday.length,saturday,f.app);
     assert.deepEqual(sunday[0]!.playoutPlan!.segments,saturday[0]!.playoutPlan!.segments);
     assert.equal(sunday[0]!.playoutPlan!.assembly!.rerunOf,saturday[0]!.id);
+  }finally{f.close();}
+});
+
+test('short programmes may finish a few seconds late and leave no scheduled pauses',()=>{
+  const f=fixture();try{
+    const bluey=f.media.filter(m=>m.showId==='bluey').map(m=>({...m,durationMs:7*60_000+1000}));
+    const short=f.media.filter(m=>m.showId==='der-kleine-maulwurf').map(m=>({...m,durationMs:30_000}));
+    const rows=buildChildrenSchedule([...bluey,...short],'soft',ms('2026-10-26T09:30'),ms('2026-10-26T10:30'),0,[],f.app);
+    assert.deepEqual(validateTimeline(rows),[]);
+    assert.ok(rows.every(e=>e.presentation?.kind!=='gap' && !e.presentation?.loop && e.episodeTitle!=='Eine kleine Pause'));
+    const next=slotEntry(rows,'10:00');
+    assert.ok(Math.abs(next.startsAtMs-ms('2026-10-26T10:00'))<=5000);
+    assert.ok(next.startsAtMs>ms('2026-10-26T10:00'),'whole shorts can finish after the nominal anchor');
+    for(const e of rows) for(const source of e.playoutPlan?.assembly?.sources ?? []) {
+      const original=[...bluey,...short].find(m=>m.id===source.mediaId)!;
+      assert.equal(source.toMs-source.fromMs,original.durationMs);
+    }
+    assert.equal(rows.at(-1)!.endsAtMs,ms('2026-10-26T10:30'));
+  }finally{f.close();}
+});
+test('approved ad fillers include WERBUNG and never admit unknown-age ads',()=>{
+  const f=fixture();try{
+    f.app.advertising={enabled:true,root:f.root,programmeInterval:2,minEditorialMinutes:16,targetSeconds:{min:30,max:60},searchWindowMinutes:2,minimumBreakpointScore:50,bumperManifest:path.join(f.root,'bumpers.json')};
+    const media=f.media.filter(m=>m.showId==='bluey');
+    const ad={id:'approved',title:'Approved family ad',sourceUrl:'https://example.test/ad',language:'de',durationMs:25_000,mediaPath:media[0]!.mediaPath,enabled:true,tags:[],ageSuitability:'all-ages',sourceMetadata:{}};
+    const fillers={ads:[ad],clips:JSON.parse(fs.readFileSync(f.app.intermissions!.manifest,'utf8')).clips,bumpers:[{character:'sisi' as const,mediaPath:media[0]!.mediaPath,durationMs:5000}]};
+    const rows=buildChildrenSchedule(media,'ads',ms('2026-10-26T09:30'),ms('2026-10-26T10:00'),0,[],f.app,fillers);
+    const pod=rows.find(e=>e.showId==='lkp-advertising')!;assert.ok(pod);
+    assert.equal(pod.playoutPlan!.segments[0]!.type,'ad-ident');
+    assert.ok(channelEntryAllowed(pod,undefined,f.app.station!,pod.startsAtMs,f.app.children));
+    fillers.ads=[{...ad,ageSuitability:'unknown'}];
+    const without=buildChildrenSchedule(media,'ads',ms('2026-10-26T09:30'),ms('2026-10-26T10:00'),0,[],f.app,fillers);
+    assert.ok(without.every(e=>e.showId!=='lkp-advertising'));
   }finally{f.close();}
 });

@@ -3,11 +3,15 @@ import { DateTime } from 'luxon';
 import type { AppConfig, MediaItem, ScheduleEntry, PlayoutSegment } from './types.js';
 import { ageEligible, childrenPolicy, daypart } from './children-policy.js';
 import { eligibleFor } from './channels.js';
-import { stationAssets } from './channel-schedule.js';
+import { readRotationLibrary, type RotationClip } from './intermissions/rotation.js';
+import { seasonAt } from './intermissions/season.js';
+import type { AdBumper } from './editorial.js';
+import type { AdAsset } from './types.js';
 import { programmeEligible, programmeOrder } from './acquisition/programming.js';
 import { isCatalogueMovie } from './catalogue.js';
 import { stableId } from './util.js';
 
+export interface ChildrenFillers { clips: RotationClip[]; ads: AdAsset[]; bumpers: AdBumper[] }
 interface Source { media: MediaItem; fromMs: number; toMs: number; part?: number; parts?: number }
 /** Split only at explicit editorial boundaries, never by duration alone. */
 export function programmeParts(media: MediaItem, maximumMs: number): Source[] {
@@ -27,22 +31,26 @@ export function programmeParts(media: MediaItem, maximumMs: number): Source[] {
 
 /** Compiles daytime windows inside the existing station timeline and persists ordinary playout plans. */
 export function buildChildrenSchedule(catalogue: MediaItem[], seed: string, startMs: number, endMs: number,
-  initialSequence: number, previous: ScheduleEntry[], config: AppConfig): ScheduleEntry[] {
+  initialSequence: number, previous: ScheduleEntry[], config: AppConfig, fillers?: ChildrenFillers): ScheduleEntry[] {
   const c = config.children!;
   if (!config.station?.enabled) throw new Error('Children clock requires station profile barriers');
   const zone = config.channel.timezone;
   const library = catalogue.filter(m => eligibleFor(m,'lkp',config.station,startMs) && ageEligible(m,c) && fs.existsSync(m.mediaPath) && Number.isSafeInteger(m.durationMs) && m.durationMs > 0);
-  const assets = config.station?.enabled ? stationAssets(config) : undefined;
-  const continuity = assets?.get('day-continuity');
+  if(!library.length) throw new Error('No playable age-eligible children programmes; preserve the existing schedule');
+  const clips=fillers?.clips ?? readRotationLibrary(config);
+  const toleranceMs=(c.boundaryToleranceSeconds ?? 5)*1000;
+  const consumed=new Set<string>();
   const result: ScheduleEntry[] = [];
   let cursor = startMs, sequence = initialSequence;
   const history = () => [...previous,...result];
   const catalogueById=new Map(catalogue.map(m=>[m.id,m]));
+  const fillerLastUse=new Map<string,number>();
   const useCounts=new Map<string,number>(), lastUses=new Map<string,number>();
   const showAirtime=new Map<string,number>(), languageAirtime=new Map<string,number>();
   let previousShow=previous.at(-1)?.showId;
   const account=(e:ScheduleEntry)=>{
     if(e.presentation?.profile==='ln') return;
+    fillerLastUse.set(e.mediaId,e.endsAtMs);
     const sources=e.playoutPlan?.assembly?.sources ?? [{mediaId:e.mediaId,fromMs:0,toMs:e.durationMs}];
     for(const source of sources) {
       const key=`${source.mediaId}:${source.fromMs}`;
@@ -64,10 +72,40 @@ export function buildChildrenSchedule(catalogue: MediaItem[], seed: string, star
   const uses=(m:MediaItem,fromMs=0)=>useCounts.get(`${m.id}:${fromMs}`) ?? 0;
   const lastUse=(m:MediaItem)=>lastUses.get(m.id) ?? 0;
   const push = (e: ScheduleEntry) => { result.push(e);account(e);previousShow=e.showId;cursor=e.endsAtMs;sequence++; };
-  const gap = (until: number, weather = false) => {
-    if (until <= cursor) return;
-    if (!continuity) throw new Error('Children clock requires a validated day-continuity asset to fill residual gaps');
-    push({ id:stableId(seed,'children-gap',cursor),sequence,mediaId:'station-day-continuity',showId:'station-lkp',showTitle:'Lundenburg Kids Premium',episodeTitle:'Eine kleine Pause',description:'Eine kleine Pause im Programm.',startsAtMs:cursor,endsAtMs:until,durationMs:until-cursor,mediaPath:continuity.path,audioLanguage:'zxx',subtitleLanguages:[],listingVisibility:'public',presentation:{profile:'lkp',kind:'gap',loop:true,...(weather?{block:'weather'}:{})} });
+  const interstitial = (until:number,slot:string,date:string,hard=false):boolean => {
+    const remaining=until-cursor;
+    const eligible=clips.filter(clip=>(!clip.season || clip.season===seasonAt(new Date(cursor))) && fs.existsSync(clip.mediaPath));
+    // Prefer useful short programmes above; these finite published films fill the residual.
+    const last=result.at(-1)?.mediaId ?? previous.at(-1)?.mediaId;
+    const choices=eligible.filter(clip=>clip.durationMs<=remaining+(hard?0:toleranceMs));
+    choices.sort((a,b)=>((fillerLastUse.get(`intermission-${a.id}`) ?? 0)>cursor-30*60_000?1:0)-((fillerLastUse.get(`intermission-${b.id}`) ?? 0)>cursor-30*60_000?1:0) ||
+      (`intermission-${a.id}`===last?1:0)-(`intermission-${b.id}`===last?1:0) ||
+      Math.abs(remaining-a.durationMs)-Math.abs(remaining-b.durationMs) || a.id.localeCompare(b.id));
+    let clip=choices[0], durationMs=clip?.durationMs;
+    if (!clip && hard) {
+      // Only the tail of a station ident may be bounded at an immutable station/weather handover.
+      // Programmes and ads always run intact; never introduce a loop or a holding screen.
+      clip=eligible.filter(c=>c.kind==='ident' && c.durationMs<=10_000 && c.durationMs>=remaining).sort((a,b)=>a.durationMs-b.durationMs || a.id.localeCompare(b.id))[0];
+      if(clip) durationMs=remaining;
+    }
+    if(!clip || !durationMs) return false;
+    const id=stableId(seed,'filler',clip.id,cursor);
+    push({id,sequence,mediaId:`intermission-${clip.id}`,showId:'lkp-intermissions',showTitle:'Lundenburg Kids Premium',episodeTitle:clip.title,description:clip.synopsis,
+      startsAtMs:cursor,endsAtMs:cursor+durationMs,durationMs,mediaPath:clip.mediaPath,audioLanguage:clip.languages.length===1?clip.languages[0]!:'mul',subtitleLanguages:[],listingVisibility:'hidden',presentation:{profile:'lkp',kind:'programme'},
+      playoutPlan:{version:1,programmeEventId:id,sourceDurationMs:clip.durationMs,durationMs,segments:[{type:'intermission',mediaPath:clip.mediaPath,durationMs,intermissionId:clip.id}],warnings:[],assembly:{slot,premiereDate:date,sources:[]}}});
+    return true;
+  };
+  const advertisement=(until:number,slot:string,date:string,hard=false):boolean=>{
+    if(!config.advertising?.enabled || !config.station?.profiles.lkp.advertising) return false;
+    const bumper=fillers?.bumpers.filter(b=>fs.existsSync(b.mediaPath)).sort((a,b)=>a.mediaPath.localeCompare(b.mediaPath))[0];
+    if(!bumper) return false;
+    const available=(fillers?.ads ?? []).filter(ad=>ad.enabled && /^(?:all(?:-ages)?|children|family|0\+?)$/i.test(ad.ageSuitability ?? '') && fs.existsSync(ad.mediaPath) && (fillerLastUse.get(`ad-${ad.id}`) ?? 0)<=cursor-10*60_000 && ad.durationMs+bumper.durationMs<=until-cursor+(hard?0:toleranceMs));
+    available.sort((a,b)=>Math.abs(until-cursor-a.durationMs-bumper.durationMs)-Math.abs(until-cursor-b.durationMs-bumper.durationMs) || a.id.localeCompare(b.id));
+    const ad=available[0];if(!ad)return false;
+    const durationMs=ad.durationMs+bumper.durationMs,id=stableId(seed,'ad-filler',ad.id,cursor);
+    push({id,sequence,mediaId:`ad-${ad.id}`,showId:'lkp-advertising',showTitle:'Werbung',episodeTitle:ad.title,description:ad.title,
+      startsAtMs:cursor,endsAtMs:cursor+durationMs,durationMs,mediaPath:bumper.mediaPath,audioLanguage:ad.language,subtitleLanguages:[],listingVisibility:'hidden',presentation:{profile:'lkp',kind:'programme'},
+      playoutPlan:{version:1,programmeEventId:id,sourceDurationMs:durationMs,durationMs,segments:[{type:'ad-ident',mediaPath:bumper.mediaPath,durationMs:bumper.durationMs,character:bumper.character},{type:'ad',mediaPath:ad.mediaPath,durationMs:ad.durationMs,adId:ad.id}],warnings:[],assembly:{slot,premiereDate:date,sources:[]}}});return true;
   };
   const make = (showId: string | undefined, until: number, slot: string, premiereDate: string): boolean => {
     const budget = until-cursor;
@@ -118,45 +156,60 @@ export function buildChildrenSchedule(catalogue: MediaItem[], seed: string, star
       playoutPlan:{version:1,programmeEventId:id,sourceDurationMs:durationMs,durationMs,segments,warnings:[],assembly:{slot,premiereDate,sources:sources.map(s=>({mediaId:s.media.id,fromMs:s.fromMs,toMs:s.toMs,...(s.part?{part:s.part,parts:s.parts!}:{})}))}}});
     return true;
   };
-  const fill = (until:number,slot:string,date:string,showId?:string) => {
-    if (showId) make(showId,until,slot,date);
+  const fill = (until:number,slot:string,date:string,showId?:string,hard=false) => {
+    const limit=Math.min(endMs,until+(hard?0:toleranceMs));
+    if (showId) make(showId,limit,slot,date);
     while(cursor<until) {
+      if(!hard && until-cursor<=toleranceMs) return;
       const before=cursor;
-      // A half-hour block keeps regular shows recurring without cutting them.
-      if (!make(undefined,Math.min(until,cursor+30*60_000),slot,date) && !make(undefined,until,slot,date)) gap(until);
+      if (!make(undefined,Math.min(limit,cursor+30*60_000),slot,date) && !make(undefined,limit,slot,date) &&
+          !advertisement(until,slot,date,hard) && !interstitial(until,slot,date,hard)) {
+        if(!hard && until-cursor<=toleranceMs) return; // Start the next programme directly, a few seconds early.
+        throw new Error(`No playable short programme, approved advertisement or published intermission can fill children programming near ${new Date(cursor).toISOString()}`);
+      }
       if (before===cursor) throw new Error('Children compiler made no progress');
     }
   };
   while(cursor<endMs) {
     const local=DateTime.fromMillis(cursor,{zone}), date=local.toISODate()!, midnight=local.startOf('day');
     const slots=c.slots.filter(s=>!s.weekdays || s.weekdays.includes(local.weekday)).map(s=>({...s,start:midnight.set({hour:Number(s.time.slice(0,2)),minute:Number(s.time.slice(3))}).toMillis()})).sort((a,b)=>a.start-b.start);
-    const active=slots.find(s=>s.start===cursor);
-    const next=slots.find(s=>s.start>cursor);
-    if (!active) { fill(Math.min(endMs,next?.start ?? local.plus({days:1}).startOf('day').toMillis()),'flexible',date); continue; }
+    const key=(time:string)=>`${date}:${time}`;
+    // A slot already in progress at a safe rebuild boundary is left to flexible programming.
+    const active=slots.find(s=>!consumed.has(key(s.time)) && Math.abs(s.start-cursor)<=toleranceMs);
+    const next=slots.find(s=>!consumed.has(key(s.time)) && s.start>cursor+toleranceMs);
+    if (!active) { const until=Math.min(endMs,next?.start ?? local.plus({days:1}).startOf('day').toMillis());fill(until,'flexible',date,undefined,until===endMs);continue; }
+    consumed.add(key(active.time));
     const until=Math.min(endMs,active.start+active.minutes*60_000);
-    if(active.showId==='lkp-weather') {gap(until,true);continue;}
+    const fillSlot=(showId?:string)=>fill(until,active.time,date,showId,until===endMs);
+    if(active.showId==='lkp-weather') {
+      const first=result.length;fillSlot();
+      for(const entry of result.slice(first)) entry.presentation={...entry.presentation!,block:'weather'};
+      continue;
+    }
     if(active.showId==='weekend-film' && local.weekday===7) active.rerunOf=active.time;
     if(active.rerunOf) {
       const yesterday=local.minus({days:1}).startOf('day').set({hour:Number(active.rerunOf.slice(0,2)),minute:Number(active.rerunOf.slice(3))}).toMillis();
-      const originals=history().filter(e=>e.startsAtMs>=yesterday && e.endsAtMs<=yesterday+active.minutes*60_000 &&
-        (e.playoutPlan?.assembly?.slot===active.rerunOf || e.showId==='station-lkp'));
+      const yesterdayDate=local.minus({days:1}).toISODate();
+      const originals=history().filter(e=>e.playoutPlan?.assembly?.slot===active.rerunOf && e.playoutPlan?.assembly?.premiereDate===yesterdayDate && !e.playoutPlan?.assembly?.rerunOf).slice(0,1);
       const sources=originals.flatMap(e=>e.playoutPlan?.assembly?.sources ?? []);
       const compatible=sources.length && sources.every(s=>library.some(m=>m.id===s.mediaId && programmeEligible(m,cursor,zone) && !childrenPolicy(m,c)!.excludedDayparts?.includes(daypart(local.hour+local.minute/60))));
-      if(compatible && originals[0]?.startsAtMs===yesterday && originals.at(-1)?.endsAtMs===yesterday+active.minutes*60_000 && until===active.start+active.minutes*60_000) {
+      const duration=originals.reduce((sum,e)=>sum+e.durationMs,0);
+      if(compatible && originals.length && originals.every((e,i)=>!i || originals[i-1]!.endsAtMs===e.startsAtMs) && cursor+duration<=Math.min(endMs,until+toleranceMs)) {
         for(const old of originals) {
           const id=stableId(seed,'rerun',old.id,active.start), plan=old.playoutPlan;
           const {epgEventId:_epg,...base}=old;
           push({...base,id,sequence,startsAtMs:cursor,endsAtMs:cursor+old.durationMs,...(plan?{playoutPlan:{...plan,programmeEventId:id,assembly:{...plan.assembly!,slot:active.time,rerunOf:old.id}}}:{})});
         }
+        if(cursor<until-toleranceMs) fillSlot();
         continue;
       }
     }
     if(active.showId==='weekend-film') {
       const film=library.filter(m=>isCatalogueMovie(m) && m.durationMs<=until-cursor).sort((a,b)=>lastUse(a)-lastUse(b) || programmeOrder(a,b))[0];
-      fill(until,active.time,date,film?.showId);continue;
+      fillSlot(film?.showId);continue;
     }
     const show=active.olderShowId && c.targetAgeYears>=6 ? active.olderShowId : active.showId;
-    fill(until,active.time,date,show);
+    fillSlot(show);
   }
   return result;
 }

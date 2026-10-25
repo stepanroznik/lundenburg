@@ -47,7 +47,7 @@ function deterministicUnit(seed: string, sequence: number, showId: string): numb
   return (bytes.readUInt32BE(0) + 1) / 0x1_0000_0001;
 }
 
-function readBumpers(config: AppConfig): AdBumper[] {
+export function readBumpers(config: AppConfig): AdBumper[] {
   const manifest = config.advertising?.bumperManifest;
   if (!manifest || !fs.existsSync(manifest)) return [];
   const parsed = JSON.parse(fs.readFileSync(manifest, 'utf8')) as { version?: number; bumpers?: AdBumper[] };
@@ -71,7 +71,7 @@ export function buildScheduleEntries(
     return buildProfileSchedule(catalogue, seed, startMs, targetEndMs, initialSequence, previousEntries, planning,
       (from, until, sequence, previous) => buildScheduleEntries(catalogue, seed, from, until, sequence, previous, { ...planning, partitionEndMs: until }));
   }
-  if (planning?.config.children?.enabled) return buildChildrenSchedule(catalogue,seed,startMs,targetEndMs,initialSequence,previousEntries,planning.config);
+  if (planning?.config.children?.enabled) return buildChildrenSchedule(catalogue,seed,startMs,targetEndMs,initialSequence,previousEntries,planning.config,planning);
   const enabled = catalogue.filter((item) => eligibleFor(item, 'lkp', planning?.config.station, startMs));
   if (enabled.length === 0) throw new Error('Cannot generate a schedule without enabled media');
   const byShow = new Map<string, ShowBucket>();
@@ -355,7 +355,7 @@ export function setChildrenAge(db: LkpDatabase, config: AppConfig, age: number, 
     const start=e.startsAtMs;
     let end=e.endsAtMs;
     while(index<tail.length && !preserved(tail[index]!)) {end=tail[index]!.endsAtMs;index++;}
-    const entries=buildChildrenSchedule(db.listMedia(),config.schedule.seed,start,end,sequence,[...prefix,...generated].filter(e=>e.presentation?.profile!=='ln'),nextConfig);
+    const entries=buildChildrenSchedule(db.listMedia(),config.schedule.seed,start,end,sequence,[...prefix,...generated].filter(e=>e.presentation?.profile!=='ln'),nextConfig,{ads:db.listAds(),clips:readRotationLibrary(config),bumpers:readBumpers(config)});
     generated.push(...entries);sequence+=entries.length;
   }
   const errors=validateTimeline([...prefix.slice(-1),...generated]);
