@@ -97,7 +97,7 @@ export function buildChildrenSchedule(catalogue: MediaItem[], seed: string, star
       playoutPlan:{version:1,programmeEventId:id,sourceDurationMs:clip.durationMs,durationMs,segments:[{type:'intermission',mediaPath:clip.mediaPath,durationMs,intermissionId:clip.id}],warnings:[],assembly:{slot,premiereDate:date,sources:[]}}});
     return true;
   };
-  const advertisement=(until:number,slot:string,date:string,hard=false):boolean=>{
+  const advertisement=(until:number,slot:string,date:string,hard=false,requireClosure=false):boolean=>{
     if(!config.advertising?.enabled || !config.station?.profiles.lkp.advertising) return false;
     const bumper=fillers?.bumpers.filter(b=>fs.existsSync(b.mediaPath)).sort((a,b)=>a.mediaPath.localeCompare(b.mediaPath))[0];
     if(!bumper) return false;
@@ -142,13 +142,22 @@ export function buildChildrenSchedule(catalogue: MediaItem[], seed: string, star
       while(low<high){const middle=(low+high)>>>1;if(durations[middle]!<from)low=middle+1;else high=middle;}
       return low<durations.length && durations[low]!<=to;
     };
+    // A closing path may need three pods, for example three 30-second pods
+    // and an 11-second film. Look ahead without committing a partial path.
+    const pairDurations=[...new Set(durations.flatMap(a=>durations.filter(b=>a+b<=limit).map(b=>a+b)))].sort((a,b)=>a-b);
+    const hasPairDuration=(from:number,to:number)=>{
+      let low=0,high=pairDurations.length;
+      while(low<high){const middle=(low+high)>>>1;if(pairDurations[middle]!<from)low=middle+1;else high=middle;}
+      return low<pairDurations.length && pairDurations[low]!<=to;
+    };
+    const hasClosingDuration=(from:number,to:number)=>hasDuration(from,to)||hasPairDuration(from,to);
     const identLimit=Math.max(0,...eligibleClips.filter(c=>c.kind==='ident' && c.durationMs<=10_000).map(c=>c.durationMs));
     for(const pod of candidates) {
       const rest=remaining-pod.durationMs;
-      pod.nextClose=hasDuration(rest-(hard?identLimit:toleranceMs),rest+(hard?0:toleranceMs)) || eligibleClips.some(clip=>hasDuration(rest-clip.durationMs-(hard?0:toleranceMs),rest-clip.durationMs+(hard?0:toleranceMs)));
+      pod.nextClose=hasClosingDuration(rest-(hard?identLimit:toleranceMs),rest+(hard?0:toleranceMs)) || eligibleClips.some(clip=>hasClosingDuration(rest-clip.durationMs-(hard?0:toleranceMs),rest-clip.durationMs+(hard?0:toleranceMs)));
     }
     candidates.sort((a,b)=>Number(b.finish)-Number(a.finish) || Number(b.nextClose)-Number(a.nextClose) || a.recent-b.recent || Math.abs(remaining-a.durationMs)-Math.abs(remaining-b.durationMs) || a.ads.map(ad=>ad.id).join().localeCompare(b.ads.map(ad=>ad.id).join()));
-    const pod=candidates[0];if(!pod)return false;
+    const pod=requireClosure?candidates.find(p=>p.finish||p.nextClose):candidates[0];if(!pod)return false;
     const {durationMs}=pod,id=stableId(seed,'ad-filler',...pod.ads.map(ad=>ad.id),cursor);
     for(const ad of pod.ads)fillerLastUse.set(`ad-${ad.id}`,cursor+durationMs);
     push({id,sequence,mediaId:`ad-${pod.ads[0]!.id}`,showId:'lkp-advertising',showTitle:'Werbung',episodeTitle:pod.ads.map(ad=>ad.title).join(' / '),description:pod.ads.map(ad=>ad.title).join(' / '),
@@ -215,15 +224,34 @@ export function buildChildrenSchedule(catalogue: MediaItem[], seed: string, star
       playoutPlan:{version:1,programmeEventId:id,sourceDurationMs:durationMs,durationMs,segments,warnings:[],assembly:{slot,premiereDate,sources:sources.map(s=>({mediaId:s.media.id,fromMs:s.fromMs,toMs:s.toMs,...(s.part?{part:s.part,parts:s.parts!}:{})}))}}});
     return true;
   };
+  const rollbackLast = (): boolean => {
+    const removed=result.pop();if(!removed)return false;
+    cursor=removed.startsAtMs;sequence=removed.sequence;
+    fillerLastUse.clear();useCounts.clear();lastUses.clear();showAirtime.clear();languageAirtime.clear();
+    previous.forEach(account);result.forEach(account);
+    previousShow=result.at(-1)?.showId ?? previous.at(-1)?.showId;
+    return true;
+  };
   const fill = (until:number,slot:string,date:string,showId?:string,hard=false) => {
     const limit=Math.min(endMs,until+(hard?0:toleranceMs));
+    let closing=false;
     if (showId) make(showId,limit,slot,date);
     while(cursor<until) {
       if(!hard && until-cursor<=toleranceMs) return;
       const before=cursor;
-      if (!make(undefined,Math.min(limit,cursor+30*60_000),slot,date) && !make(undefined,limit,slot,date) &&
-          !advertisement(until,slot,date,hard) && !interstitial(until,slot,date,hard)) {
-        if(!hard && until-cursor<=toleranceMs) return; // Start the next programme directly, a few seconds early.
+      const played=closing
+        ? interstitial(until,slot,date,hard) || advertisement(until,slot,date,hard,true)
+        : make(undefined,Math.min(limit,cursor+30*60_000),slot,date) || make(undefined,limit,slot,date) || advertisement(until,slot,date,hard) || interstitial(until,slot,date,hard);
+      if(!played) {
+        if(!hard && until-cursor<=toleranceMs) return;
+        // Greedy programme/ad selection can strand milliseconds beyond the
+        // final ident. Refit generated entries under this same hard boundary;
+        // require a complete closing pod path before emitting anything else.
+        let recovered=false;
+        if(hard) for(let attempts=0;attempts<4 && rollbackLast();attempts++) {
+          if(advertisement(until,slot,date,true,true)) {closing=true;recovered=true;break;}
+        }
+        if(recovered)continue;
         throw new Error(`No playable short programme, approved advertisement or published intermission can fill children programming near ${new Date(cursor).toISOString()}`);
       }
       if (before===cursor) throw new Error('Children compiler made no progress');
