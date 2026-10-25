@@ -293,3 +293,20 @@ test('weather generation selects reserved windows, skipping ordinary programmes 
     assert.equal(weatherBoundary(f.db,f.app,ms('2099-10-26T15:00')-5000,ms('2099-10-26T15:05'),6*60_000),undefined);
   }finally{f.close();}
 });
+
+
+test('a tight hard handover keeps whole programmes and leaves room for real ads',()=>{
+  const f=fixture();try {
+    f.app.advertising={enabled:true,root:f.root,programmeInterval:2,minEditorialMinutes:16,targetSeconds:{min:30,max:60},searchWindowMinutes:2,minimumBreakpointScore:50,bumperManifest:path.join(f.root,'bumpers.json')};
+    const media=f.media.filter(m=>m.showId==='bluey');
+    const ads=[15_000,20_000,25_000].map((durationMs,i)=>({id:`hard-ad-${i}`,title:`Curated ad ${i}`,sourceUrl:'https://example.test/ad',language:'de',durationMs,mediaPath:media[0]!.mediaPath,enabled:true,tags:[],sourceMetadata:{}}));
+    const fillers={ads,clips:JSON.parse(fs.readFileSync(f.app.intermissions!.manifest,'utf8')).clips,bumpers:[{character:'sisi' as const,mediaPath:media[0]!.mediaPath,durationMs:5000}]};
+    for(const duration of [7*60_000+7_000,14*60_000+7_000,7*60_000+17_000]) {
+      const start=ms('2026-10-26T07:30'),end=start+duration;
+      const rows=buildChildrenSchedule(media,'tight-hard-tail',start,end,0,[],f.app,fillers);
+      assert.equal(rows.at(-1)!.endsAtMs,end);assert.deepEqual(validateTimeline(rows),[]);
+      assert.ok(rows.every((e,i)=>e.showId!=='lkp-intermissions'||rows[i-1]?.showId!=='lkp-intermissions'));
+      assert.ok(rows.flatMap(e=>e.playoutPlan!.segments).filter(s=>s.type==='content').every(s=>s.durationMs===7*60_000));
+    }
+  }finally{f.close();}
+});

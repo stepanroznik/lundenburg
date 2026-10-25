@@ -105,7 +105,7 @@ export function buildChildrenSchedule(catalogue: MediaItem[], seed: string, star
     // age label; do not discard that library for missing optional metadata.
     const available=(fillers?.ads ?? []).filter(ad=>ad.enabled && (!ad.ageSuitability || /^(?:all(?:-ages)?|children|family|toddler|preschool|0\+?)$/i.test(ad.ageSuitability)) && fs.existsSync(ad.mediaPath) && Number.isSafeInteger(ad.durationMs) && ad.durationMs>0);
     const remaining=until-cursor, limit=remaining+(hard?0:toleranceMs);
-    const candidates:{ads:AdAsset[];durationMs:number;finish:boolean;recent:number}[]=[];
+    const candidates:{ads:AdAsset[];durationMs:number;finish:boolean;nextClose?:boolean;recent:number}[]=[];
     const eligibleClips=clips.filter(clip=>(!clip.season || clip.season===seasonAt(new Date(cursor))) && fs.existsSync(clip.mediaPath));
     const canFinish=(duration:number)=>{
       const rest=remaining-duration;
@@ -136,7 +136,18 @@ export function buildChildrenSchedule(catalogue: MediaItem[], seed: string, star
         }
       }
     }
-    candidates.sort((a,b)=>Number(b.finish)-Number(a.finish) || a.recent-b.recent || Math.abs(remaining-a.durationMs)-Math.abs(remaining-b.durationMs) || a.ads.map(ad=>ad.id).join().localeCompare(b.ads.map(ad=>ad.id).join()));
+    const durations=[...new Set(candidates.map(p=>p.durationMs))].sort((a,b)=>a-b);
+    const hasDuration=(from:number,to:number)=>{
+      let low=0,high=durations.length;
+      while(low<high){const middle=(low+high)>>>1;if(durations[middle]!<from)low=middle+1;else high=middle;}
+      return low<durations.length && durations[low]!<=to;
+    };
+    const identLimit=Math.max(0,...eligibleClips.filter(c=>c.kind==='ident' && c.durationMs<=10_000).map(c=>c.durationMs));
+    for(const pod of candidates) {
+      const rest=remaining-pod.durationMs;
+      pod.nextClose=hasDuration(rest-(hard?identLimit:toleranceMs),rest+(hard?0:toleranceMs)) || eligibleClips.some(clip=>hasDuration(rest-clip.durationMs-(hard?0:toleranceMs),rest-clip.durationMs+(hard?0:toleranceMs)));
+    }
+    candidates.sort((a,b)=>Number(b.finish)-Number(a.finish) || Number(b.nextClose)-Number(a.nextClose) || a.recent-b.recent || Math.abs(remaining-a.durationMs)-Math.abs(remaining-b.durationMs) || a.ads.map(ad=>ad.id).join().localeCompare(b.ads.map(ad=>ad.id).join()));
     const pod=candidates[0];if(!pod)return false;
     const {durationMs}=pod,id=stableId(seed,'ad-filler',...pod.ads.map(ad=>ad.id),cursor);
     for(const ad of pod.ads)fillerLastUse.set(`ad-${ad.id}`,cursor+durationMs);
@@ -179,6 +190,17 @@ export function buildChildrenSchedule(catalogue: MediaItem[], seed: string, star
       if (lastUse(m)>cursor-60*60_000 && candidates.some(o=>o.id!==m.id && lastUse(o)<=cursor-60*60_000 && o.durationMs<=remaining)) continue;
       sources.push(source);remaining-=source.toMs-source.fromMs;
       if (remaining<30_000) break;
+    }
+    if(until===endMs && remaining>0) {
+      // Keep enough room for a real closing ad pod instead of stranding a few
+      // seconds that would require a second intermission at a hard handover.
+      const identLimit=Math.max(0,...clips.filter(clip=>clip.kind==='ident' && clip.durationMs<=10_000 && fs.existsSync(clip.mediaPath)).map(clip=>clip.durationMs));
+      const bumper=fillers?.bumpers.find(b=>fs.existsSync(b.mediaPath));
+      const adMinimum=bumper && config.advertising?.enabled && config.station!.profiles.lkp.advertising
+        ? Math.min(Infinity,...(fillers?.ads ?? []).filter(ad=>ad.enabled && (!ad.ageSuitability || /^(?:all(?:-ages)?|children|family|toddler|preschool|0\+?)$/i.test(ad.ageSuitability)) && adAvailableAt(ad,until-ad.durationMs) && fs.existsSync(ad.mediaPath)).map(ad=>ad.durationMs+bumper.durationMs)) : Infinity;
+      if(Number.isFinite(adMinimum) && remaining>identLimit && !clips.some(clip=>clip.durationMs===remaining && (!clip.season || clip.season===seasonAt(new Date(until-remaining))) && fs.existsSync(clip.mediaPath)) && remaining<adMinimum && sources.length) {
+        const deferred=sources.pop()!;remaining+=deferred.toMs-deferred.fromMs;
+      }
     }
     if (!sources.length) return false;
     const first=sources[0]!.media;
