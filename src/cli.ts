@@ -93,6 +93,15 @@ media.command('report').description('summarize catalog ingest and editorial QC')
   });
 
 const ads = program.command('ads').description('advertisement inventory operations');
+ads.command('list').description('list all advertisements, including disabled spots')
+  .action(() => {
+    const { db } = context();
+    try {
+      const inventory = db.listAds(false);
+      for (const ad of inventory) console.log(`${ad.id}\t${durationClock(ad.durationMs)}\t${ad.enabled ? 'enabled' : 'disabled'}\t${ad.language}\t${ad.title}`);
+      console.log(`${inventory.length} advertisement(s).`);
+    } finally { db.close(); }
+  });
 ads.command('add <url>').description('download, normalize, QC, and add one YouTube advertisement')
   .option('-l, --language <language>', 'language', 'de')
   .option('--advertiser <name>', 'advertiser or product')

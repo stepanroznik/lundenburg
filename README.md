@@ -243,16 +243,23 @@ regenerates only safe future scheduling without restarting playout. See
 
 ## Advertising inventory
 
-Add one German TV spot to the rotation with:
+Advertising commands use the `ads:*` prefix, matching the other `area:action`
+npm scripts. List the inventory or add one German TV spot with:
 
 ```bash
-npm run add-ad https://www.youtube.com/watch?v=VIDEO_ID
-npm run lkp -- ads list
+npm run ads:list
+npm run ads:add -- 'https://www.youtube.com/watch?v=VIDEO_ID'
+# Optional metadata:
+npm run ads:add -- 'https://www.youtube.com/watch?v=VIDEO_ID' --advertiser 'Brand' --language de
 ```
+
+The list includes enabled and disabled spots with IDs, durations, languages and
+titles. `npm run add-ad -- URL` remains available as a compatibility alias.
+Use `npm run` to see all shortcuts and `npm run ads:add -- --help` for add options.
 
 `yt-dlp` downloads the source and the ingest service atomically creates a
 1920x1080 H.264/yuv420p 25 fps, AAC 48 kHz playout copy under the generated media
-root. To ingest the six approved initial spots, use `npm run lkp -- ads bootstrap`.
+root. To ingest the six approved initial spots, use `npm run ads:bootstrap`.
 The CLI automatically uses `runtime/tools/yt-dlp/bin/yt-dlp` when present, so the Pi can keep the downloader project-local without a system package installation.
 The four five-second bumpers use the weather/intermission character rig, cached
 alignment-driven lip sync, a held prop for each presenter, original Foley, the
@@ -261,9 +268,9 @@ visible throughout. Review action frames before rendering masters. Speech is
 cache-only by default; TTS is only needed if a one-word voice is missing:
 
 ```bash
-npm run lkp -- ads bumpers --stills
-npm run lkp -- ads bumpers
-npm run lkp -- ads bumpers --audio tts
+npm run ads:bumpers -- --stills
+npm run ads:bumpers
+npm run ads:bumpers -- --audio tts
 # Back up and retime only future entries when replacing ident masters/durations:
 npm run lkp -- schedule replan --refresh-bumpers
 ```
