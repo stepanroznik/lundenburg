@@ -33,6 +33,9 @@ function fixture(age=3) {
   for(let i=13;i<=30;i++) {
     const m=item('der-kleine-maulwurf',i,43_000);m.mediaPath=path.join(root,`${m.id}.mp4`);fs.writeFileSync(m.mediaPath,'fixture');media.push(m);
   }
+  for(const [episode,durationMs] of [[31,30_000],[32,5_000]] as const) {
+    const m=item('der-kleine-maulwurf',episode,durationMs);m.mediaPath=path.join(root,`${m.id}.mp4`);fs.writeFileSync(m.mediaPath,'fixture');media.push(m);
+  }
   app.intermissions={enabled:true,manifest:path.join(root,'intermissions.json'),boundaryRate:.8,weights:{ident:70,silent:20,voiced:10}};
   fs.writeFileSync(app.intermissions.manifest,JSON.stringify({version:1,revision:'test',clips:[{id:'ident',title:'LKP ident',kind:'ident',mediaPath:video,durationMs:5000,languages:['zxx'],synopsis:'Station ident'},{id:'short',title:'Short film',kind:'silent',mediaPath:video,durationMs:11_000,languages:['zxx'],synopsis:'A short film'}]}));
   const db=new LkpDatabase(app.storage.database);db.upsertMedia(media);
@@ -195,7 +198,7 @@ test('weekend films stay intact and repeat the exact Saturday block on Sunday',(
 test('short programmes may finish a few seconds late and leave no scheduled pauses',()=>{
   const f=fixture();try{
     const bluey=f.media.filter(m=>m.showId==='bluey').map(m=>({...m,durationMs:7*60_000+1000}));
-    const short=f.media.filter(m=>m.showId==='der-kleine-maulwurf').map(m=>({...m,durationMs:30_000}));
+    const short=f.media.filter(m=>m.showId==='der-kleine-maulwurf').map(m=>({...m,durationMs:m.durationMs===5_000?5_000:30_000}));
     const rows=buildChildrenSchedule([...bluey,...short],'soft',ms('2026-10-26T09:30'),ms('2026-10-26T10:30'),0,[],f.app);
     assert.deepEqual(validateTimeline(rows),[]);
     assert.ok(rows.every(e=>e.presentation?.kind!=='gap' && !e.presentation?.loop && e.episodeTitle!=='Eine kleine Pause'));
@@ -220,8 +223,7 @@ test('approved ad fillers include WERBUNG and never admit unknown-age ads',()=>{
     assert.equal(pod.playoutPlan!.segments[0]!.type,'ad-ident');
     assert.ok(channelEntryAllowed(pod,undefined,f.app.station!,pod.startsAtMs,f.app.children));
     fillers.ads=[{...ad,ageSuitability:'unknown'}];
-    const without=buildChildrenSchedule(media,'ads',ms('2026-10-26T09:30'),ms('2026-10-26T10:00'),0,[],f.app,fillers);
-    assert.ok(without.every(e=>e.showId!=='lkp-advertising'));
+    assert.throws(()=>buildChildrenSchedule(media,'ads',ms('2026-10-26T09:30'),ms('2026-10-26T10:00'),0,[],f.app,fillers),/No playable/);
   }finally{f.close();}
 });
 
@@ -232,6 +234,7 @@ test('Christmas ad fillers are admitted only on December 1–25 and retain the c
     const ad={id:'christmas',title:'Christmas family ad',sourceUrl:'https://example.test/ad',language:'de',durationMs:25_000,mediaPath:media[0]!.mediaPath,enabled:true,tags:['christmas'],ageSuitability:'all-ages',sourceMetadata:{}};
     const fillers={ads:[ad],clips:JSON.parse(fs.readFileSync(f.app.intermissions!.manifest,'utf8')).clips,bumpers:[{character:'sisi' as const,mediaPath:media[0]!.mediaPath,durationMs:5000}]};
     for(const [date,expected] of [['2026-11-30',false],['2026-12-01',true],['2026-12-25',true],['2026-12-26',false]] as const) {
+      if(!expected) {assert.throws(()=>buildChildrenSchedule(media,'ads',ms(`${date}T09:30`),ms(`${date}T10:00`),0,[],f.app,fillers),/No playable/);continue;}
       const rows=buildChildrenSchedule(media,'ads',ms(`${date}T09:30`),ms(`${date}T10:00`),0,[],f.app,fillers);
       const spots=rows.flatMap(e=>e.playoutPlan?.segments ?? []).filter(s=>s.type==='ad');
       assert.equal(spots.length>0,expected,date);
@@ -253,5 +256,40 @@ test('a pre-upgrade acquisition compiler cannot overwrite the active age-aware s
       f.db.insertSchedule([legacy]);
     }).immediate(),/requires source assemblies/);
     assert.deepEqual(f.db.listSchedule(from,end),old);
+  }finally{f.close();}
+});
+
+
+test('curated unlabelled ads form pods and intermissions never touch across compiler calls',()=>{
+  const f=fixture();try {
+    f.app.advertising={enabled:true,root:f.root,programmeInterval:2,minEditorialMinutes:16,targetSeconds:{min:30,max:60},searchWindowMinutes:2,minimumBreakpointScore:50,bumperManifest:path.join(f.root,'bumpers.json')};
+    const media=f.media.filter(m=>m.showId==='bluey');
+    const ads=[15_000,20_000,25_000].map((durationMs,i)=>({id:`ad-${i}`,title:`Curated ad ${i}`,sourceUrl:'https://example.test/ad',language:'de',durationMs,mediaPath:media[0]!.mediaPath,enabled:true,tags:[],sourceMetadata:{}}));
+    const fillers={ads,clips:JSON.parse(fs.readFileSync(f.app.intermissions!.manifest,'utf8')).clips,bumpers:[{character:'sisi' as const,mediaPath:media[0]!.mediaPath,durationMs:5000}]};
+    const from=ms('2026-10-26T09:30'),end=ms('2026-10-26T10:00');
+    const rows=buildChildrenSchedule(media,'pods',from,end,0,[],f.app,fillers);
+    assert.ok(rows.some(e=>e.playoutPlan!.segments.filter(s=>s.type==='ad').length>1));
+    assert.deepEqual(validateTimeline(rows),[]);
+    assert.ok(rows.every((e,i)=>e.showId!=='lkp-intermissions'||rows[i-1]?.showId!=='lkp-intermissions'));
+    const tail=buildChildrenSchedule(media,'pods',end,end+60_000,rows.length,rows,f.app,fillers);
+    assert.ok(tail.every((e,i)=>e.showId!=='lkp-intermissions'||(tail[i-1]??rows.at(-1))?.showId!=='lkp-intermissions'));
+    f.db.insertSchedule(rows);childrenSettings(f.db,f.app);
+    const previous=rows.find(e=>e.showId==='lkp-intermissions');
+    if(previous)assert.throws(()=>f.db.insertSchedule([{...previous,id:'bad-neighbour',sequence:9999,startsAtMs:previous.endsAtMs,endsAtMs:previous.endsAtMs+previous.durationMs}]),/Consecutive LKP intermissions/);
+  }finally{f.close();}
+});
+
+test('weather generation selects reserved windows, skipping ordinary programmes and Nacht',async()=>{
+  const {weatherBoundary}=await import('../src/weather/boundary.js');
+  const f=fixture();try {
+    const from=ms('2099-10-26T06:00'),until=ms('2099-10-27T06:00');
+    f.db.insertSchedule(buildScheduleEntries(f.media,'due-weather',from,until,0,[],schedulePlanning(f.db,f.app)));
+    for(const time of ['06:05','15:00','18:30']) {
+      const at=ms(`2099-10-26T${time}`);
+      const found=weatherBoundary(f.db,f.app,at-5000,at+5*60_000,90_000)!;
+      assert.ok(found,time);assert.equal(found.presentation?.block,'weather');assert.ok(Math.abs(found.startsAtMs-at)<=5000,time);
+    }
+    assert.equal(weatherBoundary(f.db,f.app,ms('2099-10-26T21:00'),until,90_000),undefined);
+    assert.equal(weatherBoundary(f.db,f.app,ms('2099-10-26T15:00')-5000,ms('2099-10-26T15:05'),6*60_000),undefined);
   }finally{f.close();}
 });

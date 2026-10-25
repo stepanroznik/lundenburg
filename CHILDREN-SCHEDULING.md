@@ -80,8 +80,13 @@ running. Whole short shows, explicitly all-ages approved ads with a WERBUNG iden
 and published seasonal intermissions fill the remaining time. No holding screen
 or looping "Eine kleine Pause" is generated. The following programme starts
 immediately if it is a few seconds early; a whole filler can finish a few seconds
-late. Ads require advertising to be enabled, an available bumper, and explicit
-all-ages/children/family age metadata; unknown-age advertisements are excluded.
+late. Ads require advertising to be enabled and an available WERBUNG bumper. Enabled
+entries are the curated station ad library, including older ingests without an
+optional age label. Explicit unknown/incompatible age labels remain excluded.
+Pods contain up to three distinct whole spots under one bumper. Seasonal windows
+are checked at each spot’s actual start. No two LKP intermissions may touch,
+including across clock slots, rebuild boundaries and weather publication. A
+SQLite trigger also rejects stale acquisition workers that try to reintroduce them.
 
 Nacht handovers and already committed weather boundaries remain immutable. Only
 a finite published station ident may be bounded there. Programmes and ads are never truncated to hit the clock. If no eligible
@@ -96,7 +101,11 @@ window. Weekend 19:00–21:00 permits an eligible intact film, repeated Sunday w
 Saturday’s block exists. Unavailable shows receive eligible substitutions while
 subsequent target starts remain within the configured tolerance.
 
-Weather reserves 06:05, 15:00 and 18:30 five-minute windows by default. The normal
+Weather reserves 06:05, 15:00 and 18:30 five-minute windows by default. The
+isolated weather installation shares station/children policies and selects these
+reserved windows before generation as well as publication. Its timer runs at
+05:00, 14:00 and 17:00 Prague time; the afternoon edition starts at 15:00 so a
+fresh forecast fetched at 14:00 remains within its two-hour validity limit. The normal
 weather generator must still produce a finished valid edition. Publication
 replaces normal programmes in a matching window, fills any remaining time with
 short programmes or intermissions, and retains all later programme times.

@@ -74,11 +74,12 @@ export function buildChildrenSchedule(catalogue: MediaItem[], seed: string, star
   const lastUse=(m:MediaItem)=>lastUses.get(m.id) ?? 0;
   const push = (e: ScheduleEntry) => { result.push(e);account(e);previousShow=e.showId;cursor=e.endsAtMs;sequence++; };
   const interstitial = (until:number,slot:string,date:string,hard=false):boolean => {
+    if(previousShow==='lkp-intermissions') return false;
     const remaining=until-cursor;
     const eligible=clips.filter(clip=>(!clip.season || clip.season===seasonAt(new Date(cursor))) && fs.existsSync(clip.mediaPath));
     // Prefer useful short programmes above; these finite published films fill the residual.
     const last=result.at(-1)?.mediaId ?? previous.at(-1)?.mediaId;
-    const choices=eligible.filter(clip=>clip.durationMs<=remaining+(hard?0:toleranceMs));
+    const choices=eligible.filter(clip=>Math.abs(clip.durationMs-remaining)<=toleranceMs && (!hard || clip.durationMs===remaining));
     choices.sort((a,b)=>((fillerLastUse.get(`intermission-${a.id}`) ?? 0)>cursor-30*60_000?1:0)-((fillerLastUse.get(`intermission-${b.id}`) ?? 0)>cursor-30*60_000?1:0) ||
       (`intermission-${a.id}`===last?1:0)-(`intermission-${b.id}`===last?1:0) ||
       Math.abs(remaining-a.durationMs)-Math.abs(remaining-b.durationMs) || a.id.localeCompare(b.id));
@@ -100,13 +101,48 @@ export function buildChildrenSchedule(catalogue: MediaItem[], seed: string, star
     if(!config.advertising?.enabled || !config.station?.profiles.lkp.advertising) return false;
     const bumper=fillers?.bumpers.filter(b=>fs.existsSync(b.mediaPath)).sort((a,b)=>a.mediaPath.localeCompare(b.mediaPath))[0];
     if(!bumper) return false;
-    const available=(fillers?.ads ?? []).filter(ad=>ad.enabled && adAvailableAt(ad,cursor+bumper.durationMs) && /^(?:all(?:-ages)?|children|family|0\+?)$/i.test(ad.ageSuitability ?? '') && fs.existsSync(ad.mediaPath) && (fillerLastUse.get(`ad-${ad.id}`) ?? 0)<=cursor-10*60_000 && ad.durationMs+bumper.durationMs<=until-cursor+(hard?0:toleranceMs));
-    available.sort((a,b)=>Math.abs(until-cursor-a.durationMs-bumper.durationMs)-Math.abs(until-cursor-b.durationMs-bumper.durationMs) || a.id.localeCompare(b.id));
-    const ad=available[0];if(!ad)return false;
-    const durationMs=ad.durationMs+bumper.durationMs,id=stableId(seed,'ad-filler',ad.id,cursor);
-    push({id,sequence,mediaId:`ad-${ad.id}`,showId:'lkp-advertising',showTitle:'Werbung',episodeTitle:ad.title,description:ad.title,
-      startsAtMs:cursor,endsAtMs:cursor+durationMs,durationMs,mediaPath:bumper.mediaPath,audioLanguage:ad.language,subtitleLanguages:[],listingVisibility:'hidden',presentation:{profile:'lkp',kind:'programme'},
-      playoutPlan:{version:1,programmeEventId:id,sourceDurationMs:durationMs,durationMs,segments:[{type:'ad-ident',mediaPath:bumper.mediaPath,durationMs:bumper.durationMs,character:bumper.character},{type:'ad',mediaPath:ad.mediaPath,durationMs:ad.durationMs,adId:ad.id,tags:[...ad.tags]}],warnings:[],assembly:{slot,premiereDate:date,sources:[]}}});return true;
+    // Enabled entries are the curated station ad library. Older ingests have no
+    // age label; do not discard that library for missing optional metadata.
+    const available=(fillers?.ads ?? []).filter(ad=>ad.enabled && (!ad.ageSuitability || /^(?:all(?:-ages)?|children|family|toddler|preschool|0\+?)$/i.test(ad.ageSuitability)) && fs.existsSync(ad.mediaPath) && Number.isSafeInteger(ad.durationMs) && ad.durationMs>0);
+    const remaining=until-cursor, limit=remaining+(hard?0:toleranceMs);
+    const candidates:{ads:AdAsset[];durationMs:number;finish:boolean;recent:number}[]=[];
+    const eligibleClips=clips.filter(clip=>(!clip.season || clip.season===seasonAt(new Date(cursor))) && fs.existsSync(clip.mediaPath));
+    const canFinish=(duration:number)=>{
+      const rest=remaining-duration;
+      return rest<=toleranceMs && (!hard || rest===0) || eligibleClips.some(clip=>Math.abs(rest-clip.durationMs)<=toleranceMs && (!hard || clip.durationMs===rest)) || hard && eligibleClips.some(clip=>clip.kind==='ident' && clip.durationMs<=10_000 && rest>0 && rest<=clip.durationMs);
+    };
+    const target=config.advertising.targetSeconds.max*1000;
+    const add=(ads:AdAsset[],durationMs:number)=>{
+      if(durationMs>limit)return;
+      candidates.push({ads,durationMs,finish:canFinish(durationMs),recent:ads.reduce((sum,ad)=>sum+((fillerLastUse.get(`ad-${ad.id}`) ?? 0)>cursor-10*60_000?1:0),0)});
+    };
+    // A single WERBUNG ident introduces the whole pod, with up to three distinct
+    // intact spots. Evaluate spot validity at its actual position in the pod.
+    for(let i=0;i<available.length;i++) {
+      const a=available[i]!;
+      if(!adAvailableAt(a,cursor+bumper.durationMs))continue;
+      const first=bumper.durationMs+a.durationMs;add([a],first);
+      if(first>=Math.min(limit,target))continue;
+      for(let j=i+1;j<available.length;j++) {
+        const b=available[j]!;
+        if(!adAvailableAt(b,cursor+first))continue;
+        const second=first+b.durationMs;
+        if(second>target)continue;
+        add([a,b],second);
+        for(let k=j+1;k<available.length;k++) {
+          const d=available[k]!,third=second+d.durationMs;
+          if(third>Math.min(limit,target)||!adAvailableAt(d,cursor+second))continue;
+          add([a,b,d],third);
+        }
+      }
+    }
+    candidates.sort((a,b)=>Number(b.finish)-Number(a.finish) || a.recent-b.recent || Math.abs(remaining-a.durationMs)-Math.abs(remaining-b.durationMs) || a.ads.map(ad=>ad.id).join().localeCompare(b.ads.map(ad=>ad.id).join()));
+    const pod=candidates[0];if(!pod)return false;
+    const {durationMs}=pod,id=stableId(seed,'ad-filler',...pod.ads.map(ad=>ad.id),cursor);
+    for(const ad of pod.ads)fillerLastUse.set(`ad-${ad.id}`,cursor+durationMs);
+    push({id,sequence,mediaId:`ad-${pod.ads[0]!.id}`,showId:'lkp-advertising',showTitle:'Werbung',episodeTitle:pod.ads.map(ad=>ad.title).join(' / '),description:pod.ads.map(ad=>ad.title).join(' / '),
+      startsAtMs:cursor,endsAtMs:cursor+durationMs,durationMs,mediaPath:bumper.mediaPath,audioLanguage:pod.ads[0]!.language,subtitleLanguages:[],listingVisibility:'hidden',presentation:{profile:'lkp',kind:'programme'},
+      playoutPlan:{version:1,programmeEventId:id,sourceDurationMs:durationMs,durationMs,segments:[{type:'ad-ident',mediaPath:bumper.mediaPath,durationMs:bumper.durationMs,character:bumper.character},...pod.ads.map(ad=>({type:'ad' as const,mediaPath:ad.mediaPath,durationMs:ad.durationMs,adId:ad.id,tags:[...ad.tags]}))],warnings:[],assembly:{slot,premiereDate:date,sources:[]}}});return true;
   };
   const make = (showId: string | undefined, until: number, slot: string, premiereDate: string): boolean => {
     const budget = until-cursor;

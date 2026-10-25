@@ -15,6 +15,12 @@ export function childrenSettings(db: LkpDatabase, config: AppConfig): void {
       AND NEW.show_id NOT IN ('station-lkp','lkp-weather','lkp-intermissions','lkp-advertising')
       AND COALESCE(json_type(NEW.playout_plan_json,'$.assembly.sources'),'null')<>'array'
     BEGIN SELECT RAISE(ABORT,'Age-aware children schedule requires source assemblies'); END;`);
+  db.db.exec(`CREATE TRIGGER IF NOT EXISTS prevent_adjacent_lkp_intermissions
+    BEFORE INSERT ON schedule_entries
+    WHEN NEW.show_id='lkp-intermissions' AND EXISTS(
+      SELECT 1 FROM schedule_entries WHERE show_id='lkp-intermissions'
+        AND (ends_at_ms=NEW.starts_at_ms OR starts_at_ms=NEW.ends_at_ms))
+    BEGIN SELECT RAISE(ABORT,'Consecutive LKP intermissions are not allowed'); END;`);
   refreshChildrenAge(db,config);
   if (!config.children) return;
   const c=config.children;

@@ -1,8 +1,8 @@
 [Unit]
-Description=Generate fresh LKP weather at 05:00, 12:00 and 17:00 Prague time
+Description=Generate fresh LKP weather at 05:00, 14:00 and 17:00 Prague time
 
 [Timer]
-OnCalendar=*-*-* 05,12,17:00:00 Europe/Prague
+OnCalendar=*-*-* 05,14,17:00:00 Europe/Prague
 AccuracySec=30s
 Persistent=true
 Unit=lkp-weather.service

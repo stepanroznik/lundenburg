@@ -13,6 +13,7 @@ import { assembleEpisode, subtitles } from './episode.js';
 import { renderEpisode } from './render.js';
 import { prepareMap } from './map.js';
 import { publishWeather } from './publish.js';
+import { weatherBoundary } from './boundary.js';
 import { acquireWeatherLock } from './lock.js';
 import { assertMediaStorage, generatedShowRoot } from '../media-storage.js';
 import { weatherEditionTitle, type Edition, type Episode, type ProgrammeMetadata } from './model.js';
@@ -28,7 +29,7 @@ function broadcastTime(options: GenerateOptions): Date {
   const at = options.at ? DateTime.fromISO(options.at, { zone: c.timezone }) : options.fixture ? start : DateTime.max(start, now.plus({ minutes: c.generationLeadMinutes }));
   if (!at.isValid) throw new Error('Invalid broadcast time');
   const window = editionWindow(options.edition, at.toJSDate(), c);
-  if (at < window.from || at >= window.until) throw new Error('Broadcast time is outside the selected edition');
+  if (at.toMillis() < window.from.toMillis() - (loadConfig().children?.boundaryToleranceSeconds ?? 0)*1000 || at >= window.until) throw new Error('Broadcast time is outside the selected edition');
   if (!options.fixture && at.toMillis() < Date.now() - 60_000) throw new Error('Live generation needs a future --at broadcast time; use --fixture for historical previews');
   return at.toJSDate();
 }
@@ -147,7 +148,10 @@ program.command('auto').description('generate the due edition using fresh weathe
       if (Date.now() < window.from.toMillis() - c.generationLeadMinutes * 60_000 || Date.now() >= window.until.toMillis()) continue;
       const date = window.from.toISODate();
       if (db.db.prepare('SELECT id FROM schedule_entries WHERE media_id=?').get(`weather-${date}-${edition}`)) continue;
-      const boundary = db.nextAfter(Math.max(window.from.toMillis(), Date.now() + c.generationLeadMinutes * 60_000));
+      const earliest = config.children?.enabled
+        ? Math.max(window.from.toMillis() - (config.children.boundaryToleranceSeconds ?? 5)*1000, Date.now()+60_000)
+        : Math.max(window.from.toMillis(), Date.now() + c.generationLeadMinutes * 60_000);
+      const boundary = weatherBoundary(db, config, earliest, window.until.toMillis(), 60_000);
       if (boundary && boundary.startsAtMs < window.until.toMillis()) { next = { edition, at: new Date(boundary.startsAtMs).toISOString() }; break; }
     }
   } finally { db.close(); }

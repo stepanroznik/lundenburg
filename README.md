@@ -558,16 +558,19 @@ npm run weather:publish -- \
 npm run weather:auto
 ```
 
-**Publishing inserts at a future programme boundary and shifts later programmes
-by the episode duration.** It keeps programmes whole and changes no past or
+**With the children’s clock enabled, publishing replaces ordinary programming
+inside a reserved weather window and preserves all later programme times.**
+Legacy installations without the station clock insert at a future programme
+boundary and shift later programmes by the edition duration. It keeps programmes whole and changes no past or
 currently playing event. The operation is transactional, rejects duplicate or
 expired editions, and refreshes EPG. Normal append-only schedule generation is
 unchanged. Weather stays outside the weighted catalogue so it cannot repeat a
 year later. Publishing also checks that shifted weather remains valid. These
 commands must access the same SQLite schedule and media filesystem as playout.
 
-The timer starts generation at **05:00, 12:00 and 17:00 Europe/Prague**, one hour
-before the default edition windows. It fetches fresh data on each run and selects
+The timer starts generation at **05:00, 14:00 and 17:00 Europe/Prague**, before the reserved 06:05, 15:00 and 18:30 weather slots. The isolated weather
+worker shares the station and audience policies; generation and publication
+select the same reserved window. It fetches fresh data on each run and selects
 a future programme boundary from the existing schedule. If preparation finishes
 late, publication uses the next safe boundary within validity; if none exists,
 ordinary programming continues. When changing the window/lead settings, adjust

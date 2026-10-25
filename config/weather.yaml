@@ -1,6 +1,6 @@
 timezone: Europe/Prague
 # Local validity windows, not fixed broadcast times. The scheduler chooses a boundary.
-starts: { morning: 6, afternoon: 13, evening: 18 }
+starts: { morning: 6, afternoon: 15, evening: 18 }
 generationLeadMinutes: 60
 maxForecastAgeMinutes: 120
 model: eleven_multilingual_v2

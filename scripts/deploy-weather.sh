@@ -12,7 +12,7 @@ test -s assets/weather/region.json || { echo 'Prepare the geographic snapshot wi
 command -v rsync >/dev/null
 ssh "$destination" "mkdir -p $remote_root/runtime/weather/public"
 # A separate installation avoids changing the running broadcaster's modules.
-rsync -aR package.json package-lock.json tsconfig.json src config/weather.yaml assets/weather deploy/systemd/lkp-weather.service deploy/systemd/lkp-weather.timer deploy/systemd/lkp.target scripts/install-weather-pi.sh "$destination:$remote_root/"
+rsync -aR package.json package-lock.json tsconfig.json src config/weather.yaml config/children.yaml config/channels.yaml assets/weather deploy/systemd/lkp-weather.service deploy/systemd/lkp-weather.timer deploy/systemd/lkp.target scripts/install-weather-pi.sh "$destination:$remote_root/"
 # Keep permanent speech atoms: setup should not spend credits recreating them.
 if [ -d runtime/weather/public/speech ]; then
   rsync -a --exclude=.lock runtime/weather/public/speech "$destination:$remote_root/runtime/weather/public/"

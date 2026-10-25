@@ -66,6 +66,14 @@ for(const [section,key] of [['storage','database'],['storage','runtimeDirectory'
 if(!fs.existsSync(config.storage.database)) throw new Error('The authoritative playout database is missing; configure it before enabling weather.');
 fs.mkdirSync('config',{recursive:true});
 fs.writeFileSync('config/lkp.yaml',stringify(config));
+// The isolated worker must see the same station barriers and audience policy.
+for (const name of ['children.yaml','channels.yaml']) {
+  const source=path.join(root,'config',name),target=path.join('config',name);
+  if(fs.existsSync(source)) { fs.rmSync(target,{force:true});fs.symlinkSync(source,target); }
+}
+const branding=path.resolve('runtime/ln-brand');
+if(!fs.existsSync(branding))fs.symlinkSync(path.join(root,'runtime/ln-brand'),branding);
+
 console.log('Weather will publish to '+config.storage.database);
 NODE
 if [ "$configure_only" = true ]; then exit 0; fi

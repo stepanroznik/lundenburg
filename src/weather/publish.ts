@@ -5,7 +5,8 @@ import type { AppConfig, ScheduleEntry } from '../types.js';
 import { stableId } from '../util.js';
 import type { ProgrammeMetadata } from './model.js';
 import { buildChildrenSchedule } from '../children-schedule.js';
-import { profileWindow } from '../channels.js';
+import { weatherBoundary } from './boundary.js';
+import { childrenSettings } from '../children-settings.js';
 import { preserveEpgIdentities, buildScheduleEntries, schedulePlanning, validateTimeline } from '../schedule.js';
 
 // Insertion is explicit and transactional. Existing programmes are kept whole;
@@ -18,17 +19,8 @@ export function publishWeather(meta: ProgrammeMetadata, db: LkpDatabase, config:
   const existing = db.db.prepare('SELECT id FROM schedule_entries WHERE media_id=?').get(meta.id);
   if (existing) throw new Error(`Edition already scheduled: ${meta.id}`);
   const earliest = Math.max(atMs, from, Date.now() + 60_000);
-  const boundary = config.station?.enabled ? db.listSchedule(earliest, until).find(e => {
-    const window = profileWindow(e.startsAtMs, config.station!);
-    if(config.children?.enabled) {
-      if(e.presentation?.block!=='weather') return false;
-      const following=db.listSchedule(e.startsAtMs,until);
-      const stop=following.findIndex(row=>row.presentation?.block!=='weather');
-      const group=stop<0?following:following.slice(0,stop);
-      if((group.at(-1)?.endsAtMs ?? e.endsAtMs)-e.startsAtMs<meta.durationMs) return false;
-    }
-    return e.startsAtMs >= earliest && window.profile === 'lkp' && e.startsAtMs + meta.durationMs <= Math.min(window.endsAtMs, until);
-  }) : db.nextAfter(earliest);
+  if(config.children?.enabled) childrenSettings(db,config);
+  const boundary = weatherBoundary(db,config,earliest,until,meta.durationMs);
   if (!boundary || boundary.startsAtMs <= Date.now() + 30_000 || boundary.startsAtMs + meta.durationMs > until) throw new Error('No safe future programme boundary within the forecast validity window');
   const entry: ScheduleEntry = { id: stableId(meta.id, boundary.startsAtMs), sequence: boundary.sequence, mediaId: meta.id, showId: 'lkp-weather', showTitle: 'LKP Wetterfreunde', episodeTitle: meta.title, description: 'Das Wetter in Lundenburg, Wien, Brno und Bratislava.', startsAtMs: boundary.startsAtMs, endsAtMs: boundary.startsAtMs + meta.durationMs, durationMs: meta.durationMs, mediaPath: path.resolve(meta.mediaPath), audioLanguage: 'mul', subtitleLanguages: ['de', 'cs', 'sk'] };
   if (config.children?.enabled && config.station?.enabled) {
