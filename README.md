@@ -253,16 +253,19 @@ npm run ads:add -- 'https://www.youtube.com/watch?v=VIDEO_ID'
 npm run ads:add -- 'https://www.youtube.com/watch?v=VIDEO_ID' --advertiser 'Brand' --language de
 # Annual Christmas window, December 1–25 inclusive in Europe/Prague:
 npm run ads:add -- 'https://www.youtube.com/watch?v=VIDEO_ID' --tag christmas
+# Annual summer window, June 1–August 31 inclusive in Europe/Prague:
+npm run ads:add -- 'https://www.youtube.com/watch?v=VIDEO_ID' --tag summer
 ```
 
 The list includes enabled and disabled spots with IDs, durations, languages and
 titles. `npm run add-ad -- URL` remains available as a compatibility alias.
 Use `npm run` to see all shortcuts and `npm run ads:add -- --help` for add options.
 
-The `christmas` tag restricts the whole spot to December 1–25 each year.
-Both embedded ad breaks and children's programme fillers enforce this window,
-including spots that would cross midnight into December 26. Plans retain the tag,
-and playout checks the real Prague date again before playing a seasonal spot.
+The `christmas` tag restricts the whole spot to December 1–25 each year; the
+`summer` tag restricts it to June 1–August 31. Both embedded ad breaks and
+children's programme fillers enforce these windows, including spots that would
+cross the seasonal boundary. Plans retain the tag, and playout checks the real
+Prague date again before playing a seasonal spot.
 
 `yt-dlp` downloads the source and the ingest service atomically creates a
 1920x1080 H.264/yuv420p 25 fps, AAC 48 kHz playout copy under the generated media

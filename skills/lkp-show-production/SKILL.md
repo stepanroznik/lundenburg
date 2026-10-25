@@ -121,6 +121,9 @@ Advertisements tagged `christmas` may run only on December 1–25 inclusive each
 year in Europe/Prague. Preserve the tag in saved ad segments and enforce the
 whole-spot window in both scheduling paths and at playout, including midnight
 crossings. Do not use the broader winter season for Christmas-only spots.
+Advertisements tagged `summer` may run only June 1–August 31 inclusive in
+Europe/Prague. Preserve that tag and enforce the whole-spot window in both
+scheduling paths and at playout, including seasonal boundary crossings.
 
 Lock scripts and pronunciation before paid TTS. Reuse cached speech and alignment whenever the full cache identity matches. Render stills or contact sheets first, then short previews, then masters. Write masters atomically so a failed render cannot overwrite the last good file.
 

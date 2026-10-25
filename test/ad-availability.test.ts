@@ -24,6 +24,16 @@ test('Christmas ads run December 1–25 annually and cannot spill into December 
   assert.equal(adAvailableAt(spot('x'), NaN), false);
 });
 
+test('summer ads run June–August annually and cannot spill into September in Prague', () => {
+  const summer = (durationMs = 30_000) => ({ ...spot('summer', durationMs), tags: ['summer'] });
+  for (const [date, expected] of [
+    ['2026-05-31T23:59:59', false], ['2026-06-01T00:00:00', true],
+    ['2026-08-31T23:59:30', true], ['2026-08-31T23:59:30.001', false],
+    ['2026-09-01T00:00:00', false], ['2027-07-01T12:00:00', true],
+  ] as const) assert.equal(adAvailableAt(summer(), ms(date)), expected, date);
+  assert.equal(adAvailableAt({ ...summer(), tags: ['summer', 'christmas'] }, ms('2026-07-01T12:00')), false);
+});
+
 test('ad pods filter disabled/seasonal inventory and validate the second spot at its own start', () => {
   const inventory = [spot('a', 20_000), spot('b', 20_000)];
   assert.equal(chooseAds(inventory, 'event', 0, 'seed', undefined, 60, ms('2026-11-30T12:00')).length, 0);

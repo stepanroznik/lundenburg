@@ -1,11 +1,19 @@
 import { DateTime } from 'luxon';
 
-/** Christmas spots run annually on December 1–25, wholly within Prague civil dates. */
+/** Seasonal spots run only within their annual Prague civil-date windows. */
 export function adAvailableAt(ad: { tags?: readonly string[]; durationMs: number }, atMs: number): boolean {
-  if (!ad.tags?.includes('christmas')) return true;
+  const tags = ad.tags ?? [];
+  const seasonal = tags.filter((tag) => tag === 'christmas' || tag === 'summer');
+  if (seasonal.length === 0) return true;
   if (!Number.isSafeInteger(atMs) || !Number.isSafeInteger(ad.durationMs) || ad.durationMs <= 0) return false;
   const local = DateTime.fromMillis(atMs, { zone: 'Europe/Prague' });
-  if (!local.isValid || local.month !== 12 || local.day > 25) return false;
-  const end = local.startOf('day').set({ day: 26 }).toMillis();
-  return atMs + ad.durationMs <= end;
+  if (!local.isValid) return false;
+  return seasonal.every((tag) => {
+    if (tag === 'christmas') {
+      if (local.month !== 12 || local.day > 25) return false;
+      return atMs + ad.durationMs <= local.startOf('day').set({ day: 26 }).toMillis();
+    }
+    if (local.month < 6 || local.month > 8) return false;
+    return atMs + ad.durationMs <= local.startOf('day').set({ month: 9, day: 1 }).toMillis();
+  });
 }
