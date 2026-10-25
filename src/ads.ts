@@ -80,6 +80,12 @@ export class AdIngestService {
       '--output', template, '--print', 'after_move:filepath', url.toString(),
     ])).split(/\r?\n/).filter(Boolean).at(-1);
     if (!downloaded || !fs.existsSync(downloaded)) throw new Error('yt-dlp completed without a readable source file');
+    const sourceProbe = JSON.parse(await execute(this.config.media.ffprobe, [
+      '-v', 'error', '-select_streams', 'v:0', '-show_entries', 'stream=width,height', '-of', 'json', downloaded,
+    ])) as { streams?: Array<{ width?: number; height?: number }> };
+    const sourceVideo = sourceProbe.streams?.[0];
+    const sourceResolution = Math.min(Number(sourceVideo?.width), Number(sourceVideo?.height));
+    if (!Number.isFinite(sourceResolution) || sourceResolution < 360) throw new Error('Advertisement source must be at least 360p before normalization');
     const output = path.join(playoutRoot, `${metadata.id}.mp4`);
     const partial = `${output}.partial.mp4`;
     try {

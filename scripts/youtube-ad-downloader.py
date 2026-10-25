@@ -49,7 +49,7 @@ def main():
     options = [
         '--js-runtimes', f'deno:{deno}',
         '--extractor-args', 'youtube:player_client=mweb,web_safari',
-        '--format', 'bv*[height>=480][height<=1080]+ba/b[height>=480][height<=1080]',
+        '--format', 'bv*[height>=360][height<=1080]+ba/b[height>=360][height<=1080]',
         '--format-sort-force', '-S', 'height,vcodec:h264',
         '--limit-rate', '2M', '--no-geo-bypass', '--socket-timeout', '20',
         '--retries', '2', '--sleep-requests', '1',

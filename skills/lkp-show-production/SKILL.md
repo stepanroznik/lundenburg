@@ -103,7 +103,10 @@ Build humour from personality, local knowledge, or a clear visual event. If a fa
 ## Acquisition quality
 
 Prefer 1080p whenever available, with resolution taking priority over codec.
-Never acquire below 480p; validate actual dimensions before ingest. Metadata
+Never acquire programmes below 480p. Advertisements have an explicit exception:
+prefer the highest available resolution up to 1080p, accepting 360p only when
+no higher resolution is available. Never acquire ads below 360p.
+Validate actual dimensions before ingest. Metadata
 estimates and downloads must share the same selection policy. Keep original
 assets until a replacement is validated and explicitly authorized. Authorized
 quality repairs use `scripts/redownload-quality.mjs --replace`, preserve existing

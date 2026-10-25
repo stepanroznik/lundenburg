@@ -282,9 +282,10 @@ npm run ads:add -- 'https://www.youtube.com/watch?v=VIDEO_ID'
 Once installed, ad ingestion selects this downloader automatically.
 `LKP_YT_DLP` remains an explicit override.
 
-The same 480p–1080p selection applies to metadata and download. A video available
-only at 360p cannot be ingested under the production quality policy. A playback
-token does not supply account login. YouTube OAuth login is no longer supported
+The same 360p–1080p selection applies to ad metadata and download, choosing the
+highest available resolution before codec preference. Ads may use 360p only when
+no higher resolution is available; other acquisition retains its 480p minimum.
+A playback token does not supply account login. YouTube OAuth login is no longer supported
 by yt-dlp; use a signed-in browser's cookies when sign-in is required.
 
 Follow yt-dlp's [YouTube cookie export procedure](https://github.com/yt-dlp/yt-dlp/wiki/Extractors#exporting-youtube-cookies):
@@ -295,10 +296,21 @@ format using an extension recommended in the
 and close the private window. Save the export locally as
 `runtime/youtube/cookies.txt`, mode 600; transfer it to the matching private path
 on the Pi over SSH. Never paste cookies into chat, logs or Git. The downloader
-automatically uses this file when present. A normal signed-in Firefox profile
-can also be read directly with yt-dlp's `--cookies-from-browser` option; private
+automatically uses this file when present. A normal signed-in Brave profile
+can also be read directly with yt-dlp's `--cookies-from-browser brave` option;
+run the native Windows build for a Windows Brave profile. Private
 window cookies cannot be exported that way. See the upstream
 [PO-token guide](https://github.com/yt-dlp/yt-dlp/wiki/PO-Token-Guide).
+
+Current Windows Brave uses app-bound (`v20`) cookie encryption, which can prevent
+direct yt-dlp export even after the browser is closed. On the Windows/WSL PC,
+close Brave and run `python3 scripts/export-brave-youtube.py`. This opens Brave
+with a temporary local extension that uses the browser's documented cookie API
+to export only `youtube.com` cookies to `runtime/youtube/cookies.txt` (mode 600).
+The receiver listens only on localhost, checks a random one-use endpoint and
+validates every cookie's domain. Cookie values are never printed, and extension
+files are removed when the helper exits. No browser encryption setting changes.
+Transfer this file privately to the Pi's matching path; do not commit it.
 
 The four five-second bumpers use the weather/intermission character rig, cached
 alignment-driven lip sync, a held prop for each presenter, original Foley, the
