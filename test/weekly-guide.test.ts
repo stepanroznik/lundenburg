@@ -6,9 +6,9 @@ import { test } from 'node:test';
 import { DateTime } from 'luxon';
 import { loadStationConfig } from '../src/channels.js';
 import { LkpDatabase } from '../src/database.js';
-import { buildWeeklyGuide, guideDescription, guideWeek, selectGuideFeatures, weeklyGuideHtml, type GuideDay } from '../src/weekly-guide.js';
+import { buildWeeklyGuide, guideDescription, guideEpisodeNumbers, guideWeek, selectGuideFeatures, weeklyGuideHtml, type GuideDay } from '../src/weekly-guide.js';
 import type { ScheduleEntry } from '../src/types.js';
-import { config } from './helpers.js';
+import { config, item } from './helpers.js';
 
 const root = path.resolve('.');
 const app = () => ({ ...config(root), station: loadStationConfig(root)! });
@@ -82,6 +82,47 @@ test('description copy is brief, removes credits, and markup escapes catalogue t
   const markup = weeklyGuideHtml(buildWeeklyGuide([bad], app(), '2026-10-26'), app(), new Map());
   assert.doesNotMatch(markup, /<script>/);
   assert.match(markup, /&lt;script&gt;/);
+});
+
+test('episode labels preserve every assembled episode, source order, seasons and split parts', () => {
+  const e = entry('block', '2026-10-26T15:00');
+  const episodes = [item('a', 24), item('a', 25), item('a', 26), item('a', 2), { ...item('a', 1), id: 's2-e1', season: 2 }];
+  const catalogue = new Map(episodes.map(m => [m.id, m]));
+  e.playoutPlan = { version: 1, programmeEventId: e.id, sourceDurationMs: e.durationMs, durationMs: e.durationMs, segments: [], warnings: [],
+    assembly: { slot: '15:00', premiereDate: '2026-10-26', sources: episodes.map(m => ({ mediaId: m.id, fromMs: 0, toMs: m.durationMs })) } };
+  assert.equal(guideEpisodeNumbers(e, catalogue), '1/24–26,2,2/1');
+  e.playoutPlan.assembly!.sources = [{ mediaId: episodes[0]!.id, fromMs: 0, toMs: 1000, part: 2, parts: 3 }];
+  assert.equal(guideEpisodeNumbers(e, catalogue), '1/24·T2/3');
+  delete e.playoutPlan;
+  e.episode = 12;
+  assert.equal(guideEpisodeNumbers(e, new Map()), '12');
+  e.season = 0;
+  assert.equal(guideEpisodeNumbers(e, new Map()), '0/12');
+});
+
+test('unknown episodes are not invented and films never acquire episode numbers', () => {
+  const e = entry('unknown', '2026-10-26T15:00');
+  assert.equal(guideEpisodeNumbers(e, new Map()), undefined);
+  const movie = { ...item('film', 5), id: e.mediaId, technical: { catalogue: { version: 1, kind: 'movie', originalTitle: 'A film' } } };
+  e.episode = 5;
+  assert.equal(guideEpisodeNumbers(e, new Map([[movie.id, movie]])), undefined);
+  delete e.episode;
+  e.showId = 'unusualvideos'; e.episodeTitle = 'UNUSUAL MEMES COMPILATION V28';
+  assert.equal(guideEpisodeNumbers(e, new Map()), '28');
+});
+
+test('subtitle icon follows each scheduled programme, including films, and feature numbers match its listing', () => {
+  const subtitled = entry('with-subs', '2026-10-26T15:00');
+  subtitled.episode = 7; subtitled.season = 2; subtitled.subtitleLanguages = ['de', 'en'];
+  const plain = entry('no-subs', '2026-10-26T07:00');
+  const film = entry('film', '2026-10-26T22:00', 'ln'); film.subtitleLanguages = ['cs'];
+  const markup = weeklyGuideHtml(buildWeeklyGuide([subtitled, plain, film], app(), '2026-10-26'), app(), new Map());
+  const row = (id: string) => markup.match(new RegExp(`data-event="${id}"[^>]*>(.*?)</li>`))![1]!;
+  assert.match(row('with-subs'), /\(2\/7\)/);
+  assert.match(row('with-subs'), /role="img" aria-label="Untertitel: DE, EN"/);
+  assert.doesNotMatch(row('no-subs'), /class="subtitles"/);
+  assert.match(row('film'), /aria-label="Untertitel: CS"/);
+  assert.equal((markup.match(/\(2\/7\)/g) ?? []).length, 2);
 });
 
 test('read-only catalogue cannot mutate production data or create a missing database', () => {

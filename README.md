@@ -364,6 +364,14 @@ night listings below. Every public programme is included; ads and continuity
 are omitted just as in the Excel guide. Minute times are displayed without
 changing the authoritative schedule.
 
+Coloured headings and highlighted programme rows use white text throughout.
+Compact `(season/episode)` or `(episode)` labels show the stored catalogue
+numbers, including every episode in an assembled block. Consecutive episodes
+are compressed to ranges; nonconsecutive episodes stay in playback order.
+Films have no episode label. A small boxed **UT** icon marks programmes with
+listed subtitles; the legend is printed at the foot of the page. The bundled
+DejaVu Sans Condensed keeps the numbered listings readable on the same page.
+
 Each day highlights a scheduled children's show, choosing different shows across
 the week whenever the catalogue allows. Feature pictures are extracted from the
 actual programme videos with FFmpeg and cached under `runtime/weekly-guide`.

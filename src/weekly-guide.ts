@@ -9,6 +9,7 @@ import { openBrowser } from '@remotion/renderer';
 import { publicSchedule } from './listing.js';
 import { profileWindow } from './channels.js';
 import { nacht } from './branding/identity.js';
+import { isCatalogueMovie } from './catalogue.js';
 import { stableId } from './util.js';
 import type { AppConfig, MediaItem, ScheduleEntry } from './types.js';
 
@@ -19,7 +20,8 @@ const shortTitles: Record<string, string> = {
   'ms-rachel': 'Ms Rachel', 'miss-josi': 'Miss Josi',
   'sendung-mit-dem-elefanten': 'Mit dem Elefanten',
   'unser-sandmaennchen': 'Sandmännchen',
-  'byl-jednou-jeden-zivot': 'Es war einmal: Leben',
+  'bobo-siebenschlaefer': 'Bobo',
+  'byl-jednou-jeden-zivot': '… das Leben',
   'kurzgesagt-ln': 'Kurzgesagt',
 };
 // Print copy is deliberately shorter than EPG or acquisition descriptions.
@@ -146,20 +148,58 @@ export function guideDescription(text: string, limit = 110): string {
 const html = (value: string) => value.replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]!));
 const dataUri = (file: string, mime: string) => `data:${mime};base64,${fs.readFileSync(file).toString('base64')}`;
 
-function listing(entry: ScheduleEntry, day: GuideDay, config: AppConfig): string {
+/** Preserve playback order, including every episode in an assembled slot. */
+export function guideEpisodeNumbers(entry: ScheduleEntry, media: ReadonlyMap<string, MediaItem>): string | undefined {
+  const sources = entry.playoutPlan?.assembly?.sources;
+  const first = media.get(entry.mediaId);
+  if (first && isCatalogueMovie(first)) return undefined;
+  const numbers = sources?.length ? sources.map(source => ({ ...media.get(source.mediaId), part: source.part, parts: source.parts }))
+    : [{ season: entry.season ?? first?.season, episode: entry.episode ?? first?.episode, part: undefined, parts: undefined }];
+  const groups: string[] = [];
+  let previousSeason: number | undefined;
+  for (let i = 0; i < numbers.length; i++) {
+    const item = numbers[i]!;
+    if (item.episode === undefined || !Number.isSafeInteger(item.episode) || item.episode < 0) continue;
+    const season = item.season;
+    const start = item.episode;
+    let end = start;
+    if (!item.part) {
+      while (i + 1 < numbers.length) {
+        const next = numbers[i + 1]!;
+        if (next.part || next.season !== season || next.episode !== end + 1) break;
+        end = next.episode;
+        i++;
+      }
+    }
+    const prefix = season !== undefined && (!groups.length || season !== previousSeason) ? `${season}/` : '';
+    const part = item.part && item.parts ? `·T${item.part}/${item.parts}` : '';
+    groups.push(`${prefix}${start}${end === start ? '' : `–${end}`}${part}`);
+    previousSeason = season;
+  }
+  // Retain the explicit source number on older UnusualVideos listings.
+  return groups.join(',') || (entry.showId === 'unusualvideos' ? entry.episodeTitle.match(/\bV(\d+)\b/i)?.[1] : undefined);
+}
+
+function programmeMetadata(entry: ScheduleEntry, media: ReadonlyMap<string, MediaItem>, featured = false): string {
+  const number = guideEpisodeNumbers(entry, media);
+  const languages = entry.subtitleLanguages.filter(Boolean).map(language => language.toUpperCase()).join(', ');
+  const markers = `${number ? `<small class="episode">(${html(number)})</small>` : ''}${languages ? ` <span class="subtitles" role="img" aria-label="Untertitel: ${html(languages)}">UT</span>` : ''}${featured ? ' <b class="star">★</b>' : ''}`;
+  return markers ? ` <span class="programme-meta">${markers}</span>` : '';
+}
+
+function listing(entry: ScheduleEntry, day: GuideDay, config: AppConfig, media: ReadonlyMap<string, MediaItem>): string {
   const local = DateTime.fromMillis(entry.startsAtMs, { zone: config.channel.timezone });
   const ongoing = entry.startsAtMs < day.startsAtMs;
   const afterMidnight = local.toISODate() !== day.date && !ongoing;
   const title = shortTitles[entry.showId] ?? entry.showTitle;
-  // Keep the numbered comedy compilations distinguishable without long titles.
-  const number = entry.showId === 'unusualvideos' ? entry.episodeTitle.match(/\bV(\d+)\b/i)?.[1] : undefined;
   const featured = entry.id === day.feature?.id;
-  return `<li class="programme${featured ? ' featured' : ''}" data-event="${html(entry.id)}"><time>${ongoing ? '↳' : local.toFormat('HH.mm')}${afterMidnight ? '<sup>+</sup>' : ''}</time><span>${html(title)}${number ? ` <small>V${number}</small>` : ''}${featured ? ' <b class="star">★</b>' : ''}</span></li>`;
+  return `<li class="programme${featured ? ' featured' : ''}" data-event="${html(entry.id)}"><time>${ongoing ? '↳' : local.toFormat('HH.mm')}${afterMidnight ? '<sup>+</sup>' : ''}</time><span>${html(title)}${programmeMetadata(entry, media, featured)}</span></li>`;
 }
 
 export function weeklyGuideHtml(days: GuideDay[], config: AppConfig, pictures: Map<string, string>, media: MediaItem[] = []): string {
   const root = config.projectRoot;
   const descriptions = new Map(media.map(item => [item.showId, item.showDescription]));
+  const catalogue = new Map(media.map(item => [item.id, item]));
   const date = (value: string) => DateTime.fromISO(value, { zone: config.channel.timezone }).setLocale('de');
   const first = date(days[0]!.date), last = date(days[6]!.date);
   const range = `${first.toFormat('d. MMMM')} – ${last.toFormat('d. MMMM yyyy')}`;
@@ -173,18 +213,19 @@ export function weeklyGuideHtml(days: GuideDay[], config: AppConfig, pictures: M
     return `<article class="day" style="--day:${colors[i]}">
       <header class="day-heading"><h2>${weekdays[i]}</h2><span>${date(day.date).toFormat('dd. MMMM')}</span></header>
       <div class="kids-label"><b>LKP</b><span>Für kleine Entdecker</span></div>
-      <div class="kids-list fit-list"><ol>${day.kids.map(e => listing(e, day, config)).join('') || '<li class="empty">Noch kein Programm veröffentlicht.</li>'}</ol></div>
+      <div class="kids-list fit-list"><ol>${day.kids.map(e => listing(e, day, config, catalogue)).join('') || '<li class="empty">Noch kein Programm veröffentlicht.</li>'}</ol></div>
       <section class="feature"><div class="feature-label">★ UNSER TAGESTIPP ${feature ? `<time>${DateTime.fromMillis(feature.startsAtMs, { zone: config.channel.timezone }).toFormat('HH.mm')}</time>` : ''}</div>
         ${picture ? `<img src="${picture}" alt="${html(feature!.showTitle)}">` : '<div class="no-picture">Ein Tag voller<br>Entdeckungen</div>'}
-        <div class="feature-copy"><h3>${html(feature?.showTitle ?? 'Dein Tag mit LKP')}</h3>${description ? `<p>${html(description)}</p>` : ''}</div>
+        <div class="feature-copy"><h3>${html(feature?.showTitle ?? 'Dein Tag mit LKP')}${feature ? programmeMetadata(feature, catalogue) : ''}</h3>${description ? `<p>${html(description)}</p>` : ''}</div>
       </section>
       ${hasNight ? `<header class="night-heading"><span class="moon">☾</span><div><b>LUNDENBURG NACHT</b><span>${nightHours}</span></div></header>
-      <div class="night-list fit-list"><ol>${day.night.map(e => listing(e, day, config)).join('') || '<li class="empty">Noch kein Nachtprogramm veröffentlicht.</li>'}</ol><div class="night-end">${DateTime.fromMillis(day.endsAtMs, { zone: config.channel.timezone }).toFormat('HH.mm')} · Wieder LKP</div></div>` : ''}
+      <div class="night-list fit-list"><ol>${day.night.map(e => listing(e, day, config, catalogue)).join('') || '<li class="empty">Noch kein Nachtprogramm veröffentlicht.</li>'}</ol><div class="night-end">${DateTime.fromMillis(day.endsAtMs, { zone: config.channel.timezone }).toFormat('HH.mm')} · Wieder LKP</div></div>` : ''}
     </article>`;
   }).join('');
   return `<!doctype html><html lang="de"><head><meta charset="utf-8"><title>LKP · Fernsehwoche ${html(range)}</title>
 <meta name="viewport" content="width=1123"><style>
 @font-face{font-family:Guide;src:url('${font('assets/branding/fonts/DejaVuSans.ttf')}')}
+@font-face{font-family:Listings;src:url('${font('assets/branding/fonts/DejaVuSansCondensed.ttf')}')}
 @font-face{font-family:Fredoka;src:url('${font('assets/weather/fonts/Fredoka.ttf')}');font-weight:300 700}
 @font-face{font-family:Nacht;src:url('${font('assets/branding/fonts/DejaVuSerif.ttf')}')}
 @page{size:A3 portrait;margin:0}*{box-sizing:border-box}html,body{margin:0;padding:0}body{font-family:Guide,sans-serif;color:#182e41;background:#ddd;print-color-adjust:exact;-webkit-print-color-adjust:exact}
@@ -192,20 +233,20 @@ export function weeklyGuideHtml(days: GuideDay[], config: AppConfig, pictures: M
 .masthead{height:25mm;flex-shrink:0;background:#07549a;color:white;display:flex;align-items:center;padding:3mm 5mm;gap:4mm;position:relative;border-bottom:1.3mm solid #f4bf24}
 .masthead img{width:19mm;height:19mm;object-fit:contain;background:white;border-radius:3mm;padding:1.5mm}.masthead h1{font-family:Fredoka,sans-serif;font-size:29pt;font-weight:600;margin:0;line-height:1.05}.masthead p{font-size:8pt;margin:1.5mm 0 0;letter-spacing:.4pt}.edition{text-align:right;margin-left:auto}.edition b{font-size:19pt;font-weight:500}.edition span{display:block;font-size:8pt;margin-top:1.5mm}
 .subhead{height:9mm;flex-shrink:0;display:flex;align-items:center;justify-content:space-between;font-size:8pt;border-bottom:.25mm solid #d2d9df;margin-bottom:2mm}.subhead b{letter-spacing:.5pt}.subhead span{color:#516575}
-.week{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:1.2mm;flex:1;min-height:0;--night-height:114mm}
+.week{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:1.2mm;flex:1;min-height:0;--night-height:105mm}
 .day{min-width:0;min-height:0;border:.25mm solid var(--day);display:grid;grid-template-rows:13mm 6mm minmax(0,1fr) 50mm ${hasNight ? '11mm var(--night-height)' : ''};background:#fffbed;overflow:visible}
-.day-heading{background:var(--day);padding:2mm 1.4mm;color:#fff}.day:nth-child(2) .day-heading,.day:nth-child(3) .day-heading,.day:nth-child(4) .day-heading{color:#182e41}.day-heading h2{font-family:Fredoka,sans-serif;font-size:12pt;margin:0;font-weight:600;line-height:1.1}.day-heading span{font-size:8pt;display:block;margin-top:1mm}
+.day-heading{background:var(--day);padding:2mm 1.4mm;color:#fff}.day-heading h2{font-family:Fredoka,sans-serif;font-size:12pt;margin:0;font-weight:600;line-height:1.1}.day-heading span{font-size:8pt;display:block;margin-top:1mm}
 .kids-label{display:flex;align-items:center;gap:1.5mm;padding:0 1.4mm;border-bottom:.25mm solid var(--day);font-size:5.9pt;background:#fff}.kids-label b{font-family:Fredoka,sans-serif;font-size:10pt;color:#07549a}.kids-label span{letter-spacing:-.1pt}
-.fit-list{min-height:0;padding:1.4mm 1.2mm;font-size:8.4pt;line-height:1.17;overflow:visible}.fit-list ol{list-style:none;padding:0;margin:0}.programme{display:grid;grid-template-columns:8.5mm minmax(0,1fr);gap:.6mm;padding:.08mm 0;break-inside:avoid;overflow-wrap:anywhere}.programme time{font-weight:bold;font-variant-numeric:tabular-nums;white-space:nowrap;letter-spacing:-.3pt}.programme span{font-weight:600;letter-spacing:-.25pt}.programme small{font-weight:normal;font-size:.85em}.programme sup{font-size:5pt;vertical-align:super}.programme.featured{background:#ffe292;box-shadow:0 0 0 .65mm #ffe292}.star{color:#b3760d;font-size:.85em}.empty{font-size:8pt;font-weight:normal;padding:3mm 1mm;color:#66757d}
-.feature{border-top:.6mm solid var(--day);background:white;display:flex;flex-direction:column;min-height:0}.feature-label{background:var(--day);color:white;font-size:6pt;font-weight:bold;letter-spacing:.1pt;height:5mm;padding:1.3mm 1.2mm;white-space:nowrap;display:flex;justify-content:space-between}.day:nth-child(2) .feature-label,.day:nth-child(3) .feature-label,.day:nth-child(4) .feature-label{color:#182e41}.feature img{width:100%;height:24mm;object-fit:cover;display:block}.feature-copy{padding:1.7mm 1.5mm}.feature h3{font-family:Fredoka,sans-serif;font-size:10pt;font-weight:600;line-height:1.1;margin:0 0 1.2mm}.feature p{font-size:7pt;line-height:1.25;margin:0}.no-picture{height:24mm;background:#edf4f8;color:#07549a;display:flex;align-items:center;justify-content:center;font-family:Fredoka;font-size:13pt}
-.night-heading{display:flex;align-items:center;gap:1.5mm;padding:1.4mm 1.5mm;background:${nacht.colors.ink};color:${nacht.colors.gold};border-top:1mm solid ${nacht.colors.gold}}.moon{font-family:Nacht;font-size:20pt;line-height:1}.night-heading b{display:block;font-size:5.7pt;letter-spacing:.15pt;font-weight:normal}.night-heading div>span{display:block;font-family:Nacht;font-size:8pt;color:${nacht.colors.ivory};margin-top:.7mm}.night-list{background:#f1f2f3;font-size:7.5pt;line-height:1.1;color:${nacht.colors.ink};position:relative;padding-bottom:5mm}.night-list .programme{padding:.04mm 0}.night-list .programme span{font-weight:normal}.night-end{position:absolute;bottom:1.3mm;left:1.3mm;right:1.3mm;border-top:.2mm solid #bac3c9;padding-top:1mm;font-size:6pt;color:#4d6373}
+.fit-list{font-family:Listings,sans-serif;min-height:0;padding:1.4mm 1.2mm;font-size:8.4pt;line-height:1.17;overflow:visible}.fit-list ol{list-style:none;padding:0;margin:0}.programme{display:grid;grid-template-columns:8mm minmax(0,1fr);gap:.6mm;padding:.08mm 0;break-inside:avoid;overflow-wrap:anywhere}.programme time{font-weight:bold;font-variant-numeric:tabular-nums;white-space:nowrap;letter-spacing:-.3pt}.programme span{font-weight:600;letter-spacing:-.25pt}.programme-meta{white-space:nowrap}.episode{font-family:Listings,sans-serif;font-weight:normal;font-size:.8em;white-space:nowrap;letter-spacing:-.2pt}.subtitles{display:inline-block;font-family:Guide,sans-serif;font-size:.66em;font-weight:bold;line-height:1;letter-spacing:-.1pt;border:.12mm solid currentColor;border-radius:.3mm;padding:.08em .1em;vertical-align:.08em;white-space:nowrap}.programme .subtitles{font-weight:bold}.programme sup{font-size:5pt;vertical-align:super}.programme.featured{background:var(--day);color:#fff;box-shadow:0 0 0 .65mm var(--day)}.programme.featured .star{color:inherit}.star{color:#b3760d;font-size:.85em}.empty{font-size:8pt;font-weight:normal;padding:3mm 1mm;color:#66757d}
+.feature{border-top:.6mm solid var(--day);background:white;display:flex;flex-direction:column;min-height:0}.feature-label{background:var(--day);color:white;font-size:6pt;font-weight:bold;letter-spacing:.1pt;height:5mm;padding:1.3mm 1.2mm;white-space:nowrap;display:flex;justify-content:space-between}.feature img{width:100%;height:24mm;object-fit:cover;display:block}.feature-copy{padding:1.4mm 1.5mm}.feature h3{font-family:Fredoka,sans-serif;font-size:10pt;font-weight:600;line-height:1.1;margin:0 0 .8mm}.feature p{font-size:7pt;line-height:1.2;margin:0}.no-picture{height:24mm;background:#edf4f8;color:#07549a;display:flex;align-items:center;justify-content:center;font-family:Fredoka;font-size:13pt}
+.night-heading{display:flex;align-items:center;gap:1.5mm;padding:1.4mm 1.5mm;background:${nacht.colors.ink};color:#fff;border-top:1mm solid ${nacht.colors.gold}}.moon{font-family:Nacht;font-size:20pt;line-height:1}.night-heading b{display:block;font-size:5.7pt;letter-spacing:.15pt;font-weight:normal}.night-heading div>span{display:block;font-family:Nacht;font-size:8pt;color:#fff;margin-top:.7mm}.night-list{background:#f1f2f3;font-size:7.5pt;line-height:1.1;color:${nacht.colors.ink};position:relative;padding-bottom:5mm}.night-list .programme{padding:.04mm 0}.night-list .programme span{font-weight:normal}.night-end{position:absolute;bottom:1.3mm;left:1.3mm;right:1.3mm;border-top:.2mm solid #bac3c9;padding-top:1mm;font-size:6pt;color:#4d6373}
 .footer{height:7mm;flex-shrink:0;display:flex;align-items:flex-end;justify-content:space-between;font-size:6pt;color:#526675}.footer b{color:#07549a;font-weight:normal}.footer span{max-width:225mm}.footer .page-number{font-family:Fredoka;font-size:13pt;color:#07549a}
 @media print{body{background:white}.sheet{margin:0;break-after:avoid}}
 </style></head><body><main class="sheet">
 <header class="masthead"><img src="${dataUri(path.join(root, 'assets/logo/lkp-logo.svg'), 'image/svg+xml')}" alt="LKP"><div><h1>Deine Fernsehwoche</h1><p>LUNDENBURG KIDS PREMIUM</p></div><div class="edition"><b>${first.toFormat('dd.MM.')} – ${last.toFormat('dd.MM.')}</b><span>${first.year} · Kalenderwoche ${first.weekNumber}</span></div></header>
 <div class="subhead"><b>Sieben Tage. Kleine Abenteuer. Große Entdeckungen.</b><span>★ Tagestipp mit Bild · Abends Lundenburg Nacht</span></div>
 <section class="week">${columns}</section>
-<footer class="footer"><span><b>${html(range)}</b> · Alle Zeiten ${html(config.channel.timezone)} · + nach Mitternacht, am Folgetag · ↳ läuft bereits<br>Sendetage ${DateTime.fromMillis(days[0]!.startsAtMs, { zone: config.channel.timezone }).toFormat('HH.mm')}–${DateTime.fromMillis(days[0]!.endsAtMs, { zone: config.channel.timezone }).toFormat('HH.mm')} Uhr · Änderungen vorbehalten</span><span>A3 · 100 % drucken</span><b class="page-number">LKP / ${first.weekNumber}</b></footer>
+<footer class="footer"><span><b>${html(range)}</b> · Alle Zeiten ${html(config.channel.timezone)} · + nach Mitternacht, am Folgetag · ↳ läuft bereits<br>(Staffel/Folge) oder (Folge) · – Folgenblock · <span class="subtitles" role="img" aria-label="Untertitel">UT</span> Untertitel · Sendetage ${DateTime.fromMillis(days[0]!.startsAtMs, { zone: config.channel.timezone }).toFormat('HH.mm')}–${DateTime.fromMillis(days[0]!.endsAtMs, { zone: config.channel.timezone }).toFormat('HH.mm')} Uhr · Änderungen vorbehalten</span><span>A3 · 100 % drucken</span><b class="page-number">LKP / ${first.weekNumber}</b></footer>
 </main></body></html>`;
 }
 
@@ -295,7 +336,8 @@ export async function exportWeeklyGuide(output: string, entries: ScheduleEntry[]
         const overflow = () => group.some(el => {
           const content = el.querySelector('ol');
           const style = getComputedStyle(el);
-          return content.getBoundingClientRect().height > el.clientHeight - parseFloat(style.paddingTop) - parseFloat(style.paddingBottom) + .5;
+          return content.getBoundingClientRect().height > el.clientHeight - parseFloat(style.paddingTop) - parseFloat(style.paddingBottom) + .5 ||
+            content.scrollWidth > content.clientWidth + 1;
         });
         for (; size >= minimum; size = Math.round((size - .1) * 10) / 10) {
           group.forEach(el => { el.style.fontSize = size + 'pt'; });
@@ -305,7 +347,7 @@ export async function exportWeeklyGuide(output: string, entries: ScheduleEntry[]
       };
       const kids = fitGroup('.kids-list', 8.4, 7.2);
       const night = fitGroup('.night-list', 7.5, 6.8);
-      const featuresOverflow = all('.feature').some(el => el.scrollHeight > el.clientHeight + 1);
+      const featuresOverflow = all('.feature').some(el => el.scrollHeight > el.clientHeight + 1 || el.scrollWidth > el.clientWidth + 1);
       return { kids, night, featuresOverflow, lists: lists.length };
     })()`) as { kids: number | null; night: number | null; featuresOverflow: boolean; lists: number };
     if (!fit.kids || !fit.night || fit.featuresOverflow) throw new Error(`This week is too dense for a legible one-page guide (${JSON.stringify(fit)}); no PDF was replaced`);

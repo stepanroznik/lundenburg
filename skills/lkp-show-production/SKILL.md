@@ -94,6 +94,9 @@ only seven stills from existing media, uses short cast-free print descriptions,
 and does not render, publish or schedule any broadcast assets. Preserve the
 configured civil-time handovers and the full public programme list when changing
 this exporter; review the PDF for overflow and keep LKP visually dominant.
+Keep text white on coloured headings and highlighted rows. Print catalogue
+episode numbers (including all assembly sources) and a boxed UT marker when
+the scheduled programme has subtitles; never invent episode numbers for films.
 Repository document links here are relative to the maintained skill under
 `skills/lkp-show-production/`; when using an installed copy, open those documents
 from the active repository root.
