@@ -55,6 +55,10 @@ change stages the complete daytime replacement, validates the timeline, checks
 for concurrent schedule changes, and commits settings and entries together.
 Nacht entries, handovers and already published weather retain identities, times,
 plans and EPG IDs. Historical logs and the currently airing programme are retained.
+The SQLite `require_children_assemblies` trigger fences out schedule publication
+from acquisition workers that still have the older compiler loaded. A rejected
+publication rolls back their existing schedule transaction. Immutable acquisition
+releases share the maintained children policy alongside station policy.
 The CLI refreshes the EIT file using the existing atomic writer; the existing EPG
 watcher also republishes the database timeline. A failed rebuild leaves the
 previous schedule and active age intact. The runtime guard checks every assembly

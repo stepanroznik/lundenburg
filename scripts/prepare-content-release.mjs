@@ -12,11 +12,11 @@ export function prepareRelease(baseline, destination, repository) {
   fs.mkdirSync(destination, { recursive: true });
   fs.cpSync(path.join(repository, 'dist'), path.join(destination, 'dist'), { recursive: true });
   fs.cpSync(path.join(previous, 'config'), path.join(destination, 'config'), { recursive: true });
-  for (const name of ['channels.yaml', 'nacht-acquisition.yaml']) {
+  for (const name of ['channels.yaml', 'children.yaml', 'nacht-acquisition.yaml']) {
     const source = path.join(repository, 'config', name);
     if (fs.existsSync(source)) {
       const target = path.join(destination, 'config', name);
-      if (name === 'channels.yaml') {
+      if (name === 'channels.yaml' || name === 'children.yaml') {
         // This station policy is shared by the broadcaster and the acquisition
         // worker so schedule regeneration always sees the same enabled profile.
         fs.rmSync(target, { force: true });

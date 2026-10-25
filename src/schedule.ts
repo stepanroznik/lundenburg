@@ -365,8 +365,8 @@ export function setChildrenAge(db: LkpDatabase, config: AppConfig, age: number, 
     const current=db.nextAfter(first.startsAtMs);
     if(current?.id!==first.id || JSON.stringify(db.listSchedule(first.startsAtMs,bounds.lastMs+1))!==JSON.stringify(tail)) throw new Error('Schedule changed during age regeneration');
     db.db.prepare('DELETE FROM schedule_entries WHERE sequence>=?').run(first.sequence);
-    db.insertSchedule(generated);
     saveChildrenAge(db,age,tolerance,first.startsAtMs);
+    db.insertSchedule(generated);
   }).immediate();
   config.children=nextConfig.children;
   return {startMs:first.startsAtMs,replaced:tail.filter(e=>!preserved(e)).length,added:generated.length};

@@ -247,9 +247,9 @@ export class LkpDatabase {
   insertSchedule(entries: ScheduleEntry[]): void {
     const insert = this.db.prepare(`INSERT INTO schedule_entries (
       id, sequence, media_id, show_id, show_title, season, episode, episode_title, description,
-      starts_at_ms, ends_at_ms, duration_ms, media_path, audio_language, subtitle_languages_json, listing_visibility, playout_plan_json, epg_event_id, created_at_ms
+      starts_at_ms, ends_at_ms, duration_ms, media_path, audio_language, subtitle_languages_json, listing_visibility, playout_plan_json, presentation_json, epg_event_id, created_at_ms
     ) VALUES (@id,@sequence,@mediaId,@showId,@showTitle,@season,@episode,@episodeTitle,@description,
-      @startsAtMs,@endsAtMs,@durationMs,@mediaPath,@audioLanguage,@subtitleLanguagesJson,@listingVisibility,@playoutPlanJson,@epgEventId,@createdAtMs)`);
+      @startsAtMs,@endsAtMs,@durationMs,@mediaPath,@audioLanguage,@subtitleLanguagesJson,@listingVisibility,@playoutPlanJson,@presentationJson,@epgEventId,@createdAtMs)`);
     // Reuse the 16-bit namespace only well outside the rolling EPG window.
     const collision = this.db.prepare('SELECT 1 FROM schedule_entries WHERE epg_event_id=? AND starts_at_ms BETWEEN ? AND ? LIMIT 1');
     this.db.transaction((rows: ScheduleEntry[]) => {
@@ -265,8 +265,8 @@ export class LkpDatabase {
           epgEventId,
           subtitleLanguagesJson: JSON.stringify(row.subtitleLanguages), createdAtMs: Date.now(),
           listingVisibility: row.listingVisibility ?? 'public', playoutPlanJson: row.playoutPlan ? JSON.stringify(row.playoutPlan) : null,
+          presentationJson: row.presentation ? JSON.stringify(row.presentation) : null,
         });
-        if (row.presentation) this.db.prepare('UPDATE schedule_entries SET presentation_json=? WHERE id=?').run(JSON.stringify(row.presentation), row.id);
       }
     })(entries);
   }

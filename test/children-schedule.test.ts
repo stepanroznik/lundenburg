@@ -224,3 +224,19 @@ test('approved ad fillers include WERBUNG and never admit unknown-age ads',()=>{
     assert.ok(without.every(e=>e.showId!=='lkp-advertising'));
   }finally{f.close();}
 });
+
+test('a pre-upgrade acquisition compiler cannot overwrite the active age-aware schedule',()=>{
+  const f=fixture();try{
+    const from=ms('2026-10-26T06:00'),end=ms('2026-10-28T06:00');
+    f.db.insertSchedule(buildScheduleEntries(f.media,'fence',from,end,0,[],schedulePlanning(f.db,f.app)));
+    setChildrenAge(f.db,f.app,3,1,ms('2026-10-26T07:00'));
+    const old=f.db.listSchedule(from,end);
+    const next=old.find(e=>e.startsAtMs>=ms('2026-10-27T07:00') && e.playoutPlan?.assembly?.sources.length)!;
+    const {playoutPlan:_plan,...legacy}=next;
+    assert.throws(()=>f.db.db.transaction(()=>{
+      f.db.db.prepare('DELETE FROM schedule_entries WHERE sequence>=?').run(next.sequence);
+      f.db.insertSchedule([legacy]);
+    }).immediate(),/requires source assemblies/);
+    assert.deepEqual(f.db.listSchedule(from,end),old);
+  }finally{f.close();}
+});

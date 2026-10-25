@@ -6,6 +6,15 @@ import { childrenPolicy, validateAge } from './children-policy.js';
 export function childrenSettings(db: LkpDatabase, config: AppConfig): void {
   db.db.exec(`CREATE TABLE IF NOT EXISTS children_settings (id INTEGER PRIMARY KEY CHECK(id=1), target_age REAL NOT NULL, tolerance REAL NOT NULL, effective_at_ms INTEGER NOT NULL);
     CREATE TABLE IF NOT EXISTS children_show_policies (show_id TEXT PRIMARY KEY, policy_json TEXT NOT NULL, source TEXT NOT NULL);`);
+  // A worker already running an older compiler must not replace age-filtered
+  // programming during a release switch. Its existing transaction rolls back.
+  db.db.exec(`CREATE TRIGGER IF NOT EXISTS require_children_assemblies
+    BEFORE INSERT ON schedule_entries
+    WHEN EXISTS(SELECT 1 FROM children_settings WHERE id=1 AND NEW.starts_at_ms>=effective_at_ms)
+      AND COALESCE(json_extract(NEW.presentation_json,'$.profile'),'lkp')='lkp'
+      AND NEW.show_id NOT IN ('station-lkp','lkp-weather','lkp-intermissions','lkp-advertising')
+      AND COALESCE(json_type(NEW.playout_plan_json,'$.assembly.sources'),'null')<>'array'
+    BEGIN SELECT RAISE(ABORT,'Age-aware children schedule requires source assemblies'); END;`);
   refreshChildrenAge(db,config);
   if (!config.children) return;
   const c=config.children;
