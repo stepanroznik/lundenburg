@@ -574,7 +574,13 @@ select the same reserved window. It fetches fresh data on each run and selects
 a future programme boundary from the existing schedule. If preparation finishes
 late, publication uses the next safe boundary within validity; if none exists,
 ordinary programming continues. When changing the window/lead settings, adjust
-`OnCalendar` in the timer to match. `Persistent=true` checks a missed activation
+`OnCalendar` in the timer to match. If an existing system timer still runs
+at noon and root access is unavailable, run
+`bash scripts/install-weather-afternoon-timer.sh` on the Pi. It adds a user timer
+at 14:00 with the same renderer resource limits; the system timer keeps its
+morning/evening runs. The noon run finds no due reserved window. Disable
+`lkp-weather-afternoon.timer` in the user manager after upgrading the system timer
+to 14:00, to keep a single afternoon activation. `Persistent=true` checks a missed activation
 after reboot. No weather is inserted until the entire render succeeds.
 
 ### Independent Pi service

@@ -1,0 +1,11 @@
+[Unit]
+Description=Generate LKP afternoon weather at 14:00 Prague time
+
+[Timer]
+OnCalendar=*-*-* 14:00:00 Europe/Prague
+AccuracySec=30s
+Persistent=true
+Unit=lkp-weather-afternoon.service
+
+[Install]
+WantedBy=timers.target

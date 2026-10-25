@@ -1,0 +1,24 @@
+[Unit]
+Description=Prepare the LKP afternoon forecast at the reserved 15:00 slot
+After=network-online.target
+
+[Service]
+Type=oneshot
+WorkingDirectory=/home/lundenburg/lkp-weather
+Environment=WEATHER_RENDER_CONCURRENCY=1
+ExecStart=/usr/bin/node --import tsx src/weather/cli.ts auto
+TimeoutStartSec=5400
+Nice=19
+CPUSchedulingPolicy=idle
+CPUWeight=1
+CPUQuota=100%
+CPUAffinity=0 1
+IOWeight=1
+IOSchedulingClass=idle
+MemoryHigh=768M
+MemoryMax=1G
+MemorySwapMax=0
+OOMPolicy=stop
+KillMode=control-group
+TimeoutStopSec=15
+NoNewPrivileges=true
