@@ -10,7 +10,12 @@ type Db = InstanceType<typeof Database>;
 export class LkpDatabase {
   readonly db: Db;
 
-  constructor(file: string) {
+  constructor(file: string, options: { readonly?: boolean } = {}) {
+    if (options.readonly) {
+      this.db = new Database(file, { readonly: true, fileMustExist: true });
+      this.db.pragma('busy_timeout = 1500');
+      return;
+    }
     fs.mkdirSync(path.dirname(file), { recursive: true });
     this.db = new Database(file);
     this.db.pragma('journal_mode = WAL');

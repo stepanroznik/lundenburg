@@ -88,6 +88,12 @@ Read [NACHT.md](../../NACHT.md) for profile hours, age policy, acquisition and
 asset validation. The Pi configuration may already enable profiles; inspect the
 current configuration and runtime manifest rather than assuming LN is inactive.
 Source synchronization does not activate assets or regenerate the schedule.
+The read-only `npm run schedule:pdf -- --week YYYY-MM-DD` command creates an A3
+weekly magazine PDF, HTML and PNG review from the existing schedule. It extracts
+only seven stills from existing media, uses short cast-free print descriptions,
+and does not render, publish or schedule any broadcast assets. Preserve the
+configured civil-time handovers and the full public programme list when changing
+this exporter; review the PDF for overflow and keep LKP visually dominant.
 Repository document links here are relative to the maintained skill under
 `skills/lkp-show-production/`; when using an installed copy, open those documents
 from the active repository root.

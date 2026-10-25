@@ -22,6 +22,7 @@
     "schedule:generate": "npm run lkp -- schedule generate",
     "schedule:show": "npm run lkp -- schedule show",
     "schedule:export": "npm run lkp -- schedule export",
+    "schedule:pdf": "npm run lkp -- schedule print",
     "broadcast:start": "npm run lkp -- broadcast start",
     "internet:start": "tsx src/internet.ts",
     "doctor": "npm run lkp -- doctor",

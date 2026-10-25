@@ -349,6 +349,34 @@ npm run schedule:export -- --from 2026-10-01 --to 2026-10-31 --output runtime/oc
 
 Excel dates/times are real cells displayed in Prague civil time. Headers are frozen and filtered.
 
+For a printable television magazine, export a seven-day **A3 portrait PDF**:
+
+```bash
+npm run schedule:pdf
+npm run schedule:pdf -- --week 2026-10-26 --output runtime/lkp-week-44.pdf
+```
+
+`--week` selects the Monday–Sunday week containing that date, in Europe/Prague.
+Each column runs from the configured morning handover (normally 06:00) to the
+following morning; `+` marks times after midnight. Seven coloured day columns
+give LKP the main space, with a separate navy-and-champagne LN heading and compact
+night listings below. Every public programme is included; ads and continuity
+are omitted just as in the Excel guide. Minute times are displayed without
+changing the authoritative schedule.
+
+Each day highlights a scheduled children's show, choosing different shows across
+the week whenever the catalogue allows. Feature pictures are extracted from the
+actual programme videos with FFmpeg and cached under `runtime/weekly-guide`.
+Short descriptions omit cast and crew. Optional `--artwork /path/to/pictures`
+uses `show-id.jpg` or `show-id.png` instead. Unavailable pictures produce a title
+card and a warning. Missing days are labelled as unpublished.
+
+The command opens SQLite **read-only**, needs FFmpeg and Chromium, and makes no
+network or speech-provider requests. Set `LKP_GUIDE_BROWSER` or pass `--browser`
+to select a browser. It writes a self-contained HTML preview and a PNG alongside
+the PDF, checks that all rows fit before replacing a previous PDF, and never
+starts playout or changes the schedule. Print on A3 at 100% for readable text.
+
 ## Playout and diagnostics
 
 Select the output without changing code in `config/lkp.yaml`:

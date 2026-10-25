@@ -12,6 +12,7 @@ import { runDoctor } from './doctor.js';
 import { writeEpgAtomic } from './epg.js';
 import { watchEpg } from './epg-refresh.js';
 import { exportWorkbook } from './export.js';
+import { exportWeeklyGuide, guideWeek } from './weekly-guide.js';
 import { scanMedia } from './media.js';
 import { catalogueChanges, writeCatalogue } from './catalogue-maintenance.js';
 import { runBroadcast } from './playout.js';
@@ -28,9 +29,9 @@ program.option('-c, --config <file>', 'configuration YAML');
 registerContent(program);
 registerChannels(program);
 
-function context(): { config: ReturnType<typeof loadConfig>; db: LkpDatabase } {
+function context(readonly = false): { config: ReturnType<typeof loadConfig>; db: LkpDatabase } {
   const config = loadConfig(program.opts<{ config?: string }>().config);
-  return { config, db: new LkpDatabase(config.storage.database) };
+  return { config, db: new LkpDatabase(config.storage.database, { readonly }) };
 }
 
 const media = program.command('media').description('media catalogue operations');
@@ -243,6 +244,22 @@ schedule.command('export').description('export planned and actual playout to XLS
       const output = path.resolve(options.output);
       await exportWorkbook(output, db.listSchedule(from, to), db.listPlayback(from, to), config);
       console.log(`Wrote ${output}`);
+    } finally { db.close(); }
+  });
+
+schedule.command('print').description('export a seven-day magazine-style TV guide to an A3 PDF (read-only)')
+  .option('--week <date>', 'week containing this local ISO date; defaults to this week')
+  .option('--artwork <directory>', 'optional show-id.jpg/png feature pictures instead of video stills')
+  .option('--browser <file>', 'Chromium executable (or set LKP_GUIDE_BROWSER)')
+  .option('-o, --output <file>', 'PDF path; also writes an HTML preview and PNG', './runtime/lkp-weekly.pdf')
+  .action(async (options: { week?: string; artwork?: string; browser?: string; output: string }) => {
+    const { config, db } = context(true);
+    try {
+      const week = guideWeek(options.week, config);
+      const entries = db.listSchedule(week.start.toMillis(), week.end.toMillis());
+      const result = await exportWeeklyGuide(options.output, entries, config, { ...options, media: db.listMedia(false) });
+      console.log(`Wrote ${result.pdf}\nPreview: ${result.preview}\nWeek: ${week.start.toISODate()}–${week.end.minus({ days: 1 }).toISODate()}`);
+      for (const warning of result.warnings) console.warn(warning);
     } finally { db.close(); }
   });
 
