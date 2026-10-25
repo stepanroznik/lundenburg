@@ -47,7 +47,15 @@ seasonal restrictions. Keep the isolated weather installation’s station/childr
 policies and reserved-window selection synchronized with the broadcaster, and
 align its timer with forecast expiry; never schedule looping daytime
 holding screens. Programme anchors may drift by five seconds. Preserve hard
-profile handovers and every Nacht event during age changes. Keep the original morning/evening handover animations and audio intact;
+profile handovers and every Nacht event during age changes. Explicit full-station
+repairs may rebuild Nacht using `scripts/rebuild-station.mjs --apply`; validate the
+whole preview and back up SQLite first. Static cards must never exceed five
+seconds, including playback recovery. Protect pinned programmes during filler
+backtracking. Check daily episode/ad repeats, whole-source durations, seasonal
+ads, weather reservations, weekly show coverage and language balance. Reuse
+operation counters and metadata; do not rescan the full year for each choice.
+Detach long commands with persistent progress and failure reports, verify startup
+once and return to the user without polling. Keep the original morning/evening handover animations and audio intact;
 remove adjacent static logo padding rather than replacing or shortening the films. Generate review schedules
 with the read-only preview script; activating source does not authorize changing
 the live schedule. Do not generate continuation voiceovers or masters as a side

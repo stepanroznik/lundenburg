@@ -20,6 +20,7 @@ const ms=(s:string)=>DateTime.fromISO(s,{zone:'Europe/Prague'}).toMillis();
 function fixture(age=3) {
   const root=fs.mkdtempSync(path.join(os.tmpdir(),'lkp-ages-')),app=config(root);
   app.children=loadChildrenConfig(path.resolve('.'))!;app.children.targetAgeYears=age;
+  Object.assign(app.children,{minimumFlexibleEpisodeSeconds:0,minimumEpisodeRepeatHours:0,maximumEpisodePlaysPerDay:0,maximumAdPlaysPerDay:0,adBreakEveryMinutes:0,balanceShows:false});
   app.station=loadStationConfig(path.resolve('.'))!;app.station.enabled=true;app.station.avoidHandoverLogoPadding=false;
   const video=path.join(root,'continuity.mp4');fs.writeFileSync(video,'fixture');
   app.station.assetManifest=path.join(root,'assets.json');
@@ -324,5 +325,37 @@ test('hard filler lookahead closes three whole ad pods followed by one film',()=
     assert.equal(rows.filter(e=>e.showId==='lkp-advertising').length,3);
     assert.equal(rows.filter(e=>e.showId==='lkp-intermissions').length,1);
     assert.equal(rows[0]!.showId,'bluey');
+  }finally{f.close();}
+});
+
+
+test('operation state reports day progress and does not repeat short songs as flexible fillers',()=>{
+  const f=fixture();try {
+    Object.assign(f.app.children!,{minimumFlexibleEpisodeSeconds:180,minimumEpisodeRepeatHours:24,maximumEpisodePlaysPerDay:2,balanceShows:true});
+    f.app.advertising={enabled:true,root:f.root,programmeInterval:2,minEditorialMinutes:16,targetSeconds:{min:30,max:90},searchWindowMinutes:2,minimumBreakpointScore:50,bumperManifest:path.join(f.root,'bumpers.json')};
+    const bumper={character:'sisi',mediaPath:f.media[0]!.mediaPath,durationMs:5000};
+    fs.writeFileSync(f.app.advertising.bumperManifest,JSON.stringify({version:1,bumpers:[bumper]}));
+    for(const [i,durationMs] of [10_000,15_000,20_000].entries())f.db.upsertAd({id:`quality-${i}`,title:'Curated ad',sourceUrl:`https://example.test/ad-${i}`,language:'de',durationMs,mediaPath:f.media[i]!.mediaPath,enabled:true,tags:[],sourceMetadata:{}});
+    const from=ms('2026-10-26T06:00'),to=ms('2026-10-28T06:00');
+    const progress:{date:string;events:number}[]=[];
+    const planning={...schedulePlanning(f.db,f.app),onProgress:(p:{date:string;events:number})=>progress.push(p)};
+    const rows=buildScheduleEntries(f.media,'progress',from,to,0,[],planning);
+    assert.deepEqual(validateTimeline(rows),[]);assert.ok(progress.length>=2);assert.ok(progress.at(-1)!.events>0);
+    const media=new Map(f.media.map(m=>[m.id,m]));
+    for(const e of rows.filter(e=>e.playoutPlan?.assembly?.slot==='flexible'))for(const source of e.playoutPlan!.assembly!.sources)assert.ok(media.get(source.mediaId)!.durationMs>=180_000 || media.get(source.mediaId)!.showId==='der-kleine-maulwurf');
+  }finally{f.close();}
+});
+
+test('runtime recovery plays whole content and never extends a static logo past five seconds',async()=>{
+  const {playableRecovery,recoveryState}=await import('../src/runtime-recovery.js');
+  const f=fixture();try {
+    const from=ms('2026-10-26T09:30');
+    const entry=buildChildrenSchedule(f.media,'recovery',from,from+30*60_000,0,[],f.app)[0]!;
+    const state=recoveryState();
+    const good=playableRecovery(entry,from,from+20*60_000,f.media,f.app,state,[],[],[]);
+    assert.equal(good.presentation?.kind,'programme');assert.notEqual(good.mediaId,entry.mediaId);assert.ok(good.durationMs>5000);
+    const logo=playableRecovery(entry,from,from+100_000,[],f.app,state,[],[],[]);
+    assert.equal(logo.durationMs,5000);assert.equal(logo.playoutPlan,undefined);
+    assert.throws(()=>playableRecovery(entry,logo.endsAtMs,logo.endsAtMs+100_000,[],f.app,state,[],[],[]),/extended static logo/);
   }finally{f.close();}
 });

@@ -2,6 +2,12 @@
 # maximumTargetAge is an independent developmental ceiling.
 enabled: true
 boundaryToleranceSeconds: 5
+minimumFlexibleEpisodeSeconds: 180
+minimumEpisodeRepeatHours: 24
+maximumEpisodePlaysPerDay: 2
+maximumAdPlaysPerDay: 3
+adBreakEveryMinutes: 30
+balanceShows: true
 targetAgeYears: 3
 ageToleranceYears: 1
 policies:
@@ -23,7 +29,7 @@ policies:
       morning: 2
       bedtime: 2
     preferredSlotDurationMinutes: 15
-    targetWeeklyAirtimeMinutes: 210
+    targetWeeklyAirtimeMinutes: 420
     energyLevel: calm
     nextDayRerun: true
   byl-jednou-jeden-zivot:
@@ -45,7 +51,7 @@ policies:
       morning: 2
       daytime: 2
     preferredSlotDurationMinutes: 30
-    targetWeeklyAirtimeMinutes: 210
+    targetWeeklyAirtimeMinutes: 420
     energyLevel: moderate
     nextDayRerun: true
   ms-rachel:
@@ -56,8 +62,8 @@ policies:
     preferredDayparts:
       morning: 2
       daytime: 2
-    preferredSlotDurationMinutes: 60
-    targetWeeklyAirtimeMinutes: 210
+    preferredSlotDurationMinutes: 30
+    targetWeeklyAirtimeMinutes: 420
     energyLevel: moderate
     nextDayRerun: true
   teletubbies:
@@ -67,7 +73,7 @@ policies:
     preferredDayparts:
       morning: 2
     preferredSlotDurationMinutes: 30
-    targetWeeklyAirtimeMinutes: 210
+    targetWeeklyAirtimeMinutes: 420
     energyLevel: calm
     nextDayRerun: true
   bluey:
@@ -78,7 +84,7 @@ policies:
       morning: 2
       afternoon: 2
     preferredSlotDurationMinutes: 30
-    targetWeeklyAirtimeMinutes: 420
+    targetWeeklyAirtimeMinutes: 840
     energyLevel: moderate
     nextDayRerun: true
   bob-a-bobek:
@@ -89,7 +95,7 @@ policies:
       daytime: 2
       afternoon: 2
     preferredSlotDurationMinutes: 30
-    targetWeeklyAirtimeMinutes: 70
+    targetWeeklyAirtimeMinutes: 300
     energyLevel: moderate
     nextDayRerun: false
   maxipes-fik:
@@ -111,7 +117,7 @@ policies:
       evening: 2
       bedtime: 2
     preferredSlotDurationMinutes: 15
-    targetWeeklyAirtimeMinutes: 70
+    targetWeeklyAirtimeMinutes: 300
     energyLevel: calm
     nextDayRerun: false
   pat-a-mat:
@@ -194,7 +200,7 @@ policies:
       evening: 2
       bedtime: 2
     preferredSlotDurationMinutes: 30
-    targetWeeklyAirtimeMinutes: 70
+    targetWeeklyAirtimeMinutes: 300
     energyLevel: calm
     nextDayRerun: false
   tom-und-jerry:
@@ -205,7 +211,7 @@ policies:
       daytime: 2
       afternoon: 2
     preferredSlotDurationMinutes: 30
-    targetWeeklyAirtimeMinutes: 70
+    targetWeeklyAirtimeMinutes: 420
     energyLevel: high
     nextDayRerun: false
   sendung-mit-dem-elefanten:
@@ -216,7 +222,7 @@ policies:
       morning: 2
       afternoon: 2
     preferredSlotDurationMinutes: 30
-    targetWeeklyAirtimeMinutes: 70
+    targetWeeklyAirtimeMinutes: 420
     energyLevel: moderate
     nextDayRerun: false
   servus-kasperl:
@@ -227,7 +233,7 @@ policies:
       morning: 2
       daytime: 2
     preferredSlotDurationMinutes: 30
-    targetWeeklyAirtimeMinutes: 70
+    targetWeeklyAirtimeMinutes: 300
     energyLevel: moderate
     nextDayRerun: false
   sesamstrasse:
@@ -238,7 +244,7 @@ policies:
       morning: 2
       daytime: 2
     preferredSlotDurationMinutes: 30
-    targetWeeklyAirtimeMinutes: 70
+    targetWeeklyAirtimeMinutes: 420
     energyLevel: moderate
     nextDayRerun: false
   abc-baer:
@@ -282,7 +288,7 @@ policies:
       daytime: 2
       afternoon: 2
     preferredSlotDurationMinutes: 30
-    targetWeeklyAirtimeMinutes: 70
+    targetWeeklyAirtimeMinutes: 300
     energyLevel: moderate
     nextDayRerun: false
   unser-sandmaennchen:
@@ -292,7 +298,7 @@ policies:
     preferredDayparts:
       bedtime: 2
     preferredSlotDurationMinutes: 10
-    targetWeeklyAirtimeMinutes: 70
+    targetWeeklyAirtimeMinutes: 210
     energyLevel: calm
     nextDayRerun: false
   byl-jednou-jeden-clovek:
@@ -465,7 +471,7 @@ slots:
     minutes: 30
     showId: miss-josi
   - time: 08:30
-    minutes: 60
+    minutes: 30
     showId: ms-rachel
   - time: 09:30
     minutes: 30
@@ -475,9 +481,8 @@ slots:
     showId: sendung-mit-dem-elefanten
     rerunOf: 17:00
   - time: 11:00
-    minutes: 60
-    showId: ms-rachel
-    rerunOf: 08:30
+    minutes: 30
+    showId: tom-und-jerry
   - time: 12:00
     minutes: 30
     showId: miss-josi

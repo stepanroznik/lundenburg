@@ -1,6 +1,7 @@
 enabled: true
 # Keep the original handover films; fill adjacent time with programmes.
 avoidHandoverLogoPadding: true
+minimumMovieRepeatHours: 48
 timezone: Europe/Prague
 hours:
   weekdayStart: 20:00

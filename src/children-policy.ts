@@ -17,6 +17,12 @@ export interface ChildrenPolicy {
 }
 export interface ChildrenSlot { time: string; minutes: number; showId: string; rerunOf?: string; olderShowId?: string; weekdays?: number[] }
 export interface ChildrenConfig {
+  minimumFlexibleEpisodeSeconds?: number;
+  minimumEpisodeRepeatHours?: number;
+  maximumEpisodePlaysPerDay?: number;
+  maximumAdPlaysPerDay?: number;
+  adBreakEveryMinutes?: number;
+  balanceShows?: boolean;
   boundaryToleranceSeconds?: number;
   effectiveAtMs?: number;
   enabled: boolean; targetAgeYears: number; ageToleranceYears: number;
@@ -42,6 +48,8 @@ export function loadChildrenConfig(root: string): ChildrenConfig | undefined {
   const c = parse(fs.readFileSync(file, 'utf8')) as ChildrenConfig;
   validateAge(c.targetAgeYears, c.ageToleranceYears);
   if (c.boundaryToleranceSeconds !== undefined && (!Number.isFinite(c.boundaryToleranceSeconds) || c.boundaryToleranceSeconds<0 || c.boundaryToleranceSeconds>30)) throw new Error('Invalid children boundary tolerance');
+  for(const key of ['minimumFlexibleEpisodeSeconds','minimumEpisodeRepeatHours','maximumEpisodePlaysPerDay','maximumAdPlaysPerDay','adBreakEveryMinutes'] as const)if(c[key]!==undefined && (!Number.isFinite(c[key]) || c[key]!<0))throw new Error('Invalid children quality policy');
+  if(c.balanceShows!==undefined && typeof c.balanceShows!=='boolean')throw new Error('Invalid show balance policy');
   if (typeof c.enabled !== 'boolean' || !c.policies || !Array.isArray(c.slots)) throw new Error('Invalid children configuration');
   Object.values(c.policies).forEach(validateChildrenPolicy);
   const slots = [...c.slots].sort((a,b) => a.time.localeCompare(b.time));
@@ -60,7 +68,7 @@ export function childrenPolicy(item: MediaItem, c: ChildrenConfig): ChildrenPoli
   if (explicit) return validateChildrenPolicy(explicit);
   if (c.policies[item.showId]) return c.policies[item.showId];
   const age = (item.technical.acquisition as { classification?: { ageSuitability?: string } } | undefined)?.classification?.ageSuitability;
-  const range = ({ toddler: [1,4], preschool: [3,6], 'older-children': [7,12] } as Record<string, number[]>)[age ?? ''];
+  const range = ({ toddler: [1,4], preschool: [3,6], 'older-children': [7,12] } as Record<string, number[]>)[age ?? ''] ?? (item.broadcast?.recommendedAge ? [item.broadcast.recommendedAge,18] : (item.technical.acquisition as {profile?:string}|undefined)?.profile==='ln' ? [16,18] : undefined);
   return range ? { recommendedAgeMin: range[0]!, recommendedAgeMax: range[1]!, schedulingPriority: 'regular', preferredDayparts: { daytime: 1 }, preferredSlotDurationMinutes: 30, targetWeeklyAirtimeMinutes: 60, energyLevel: 'moderate', nextDayRerun: false } : undefined;
 }
 export function ageEligible(item: MediaItem, c?: ChildrenConfig): boolean {

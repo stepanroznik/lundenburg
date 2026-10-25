@@ -1,3 +1,4 @@
+import { childrenState, type ChildrenState } from './children-state.js';
 import { buildChildrenSchedule } from './children-schedule.js';
 import { validateAge } from './children-policy.js';
 import { childrenSettings, saveChildrenAge } from './children-settings.js';
@@ -15,10 +16,10 @@ import { eligibleFor } from './channels.js';
 import { buildProfileSchedule, type RotationRecord } from './channel-schedule.js';
 
 interface ShowBucket { id: string; weight: number; episodes: MediaItem[] }
-export interface SchedulePlanning { config: AppConfig; ads: AdAsset[]; clips: RotationClip[]; bumpers: AdBumper[]; partitionEndMs?: number; history?: RotationRecord[]; reserved?: ScheduleEntry[] }
+export interface SchedulePlanning { state?: ChildrenState; onProgress?: (progress:{date:string;events:number;completedDays:number;totalDays:number;elapsedMs:number})=>void; config: AppConfig; ads: AdAsset[]; clips: RotationClip[]; bumpers: AdBumper[]; partitionEndMs?: number; history?: RotationRecord[]; reserved?: ScheduleEntry[] }
 export function schedulePlanning(db: LkpDatabase, config: AppConfig): SchedulePlanning {
   childrenSettings(db,config);
-  return { config, ads: db.listAds(), clips: readRotationLibrary(config), bumpers: readBumpers(config),
+  return { state:childrenState(), config, ads: db.listAds(), clips: readRotationLibrary(config), bumpers: readBumpers(config),
     history: db.db.prepare('SELECT media_id AS mediaId,played_count AS count,last_played_at_ms AS lastAtMs FROM media_rotation_history').all() as RotationRecord[] };
 }
 
@@ -68,8 +69,9 @@ export function buildScheduleEntries(
   initialSequence = 0, previousEntries: ScheduleEntry[] = [], planning?: SchedulePlanning,
 ): ScheduleEntry[] {
   if (planning?.config.station?.enabled && planning.partitionEndMs === undefined) {
-    return buildProfileSchedule(catalogue, seed, startMs, targetEndMs, initialSequence, previousEntries, planning,
-      (from, until, sequence, previous) => buildScheduleEntries(catalogue, seed, from, until, sequence, previous, { ...planning, partitionEndMs: until }));
+    const operation={...planning,state:childrenState()};
+    return buildProfileSchedule(catalogue, seed, startMs, targetEndMs, initialSequence, previousEntries, operation,
+      (from, until, sequence, previous) => buildScheduleEntries(catalogue, seed, from, until, sequence, previous, { ...operation, partitionEndMs: until }));
   }
   if (planning?.config.children?.enabled) return buildChildrenSchedule(catalogue,seed,startMs,targetEndMs,initialSequence,previousEntries,planning.config,planning);
   const enabled = catalogue.filter((item) => eligibleFor(item, 'lkp', planning?.config.station, startMs));
@@ -286,13 +288,22 @@ export function ensureSchedule(
   return { added: entries.length + intermissions, firstMs: bounds.firstMs, lastMs: bounds.lastMs };
 }
 
+export function safeRebuildBoundary(db:LkpDatabase,earliestMs:number):ScheduleEntry|undefined {
+  let boundary=db.nextAfter(earliestMs);
+  while(boundary && !isProgramme(boundary))boundary=db.nextAfter(boundary.endsAtMs);
+  if(boundary?.presentation?.profile==='ln') {
+    const intro=db.currentAt(boundary.startsAtMs-1);
+    if(intro?.presentation?.kind==='intro' && intro.startsAtMs>=earliestMs)boundary=intro;
+  }
+  return boundary;
+}
+
 export function rebuildFutureSchedule(
   db: LkpDatabase, config: AppConfig, earliestMs = Date.now() + 2 * 60_000,
 ): { removed: number; added: number; startMs: number; lastMs: number } {
   const bounds = db.scheduleBounds();
   if (!bounds) throw new Error('No schedule to rebuild');
-  let boundary = db.nextAfter(earliestMs);
-  while (boundary && !isProgramme(boundary)) boundary = db.nextAfter(boundary.endsAtMs);
+  const boundary=safeRebuildBoundary(db,earliestMs);
   if (!boundary) throw new Error('No safe future programme boundary');
   const prefix = db.listSchedule(bounds.firstMs, boundary.startsAtMs);
   const future = db.listSchedule(boundary.startsAtMs, bounds.lastMs + 1);
@@ -303,11 +314,12 @@ export function rebuildFutureSchedule(
   planning.reserved = future.filter(e => e.showId === 'lkp-weather');
   const generated = buildScheduleEntries(db.listMedia(), config.schedule.seed,
     boundary.startsAtMs, bounds.lastMs, boundary.sequence, prefix, planning);
+  preserveEpgIdentities(generated,planning.reserved??[],prefix);
   const errors = validateTimeline([...prefix.slice(-1), ...generated]);
   if (errors.length) throw new Error(`Rebuilt timeline is invalid: ${errors.slice(0, 3).join('; ')}`);
   db.db.transaction(() => {
     const current = db.nextAfter(boundary.startsAtMs);
-    if (current?.id !== boundary.id || current.startsAtMs !== boundary.startsAtMs) {
+    if (current?.id !== boundary.id || current.startsAtMs !== boundary.startsAtMs || JSON.stringify(db.listSchedule(boundary.startsAtMs,bounds.lastMs+1))!==JSON.stringify(future)) {
       throw new Error('Schedule changed during rebuild');
     }
     db.db.prepare('DELETE FROM schedule_entries WHERE sequence >= ?').run(boundary.sequence);
@@ -348,6 +360,7 @@ export function setChildrenAge(db: LkpDatabase, config: AppConfig, age: number, 
   const prefix=old.filter(e=>e.sequence<first.sequence), tail=old.filter(e=>e.sequence>=first.sequence);
   const preserved=(e:ScheduleEntry)=>e.presentation?.profile==='ln' || e.showId==='lkp-weather' || e.presentation?.kind==='handover';
   const generated:ScheduleEntry[]=[];
+  const catalogue=db.listMedia(),fillers={ads:db.listAds(),clips:readRotationLibrary(config),bumpers:readBumpers(config),state:childrenState()};
   let index=0,sequence=first.sequence;
   while(index<tail.length) {
     const e=tail[index]!;
@@ -355,7 +368,7 @@ export function setChildrenAge(db: LkpDatabase, config: AppConfig, age: number, 
     const start=e.startsAtMs;
     let end=e.endsAtMs;
     while(index<tail.length && !preserved(tail[index]!)) {end=tail[index]!.endsAtMs;index++;}
-    const entries=buildChildrenSchedule(db.listMedia(),config.schedule.seed,start,end,sequence,[...prefix,...generated].filter(e=>e.presentation?.profile!=='ln'),nextConfig,{ads:db.listAds(),clips:readRotationLibrary(config),bumpers:readBumpers(config)});
+    const entries=buildChildrenSchedule(catalogue,config.schedule.seed,start,end,sequence,[...prefix,...generated].filter(e=>e.presentation?.profile!=='ln' && e.endsAtMs>=start-14*DAY_MS),nextConfig,fillers);
     generated.push(...entries);sequence+=entries.length;
   }
   const errors=validateTimeline([...prefix.slice(-1),...generated]);

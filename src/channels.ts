@@ -24,6 +24,7 @@ export function loadStationConfig(projectRoot: string, filename = 'config/channe
   if (!fs.existsSync(file)) return undefined;
   const c = parse(fs.readFileSync(file, 'utf8')) as StationConfig;
   if(c.avoidHandoverLogoPadding!==undefined && typeof c.avoidHandoverLogoPadding!=='boolean') throw new Error('Invalid handover padding policy');
+  if(c.minimumMovieRepeatHours!==undefined && (!Number.isFinite(c.minimumMovieRepeatHours)||c.minimumMovieRepeatHours<0))throw new Error('Invalid movie repeat interval');
   if (c.activateAtMs !== undefined && !Number.isSafeInteger(c.activateAtMs)) throw new Error('Invalid channel activation time');
   const validTime = (s: string) => /^(?:[01]\d|2[0-3]):[0-5]\d$/.test(s);
   if (typeof c.enabled !== 'boolean' || c.timezone !== 'Europe/Prague' || !c.hours ||
@@ -92,6 +93,7 @@ export function channelEntryAllowed(entry: ScheduleEntry, media: MediaItem | und
   }
   if (entry.presentation && entry.presentation.profile !== window.profile) return false;
   if (entry.endsAtMs > window.endsAtMs) return false;
+  if(entry.presentation?.kind==='gap' && entry.durationMs>5000)return false;
   if (entry.presentation && entry.presentation.kind !== 'programme') {
     const { kind, profile, block } = entry.presentation;
     if (kind === 'ident' && profile === 'lkp' && entry.showId === 'lkp-intermissions') {

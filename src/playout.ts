@@ -8,7 +8,8 @@ import type { AppConfig, MediaItem, OutputMode, ScheduleEntry } from './types.js
 import { LkpDatabase } from './database.js';
 import { writeEpgAtomic } from './epg.js';
 import { refreshChildrenAge } from './children-settings.js';
-import { ensureSchedule } from './schedule.js';
+import { playableRecovery, recoveryState } from './runtime-recovery.js';
+import { ensureSchedule, readBumpers } from './schedule.js';
 import { prepareLogo, type PreparedLogo } from './logo.js';
 import { channelEntryAllowed, loadStationConfig, profileConfig, profileWindow } from './channels.js';
 import { adAvailableAt } from './advertising/availability.js';
@@ -574,6 +575,8 @@ export async function runBroadcast(db: LkpDatabase, config: AppConfig, options: 
         actualStartMs: current.actualStartMs, plannedStartMs: current.plannedStartMs } : null,
       next: state === 'running' ? encoderQueue.nextStatus() : null });
   };
+  const fallbackState=recoveryState();
+  const recover=(entry:ScheduleEntry,from:number,until:number)=>playableRecovery(entry,from,until,[...mediaById.values()],config,fallbackState,readRotationLibrary(config),db.listAds(),readBumpers(config));
   const statusTimer = setInterval(() => publishStatus(), 1000);
   publishStatus();
   try {
@@ -622,6 +625,8 @@ export async function runBroadcast(db: LkpDatabase, config: AppConfig, options: 
           presentation: { profile, kind: 'gap', loop: true } };
         committedProfileEntryId = undefined;
       }
+      if(entry?.presentation?.kind==='gap'){const {playoutPlan:_plan,...plain}=entry;entry=plain;}
+      if(entry?.presentation?.kind==='gap' && entry.durationMs>5000)entry=recover(entry,scheduleNowMs,entry.endsAtMs);
       if (!entry) throw new Error(`Schedule does not cover ${new Date(scheduleNowMs).toISOString()}`);
       if (first && entry.startsAtMs > scheduleNowMs) await waitUntil(entry.startsAtMs + pastOffsetMs, () => stopping);
       if (stopping || Date.now() >= serviceDeadline) break;
@@ -653,7 +658,8 @@ export async function runBroadcast(db: LkpDatabase, config: AppConfig, options: 
           const filler: ScheduleEntry = { ...entry, id: `${entry.id}:recovery`, mediaId: `station-${profile}`, showId: `station-${profile}`,
             startsAtMs: start, endsAtMs: start + duration, durationMs: duration, mediaPath: asset.path,
             listingVisibility: 'hidden', presentation: { profile, kind: 'gap', loop: true } };
-          await transcodePlayout(filler, undefined, 0, false, config, sinks, deadline, pastOffsetMs, child => { currentFfmpeg = child; }, encoderQueue, nextProgramme, phase);
+          const recovery=recover(filler,start,start+duration);
+          await transcodePlayout(recovery, mediaById.get(recovery.mediaId), 0, false, config, sinks, Math.min(serviceDeadline,recovery.endsAtMs+pastOffsetMs), pastOffsetMs, child => { currentFfmpeg = child; }, encoderQueue, nextProgramme, phase);
         }
         if (outputFailure) throw outputFailure;
         const realEntryEndMs = entry.endsAtMs + pastOffsetMs;
@@ -689,7 +695,8 @@ export async function runBroadcast(db: LkpDatabase, config: AppConfig, options: 
               episodeTitle: 'Eine kleine Pause', description: 'Das Programm geht gleich weiter.', startsAtMs: start,
               endsAtMs: end, durationMs: end - start, mediaPath: asset.path, listingVisibility: 'hidden',
               presentation: { profile: fallbackProfile, kind: 'gap', loop: true } };
-            await transcodePlayout(filler, undefined, 0, false, config, sinks, fallbackDeadline, pastOffsetMs,
+            const recovery=recover(filler,start,end);
+            await transcodePlayout(recovery, mediaById.get(recovery.mediaId), 0, false, config, sinks, Math.min(serviceDeadline,recovery.endsAtMs+pastOffsetMs), pastOffsetMs,
               child => { currentFfmpeg = child; }, encoderQueue, () => undefined, phase);
           } else if (fallbackDeadline > Date.now()) {
             await waitUntil(fallbackDeadline, () => stopping);

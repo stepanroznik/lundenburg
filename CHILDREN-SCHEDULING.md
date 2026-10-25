@@ -4,6 +4,30 @@ The children’s compiler runs inside the existing station daytime partitions.
 It reuses `PlayoutPlan`, SQLite scheduling, wall-clock seeking, subtitle handling
 and EIT export. Nacht keeps its existing selection and rating system.
 
+Full station repairs use `node scripts/rebuild-station.mjs` after building source.
+This is a read-only preview unless `--apply` is supplied. Apply mode backs up
+SQLite, preserves the airing programme/history and published weather, validates
+the replacement, rejects concurrent edits, commits atomically and exports EPG.
+It rebuilds Nacht as well as daytime, correcting inherited clock drift. Use a new
+`LKP_REBUILD_REPORT` filename for each run. Its JSON reports phase, processed
+dates, event count, elapsed time, validation and backup paths. Run long checks
+detached and verify startup once.
+
+Static logo cards have a five-second ceiling, including decoder recovery. The
+original ten-second handover films and audio remain intact. Whole programmes,
+finite animated idents and announced ad pods fit the hard profile clock. Night
+tails use bounded bitset reachability with original millisecond checks. Shared
+rotation counters, cached metadata and indexed neighbour checks avoid repeated
+full-history scans during year-long planning and insertion.
+
+Production controls limit episodes to two starts per civil day, normally
+separate episodes by 24 hours, and limit each ad to three daily plays. Exact
+next-day reruns may make a second daily play. Consecutive advertising is capped
+at three minutes. Short teacher songs stay out of normal flexible rotation;
+they may close otherwise impossible gaps under the same repeat limits. Pinned
+programmes are protected from filler backtracking. Weekly show airtime and
+spoken-language debt guide flexible selection.
+
 `config/children.yaml` contains configurable **editorial audience estimates**,
 not official certification ratings. Every current catalogue show and every
 configured children’s acquisition subscription has a policy, including the
