@@ -268,6 +268,35 @@ and playout checks the real Prague date again before playing a seasonal spot.
 1920x1080 H.264/yuv420p 25 fps, AAC 48 kHz playout copy under the generated media
 root. To ingest the six approved initial spots, use `npm run ads:bootstrap`.
 The CLI automatically uses `runtime/tools/yt-dlp/bin/yt-dlp` when present, so the Pi can keep the downloader project-local without a system package installation.
+
+For YouTube playback attestation and account authentication, use the maintained
+ad downloader. It uses the `mweb`/`web_safari` clients and the upstream-listed
+BgUtils PO-token provider, bound only to `127.0.0.1:4416`. Tokens stay in memory
+and helper output is discarded. Install its isolated dependencies with:
+
+```bash
+LKP_DENO=/path/to/deno bash scripts/setup-youtube-ads.sh
+LKP_YT_DLP="$PWD/scripts/youtube-ad-downloader.py" npm run ads:add -- 'https://www.youtube.com/watch?v=VIDEO_ID'
+```
+
+The same 480p–1080p selection applies to metadata and download. A video available
+only at 360p cannot be ingested under the production quality policy. A playback
+token does not supply account login. YouTube OAuth login is no longer supported
+by yt-dlp; use a signed-in browser's cookies when sign-in is required.
+
+Follow yt-dlp's [YouTube cookie export procedure](https://github.com/yt-dlp/yt-dlp/wiki/Extractors#exporting-youtube-cookies):
+sign in in one private browser tab, navigate that tab to
+`https://www.youtube.com/robots.txt`, export only YouTube cookies in Netscape
+format using an extension recommended in the
+[cookie FAQ](https://github.com/yt-dlp/yt-dlp/wiki/FAQ#how-do-i-pass-cookies-to-yt-dlp),
+and close the private window. Save the export locally as
+`runtime/youtube/cookies.txt`, mode 600; transfer it to the matching private path
+on the Pi over SSH. Never paste cookies into chat, logs or Git. The downloader
+automatically uses this file when present. A normal signed-in Firefox profile
+can also be read directly with yt-dlp's `--cookies-from-browser` option; private
+window cookies cannot be exported that way. See the upstream
+[PO-token guide](https://github.com/yt-dlp/yt-dlp/wiki/PO-Token-Guide).
+
 The four five-second bumpers use the weather/intermission character rig, cached
 alignment-driven lip sync, a held prop for each presenter, original Foley, the
 pale weather-stage palette and the animated channel-ident logo. Characters stay
