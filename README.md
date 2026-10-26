@@ -371,6 +371,12 @@ are compressed to ranges; nonconsecutive episodes stay in playback order.
 Films have no episode label. A small boxed **UT** icon marks programmes with
 listed subtitles; the legend is printed at the foot of the page. The bundled
 DejaVu Sans Condensed keeps the numbered listings readable on the same page.
+Consecutive airings of the same show are consistently grouped into one row,
+using the first start time and all episode numbers in playback order, whether
+the underlying schedule uses assembled blocks or individual events. Other shows,
+gaps and profile/day boundaries separate groups. A `UT*` marker means subtitles
+are listed for only part of that group. Daily picture highlights retain their
+exact scheduled start time. Grouping changes the printed guide only.
 
 Each day highlights a scheduled children's show, choosing different shows across
 the week whenever the catalogue allows. Feature pictures are extracted from the

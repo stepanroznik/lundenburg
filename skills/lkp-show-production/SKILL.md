@@ -97,6 +97,10 @@ this exporter; review the PDF for overflow and keep LKP visually dominant.
 Keep text white on coloured headings and highlighted rows. Print catalogue
 episode numbers (including all assembly sources) and a boxed UT marker when
 the scheduled programme has subtitles; never invent episode numbers for films.
+Group adjacent public airings of the same show consistently in the print view,
+combining assembly and ordinary episode numbers in playback order. Preserve
+every source event, profile/day boundaries, first block time and exact daily
+feature time; flag groups with subtitles on only some airings as UT*.
 Repository document links here are relative to the maintained skill under
 `skills/lkp-show-production/`; when using an installed copy, open those documents
 from the active repository root.

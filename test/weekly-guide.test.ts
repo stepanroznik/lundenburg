@@ -6,7 +6,7 @@ import { test } from 'node:test';
 import { DateTime } from 'luxon';
 import { loadStationConfig } from '../src/channels.js';
 import { LkpDatabase } from '../src/database.js';
-import { buildWeeklyGuide, guideDescription, guideEpisodeNumbers, guideWeek, selectGuideFeatures, weeklyGuideHtml, type GuideDay } from '../src/weekly-guide.js';
+import { buildWeeklyGuide, groupGuideEntries, guideDescription, guideEpisodeNumbers, guideWeek, selectGuideFeatures, weeklyGuideHtml, type GuideDay } from '../src/weekly-guide.js';
 import type { ScheduleEntry } from '../src/types.js';
 import { config, item } from './helpers.js';
 
@@ -109,6 +109,58 @@ test('unknown episodes are not invented and films never acquire episode numbers'
   delete e.episode;
   e.showId = 'unusualvideos'; e.episodeTitle = 'UNUSUAL MEMES COMPILATION V28';
   assert.equal(guideEpisodeNumbers(e, new Map()), '28');
+});
+
+test('only consecutive airings of the same show are grouped, preserving every original event', () => {
+  const entries = [entry('a', '2026-10-26T15:00', 'lkp', 'same'), entry('b', '2026-10-26T15:10', 'lkp', 'same'),
+    entry('other', '2026-10-26T15:20'), entry('c', '2026-10-26T15:30', 'lkp', 'same'),
+    entry('gap', '2026-10-26T15:45', 'lkp', 'same'), entry('night', '2026-10-26T15:55', 'ln', 'same')];
+  const before = JSON.stringify(entries);
+  const grouped = groupGuideEntries(entries);
+  assert.deepEqual(grouped.map(group => group.map(e => e.id)), [['a', 'b'], ['other'], ['c'], ['gap'], ['night']]);
+  assert.deepEqual(grouped.flat(), entries);
+  assert.equal(JSON.stringify(entries), before);
+});
+
+test('grouped airings combine assemblies and individual episodes into ranges in playback order', () => {
+  const assembled = entry('assembled', '2026-10-26T15:00', 'lkp', 'a');
+  const episodes = [item('a', 1), item('a', 2)];
+  const media = new Map(episodes.map(m => [m.id, m]));
+  assembled.playoutPlan = { version: 1, programmeEventId: assembled.id, sourceDurationMs: assembled.durationMs,
+    durationMs: assembled.durationMs, segments: [], warnings: [], assembly: { slot: '15:00', premiereDate: '2026-10-26',
+      sources: episodes.map(m => ({ mediaId: m.id, fromMs: 0, toMs: m.durationMs })) } };
+  const third = entry('third', '2026-10-26T15:10', 'lkp', 'a'); third.season = 1; third.episode = 3;
+  assert.equal(guideEpisodeNumbers([assembled, third], media), '1/1–3');
+  const repeat = { ...third, id: 'repeat', episode: 1 };
+  assert.equal(guideEpisodeNumbers([assembled, third, repeat], media), '1/1–3,1');
+});
+
+test('a grouped listing keeps the first start, partial subtitles, and a later feature’s exact time', () => {
+  const first = entry('first', '2026-10-26T15:00', 'lkp', 'same'); first.season = 1; first.episode = 2;
+  const feature = entry('feature', '2026-10-26T15:10', 'lkp', 'same'); feature.season = 1; feature.episode = 3; feature.subtitleLanguages = ['de'];
+  const days = buildWeeklyGuide([first, feature], app(), '2026-10-26');
+  days[0]!.feature = feature;
+  const markup = weeklyGuideHtml(days, app(), new Map());
+  assert.equal((markup.match(/data-event=/g) ?? []).length, 1);
+  const row = markup.match(/<li class="programme featured"[^>]*>(.*?)<\/li>/)![1]!;
+  assert.match(row, /<time>15\.00<\/time>/);
+  assert.match(row, /\(1\/2–3\)/);
+  assert.match(row, /aria-label="Untertitel teilweise: DE">UT\*/);
+  assert.match(markup, /data-events="\[&quot;first&quot;,&quot;feature&quot;\]"/);
+  assert.match(markup, /class="feature-label">[^<]*<time>15\.10<\/time>/);
+  assert.match(markup, /class="feature-copy">.*?\(1\/3\)/);
+});
+
+test('grouping uses the public timeline across hidden continuity but never spans broadcast days', () => {
+  const first = entry('first', '2026-10-26T15:00', 'lkp', 'same');
+  const ident = entry('ident', '2026-10-26T15:10', 'lkp', 'lkp-intermissions');
+  const next = entry('next', '2026-10-26T15:20', 'lkp', 'same');
+  const night = entry('night', '2026-10-27T05:50', 'ln', 'same');
+  const morning = entry('morning', '2026-10-27T06:00', 'lkp', 'same');
+  const days = buildWeeklyGuide([first, ident, next, night, morning], app(), '2026-10-26');
+  assert.deepEqual(groupGuideEntries(days[0]!.kids).map(group => group.map(e => e.id)), [['first', 'next']]);
+  assert.deepEqual(groupGuideEntries(days[0]!.night).flat().map(e => e.id), ['night']);
+  assert.deepEqual(groupGuideEntries(days[1]!.kids).flat().map(e => e.id), ['morning']);
 });
 
 test('subtitle icon follows each scheduled programme, including films, and feature numbers match its listing', () => {
