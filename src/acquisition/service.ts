@@ -329,7 +329,8 @@ export class ContentAcquisition {
             const formats = (metadata.formats as Array<Record<string,unknown>>|undefined);
             if (!formats?.length || metadata.has_drm === true || formats.every(f => f.has_drm === true))
                 throw new Monitoring('No supported non-DRM media currently available; monitoring for availability');
-            if(isOrf(c) && shortOrfManifest(c.durationMs/1000,formats))
+            const austrianRequired = isOrf(c) && shortOrfManifest(c.durationMs/1000,formats);
+            if(austrianRequired && !this.config.austrianVpn?.enabled)
                 throw new Monitoring('ORF currently supplies only a short placeholder; monitoring availability');
             if (c.source === 'youtube' && (metadata.channel_id !== s.channelId || metadata.id !== c.sourceId || (!s.editorialClassification && metadata.language && !(new RegExp(`^${s.language}(?:-|$)`, 'i')).test(String(metadata.language)))))
                 throw new Quarantined('Video does not match the approved English YouTube channel');
@@ -369,7 +370,19 @@ export class ContentAcquisition {
             const watch = () => { progress(); this.guard.check(); if (s.profile === 'ln') this.nachtStorage.assertAdmission(this.config.downloadBytesPerSecond * 2); reserve(this.root, Math.max(0, c.size), this.config.reserveBytes); const bytes = fs.readdirSync(dir).filter(n => fs.statSync(path.join(dir, n)).isFile()).reduce((a, n) => a + signature(path.join(dir, n)).size, 0); if (bytes > ceiling)
                 throw new Quarantined('Downloader staging exceeds byte budget'); };
             try {
-                await execute(downloader, [...extractorArgs(c.source, this.app.projectRoot), '--ignore-config', '--no-playlist', '--no-geo-bypass', '--no-warnings', '--no-progress', '--socket-timeout', String(this.config.connectTimeoutSeconds), '--continue', '--retries', '2', '--fragment-retries', '2', '--concurrent-fragments', '1', '--limit-rate', String(this.config.downloadBytesPerSecond), ...(c.source === 'youtube' ? youtubeQualityArgs : ['-f', 'bv*[height>=480]+ba/b[height>=480]', '--format-sort-force', '-S', 'height,vcodec:h264']), '--merge-output-format', 'mkv', '-o', path.join(dir, 'source.%(ext)s'), mediaUrl], watch, 0);
+                const args = [...extractorArgs(c.source, this.app.projectRoot), '--ignore-config', '--no-playlist', '--no-geo-bypass', '--no-warnings', '--no-progress', '--socket-timeout', String(this.config.connectTimeoutSeconds), '--continue', '--retries', '2', '--fragment-retries', '2', '--concurrent-fragments', '1', '--limit-rate', String(this.config.downloadBytesPerSecond), ...(c.source === 'youtube' ? youtubeQualityArgs : ['-f', 'bv*[height>=480]+ba/b[height>=480]', '--format-sort-force', '-S', 'height,vcodec:h264']), '--merge-output-format', 'mkv', '-o', path.join(dir, 'source.%(ext)s'), mediaUrl];
+                if (austrianRequired) {
+                    const vpn = this.config.austrianVpn!;
+                    const job = path.join(dir, `austrian-vpn-job-${randomUUID()}.json`);
+                    fs.writeFileSync(job, JSON.stringify({configFile:vpn.configFile, downloader, args, expectedDurationSeconds:c.durationMs/1000}), {mode:0o600,flag:'wx'});
+                    try {
+                        this.store.event(stableId(c.source, c.sourceId), 'vpn-fallback', 'ORF supplied a short placeholder; using isolated Austrian VPN');
+                        await execute('python3', [vpn.helper, job], watch, 0);
+                    }
+                    finally { fs.rmSync(job, {force:true}); }
+                } else {
+                    await execute(downloader, args, watch, 0);
+                }
             }
             catch (error) {
                 if (error instanceof Deferred)

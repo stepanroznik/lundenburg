@@ -22,6 +22,7 @@ function fixture() {
   const root=fs.mkdtempSync(path.join(os.tmpdir(),'lkp-content-')),app=config(root);
   fs.mkdirSync(app.media.root,{recursive:true});
   const policy=loadAcquisitionConfig({...app,projectRoot:path.resolve('.')});
+  if (policy.austrianVpn) policy.austrianVpn.enabled=false;
   policy.reserveBytes=1;policy.maxNewBytes=160*2**30;for(const subscription of policy.subscriptions)subscription.maxBytes=64*2**30;policy.copyBytesPerSecond=50*1024*1024;policy.stableSeconds=1;policy.metadataRequestsPerRun=0;policy.credentialsFile=path.join(root,'absent.env');
   const sub:Subscription={...policy.subscriptions.find(s=>s.id==='bobo-siebenschlaefer')!,source:'manual',minDuration:.5,maxDuration:10};
   policy.subscriptions=[sub];const db=new LkpDatabase(app.storage.database),service=new ContentAcquisition(app,db,policy);
@@ -111,6 +112,50 @@ test('short ORF staging and short current manifests stay preserved and monitored
     (service as unknown as {probe:()=>Promise<unknown>}).probe=async()=>({format:{duration:'10.048'}});
     await assert.rejects(service.downloadCandidateInner(c,dir,sub),error=>error instanceof Monitoring && /placeholder/.test(error.message));
     assert.equal(fs.readFileSync(file,'utf8'),'preserve this staged file');
+  }finally{if(previous===undefined)delete process.env.LKP_YT_DLP;else process.env.LKP_YT_DLP=previous;close();}
+});
+
+test('short ORF manifests use only the configured Austrian helper and never retry directly on failure',async()=>{
+  const {root,service,policy,sub,close}=fixture(),previous=process.env.LKP_YT_DLP;
+  try{
+    sub.source='mediathek';sub.maxDuration=1800;sub.maxTotalDuration=100000;sub.maxBytes=64*2**30;
+    const c={...candidate(sub),broadcaster:'ORF',durationMs:60_000};
+    const dir=path.join(root,'orf-vpn');fs.mkdirSync(dir);
+    const downloader=path.join(root,'downloader'),directMarker=path.join(root,'direct-ran');
+    fs.writeFileSync(downloader,`#!/bin/sh\ncase "$*" in *--dump-single-json*) printf '%s\\n' '{"duration":60,"formats":[{"height":540,"vcodec":"h264","fragments":[{}, {"duration":10.048}]}]}' ;; *) touch ${JSON.stringify(directMarker)} ;; esac\n`,{mode:0o755});
+    process.env.LKP_YT_DLP=downloader;
+    const helper=path.join(root,'helper.py'),configFile=path.join(root,'vpn.conf'),marker=path.join(root,'helper-ran');
+    fs.writeFileSync(configFile,'private',{mode:0o600});
+    fs.writeFileSync(helper,`import pathlib,sys\npathlib.Path(${JSON.stringify(marker)}).write_text('used')\nsys.exit(1)\n`);
+    policy.austrianVpn={enabled:true,helper,configFile};
+    service.store.set('inventory-complete','1');
+    fs.mkdirSync(service.root,{recursive:true});
+    const failure=await service.downloadCandidateInner(c,dir,sub).then(()=>undefined,error=>error as Error);
+    assert.ok(failure instanceof Deferred, String(failure));
+    assert.ok(fs.existsSync(marker),failure.message);
+    assert.equal(fs.readFileSync(marker,'utf8'),'used');
+    assert.equal(fs.existsSync(directMarker),false);
+    assert.equal(fs.existsSync(path.join(dir,'source.mkv')),false);
+    assert.equal(fs.readdirSync(dir).some(name=>name.startsWith('austrian-vpn-job-')),false);
+    fs.writeFileSync(helper,`import json,pathlib,sys\njob=json.loads(pathlib.Path(sys.argv[1]).read_text())\nassert job['configFile']==${JSON.stringify(configFile)}\npathlib.Path(${JSON.stringify(path.join(dir,'source.mkv'))}).write_bytes(b'video')\n`);
+    assert.equal(await service.downloadCandidateInner(c,dir,sub),path.join(dir,'source.mkv'));
+    assert.equal(fs.existsSync(directMarker),false);
+    assert.equal(fs.readdirSync(dir).some(name=>name.startsWith('austrian-vpn-job-')),false);
+  }finally{if(previous===undefined)delete process.env.LKP_YT_DLP;else process.env.LKP_YT_DLP=previous;close();}
+});
+
+test('complete ORF manifests keep the normal download path even when the Austrian fallback is enabled',async()=>{
+  const {root,service,policy,sub,close}=fixture(),previous=process.env.LKP_YT_DLP;
+  try{
+    sub.source='mediathek';sub.maxDuration=1800;sub.maxTotalDuration=100000;sub.maxBytes=64*2**30;
+    const c={...candidate(sub),broadcaster:'ORF',durationMs:60_000},dir=path.join(root,'orf-direct');fs.mkdirSync(dir);
+    const downloader=path.join(root,'downloader'),marker=path.join(root,'helper-ran');
+    fs.writeFileSync(downloader,`#!/bin/sh\ncase "$*" in *--dump-single-json*) printf '%s\\n' '{"duration":60,"formats":[{"height":540,"vcodec":"h264","fragments":[{"duration":60}]}]}' ;; *) printf video > ${JSON.stringify(path.join(dir,'source.mkv'))} ;; esac\n`,{mode:0o755});
+    const helper=path.join(root,'helper.py');fs.writeFileSync(helper,`import pathlib\npathlib.Path(${JSON.stringify(marker)}).touch()\n`);
+    process.env.LKP_YT_DLP=downloader;policy.austrianVpn={enabled:true,helper,configFile:path.join(root,'unused')};
+    service.store.set('inventory-complete','1');fs.mkdirSync(service.root,{recursive:true});
+    assert.equal(await service.downloadCandidateInner(c,dir,sub),path.join(dir,'source.mkv'));
+    assert.equal(fs.existsSync(marker),false);
   }finally{if(previous===undefined)delete process.env.LKP_YT_DLP;else process.env.LKP_YT_DLP=previous;close();}
 });
 

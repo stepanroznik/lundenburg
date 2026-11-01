@@ -21,6 +21,7 @@ export interface AcquisitionConfig {
   idlePollSeconds: number;
   aiProvider?: 'chatgpt'; classificationModel?: string; publishToSchedule?: boolean;
   vpnFallback?:{enabled:boolean;helper:string;tokenFile:string};
+  austrianVpn?:{enabled:boolean;helper:string;configFile:string};
   metadataModel: string; metadataRequestsPerRun: number; credentialsFile: string;
   subtitleRequestsPerDay: number; subtitleDownloadsPerDay: number;
   subtitleProviders: Array<{ name: 'opensubtitles'|'subdl'; keyEnv: string }>;
@@ -127,6 +128,12 @@ export function loadAcquisitionConfig(app: AppConfig, file = path.join(app.proje
             throw new Error('Invalid VPN fallback configuration');
         c.vpnFallback.helper = path.resolve(app.projectRoot, c.vpnFallback.helper);
         c.vpnFallback.tokenFile = path.resolve(app.projectRoot, c.vpnFallback.tokenFile);
+    }
+    if (c.austrianVpn) {
+        if (typeof c.austrianVpn.enabled !== 'boolean' || typeof c.austrianVpn.helper !== 'string' || typeof c.austrianVpn.configFile !== 'string')
+            throw new Error('Invalid Austrian VPN configuration');
+        c.austrianVpn.helper = path.resolve(app.projectRoot, c.austrianVpn.helper);
+        c.austrianVpn.configFile = path.resolve(app.projectRoot, c.austrianVpn.configFile);
     }
     return c;
 }

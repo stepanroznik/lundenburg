@@ -199,6 +199,34 @@ commit; temporary rollback copies are not retained as library duplicates.
 
 ## Sources and curation
 
+The [Austrian VPN Jantit preflight](docs/austrian-vpn-preflight-2026-11-01.md)
+records the live registration and CAPTCHA experiments. The `austrianVpn` policy
+is disabled because three ABC Bär episodes returned only 10-second placeholders
+even through the Austrian tunnel. When enabled after full-stream verification,
+it provides a fallback when ordinary ORF metadata exposes only a short
+placeholder. Ordinary requests, metadata discovery and unrelated downloads stay
+on the normal connection. Only that ORF media transfer runs in a temporary
+rootless WireGuard namespace. The helper verifies the exit is in Austria and
+enforces a namespace-only nftables output policy: traffic can leave through the
+VPN, and the underlying slirp interface can reach only the VPN endpoint over
+UDP. The helper checks the in-tunnel manifest and refuses a short placeholder
+before starting a transfer. If setup, verification, the tunnel or the transfer
+fails, the episode is retried under the existing acquisition backoff; it never falls back to the
+normal connection. The downloaded media still passes the existing duration and
+quality checks before ingest. On tunnel failure, the helper also terminates
+downloader descendants, including orphaned media-processing processes.
+
+The Pi's free Jantit configuration is a private mode-600 file under
+`runtime/acquisition/vpn/jantit-preflight`; WireGuard tools are in the private
+`runtime/tools/jantit-wireguard` directory and slirp reuses the Hide.me network
+tools. The free credential currently expires: **automatic renewal and CAPTCHA
+handling are not implemented**. When it expires, obtain another configuration
+from the provider and atomically replace the existing private file. A running
+download retains its own private snapshot. Do not paste credentials or configs
+into chat or commit them. The initial provider page showed 5 November 2026 at
+18:49:41 in its GMT+7 server time; confirm the expiry on the provider page when
+renewing. No acquisition will use the VPN if it cannot be verified.
+
 An optional Hide.me login helper is `scripts/login-hide-vpn.sh`. The prepared
 ARM64 client resides under the git-ignored `runtime/tools/hide-me/current` on the
 Pi. Run the helper directly in a Pi terminal and enter credentials into the

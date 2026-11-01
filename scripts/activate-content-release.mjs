@@ -36,6 +36,7 @@ if (policy.publishToSchedule !== publishToSchedule) throw new Error('Schedule pu
 if (preservePublication && policy.publishToSchedule !== previousPolicy.publishToSchedule)
   throw new Error('This activation mode cannot change publication policy');
 if (policy.vpnFallback) policy.vpnFallback.helper = path.join(release, 'download-hide-vpn.py');
+if (policy.austrianVpn) policy.austrianVpn.helper = path.join(release, 'download-jantit-vpn.py');
 fs.writeFileSync(policyPath, stringify(policy));
 const config = parse(fs.readFileSync(path.join(release, 'config/lkp.yaml'), 'utf8'));
 if (config.storage.database !== '/home/lundenburg/lundenburg/data/lkp.sqlite')

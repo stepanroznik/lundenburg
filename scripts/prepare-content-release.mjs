@@ -32,18 +32,22 @@ export function prepareRelease(baseline, destination, repository) {
   fs.writeFileSync(appPath, stringify(app));
   // Retain the active publication, collection, storage and credential policy.
   const policy = parse(fs.readFileSync(path.join(previous, 'config/content-acquisition.yaml'), 'utf8'));
+  const sourcePolicy = parse(fs.readFileSync(path.join(repository, 'config/content-acquisition.yaml'), 'utf8'));
+  if (!policy.austrianVpn && sourcePolicy.austrianVpn) policy.austrianVpn = sourcePolicy.austrianVpn;
   if (policy.vpnFallback) policy.vpnFallback.helper = path.join(destination, 'download-hide-vpn.py');
+  if (policy.austrianVpn) policy.austrianVpn.helper = path.join(destination, 'download-jantit-vpn.py');
   fs.writeFileSync(path.join(destination, 'config/content-acquisition.yaml'), stringify(policy));
   const ai = parse(fs.readFileSync(path.join(repository, 'config/ai.yaml'), 'utf8'));
   ai.credentialsDirectory = path.resolve(repository, ai.credentialsDirectory);
   fs.writeFileSync(path.join(destination, 'config/ai.yaml'), stringify(ai));
   fs.copyFileSync(path.join(repository, 'scripts/download-hide-vpn.py'), path.join(destination, 'download-hide-vpn.py'));
+  fs.copyFileSync(path.join(repository, 'scripts/download-jantit-vpn.py'), path.join(destination, 'download-jantit-vpn.py'));
   fs.cpSync(path.join(repository, 'tools'), path.join(destination, 'tools'), { recursive: true, filter: file => !file.includes('__pycache__') });
   for (const directory of ['node_modules', 'runtime', 'assets'])
     fs.symlinkSync(path.join(repository, directory), path.join(destination, directory));
   fs.writeFileSync(path.join(destination, 'ACQUISITION-CHANGES.json'), JSON.stringify({
     version: 2, baseline: previous, preparedAt: new Date().toISOString(),
-    changes: ['merged-maintained-source', 'deterministic-catalogue-v1', 'stable-local-episode-numbers', 'movies-without-numbering', 'preserved-production-policy'],
+    changes: ['merged-maintained-source', 'deterministic-catalogue-v1', 'stable-local-episode-numbers', 'movies-without-numbering', 'preserved-production-policy', 'austrian-orf-vpn-fallback'],
   }, null, 2) + '\n');
 }
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {

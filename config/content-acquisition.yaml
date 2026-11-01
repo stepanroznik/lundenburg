@@ -13,6 +13,10 @@ vpnFallback:
   enabled: true
   helper: scripts/download-hide-vpn.py
   tokenFile: runtime/acquisition/vpn/accessToken.txt
+austrianVpn:
+  enabled: false
+  helper: scripts/download-jantit-vpn.py
+  configFile: runtime/acquisition/vpn/jantit-preflight/provider.conf
 discoveryLimit: 400
 scheduleGuardSeconds: 900
 metadataModel: gpt-4.1-mini
