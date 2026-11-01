@@ -10,10 +10,13 @@ import { ContentAcquisition } from '../src/acquisition/service.js';
 import { AcquisitionStore } from '../src/acquisition/store.js';
 import { loadAcquisitionConfig, admission, logicalKeys, type Candidate, type Subscription } from '../src/acquisition/model.js';
 import { normalizeMediathek, ctCards } from '../src/acquisition/sources.js';
-import { BroadcastGuard, Deferred, DownloadHttpError, download, reserve, progressWatch } from '../src/acquisition/io.js';
+import { BroadcastGuard, Deferred, Monitoring, DownloadHttpError, download, reserve, progressWatch, acquisitionRetryDelayMs } from '../src/acquisition/io.js';
+import { loadStationConfig } from '../src/channels.js';
 import { validateSrt } from '../src/acquisition/enrichment.js';
 import { buildScheduleEntries, validateTimeline } from '../src/schedule.js';
 import { writePlayoutStatus } from '../src/playout-status.js';
+import { recoverAutomaticSources, recoverOrfDurationFailures } from '../src/acquisition/recovery.js';
+import { stableId } from '../src/util.js';
 
 function fixture() {
   const root=fs.mkdtempSync(path.join(os.tmpdir(),'lkp-content-')),app=config(root);
@@ -25,6 +28,26 @@ function fixture() {
   service.store.set('educational-subscriptions-v1','1');service.store.set('collection-limit-normalization-20261010','1');const close=()=>{db.close();fs.rmSync(root,{recursive:true,force:true});};return {root,app,policy,sub,db,service,close};
 }
 function candidate(s:Subscription):Candidate {return {source:'mediathek',sourceId:'1',sourceUrl:'https://example.org/1',showId:s.id,title:'Bobo im Bad',language:s.language,description:'Eine verlässliche deutsche Beschreibung der Geschichte.',descriptionLanguage:'de',durationMs:420000,size:100000,broadcaster:'KiKA',components:[],compilation:false,format:'episode',available:true};}
+
+test('latest-only discovery yields through historical uploads without rereading every candidate',async()=>{
+  const {service,sub,close}=fixture(),originalFetch=globalThis.fetch;
+  try{
+    Object.assign(sub,{source:'mediathek',retention:'latest-only',deterministicSeries:'breclav',title:'Břeclavská televize',queries:['fixture']});
+    const rows=Array.from({length:76},(_,i)=>({topic:sub.title,title:i===2?'Pozvánka':'Břeclavská televize '+(i+1),duration:420,
+      url_website:`https://example.org/bulletin/${i}`,url_video:`https://example.org/bulletin/${i}.mp4`}));
+    const imported=service.store.remember(normalizeMediathek(rows[1]!,sub)!);service.store.transition(imported,'imported');
+    let fetches=0,remembered=0,fullReads=0,yielded=false,yieldedBeforeLast=false;
+    globalThis.fetch=async()=>new Response(JSON.stringify({result:{results:fetches++===0?rows:[]}}));
+    const remember=service.store.remember.bind(service.store),candidates=service.store.candidates.bind(service.store);
+    service.store.remember=c=>{if(++remembered===1)setImmediate(()=>{yielded=true;});if(remembered===rows.length)yieldedBeforeLast=yielded;return remember(c);};
+    service.store.candidates=states=>{if(!states)fullReads++;return candidates(states);};
+    const result=await service.discover();
+    assert.equal(result.errors,0);assert.equal(yieldedBeforeLast,true,'historical uploads must allow timers to run');
+    assert.equal(fullReads,0,'discovery must use direct state lookups');
+    assert.equal(candidates(['discovered']).length,1);assert.equal(candidates(['imported'])[0]!.id,imported);
+    assert.equal(candidates(['rejected']).length,1);assert.equal(candidates(['superseded']).length,73);
+  }finally{globalThis.fetch=originalFetch;close();}
+});
 
 test('VPN fallback requires an authenticated private token, German public media and HTTP 403',()=>{
   const {root,service,policy,sub,close}=fixture();try{
@@ -63,13 +86,58 @@ test('automatic scheduling continues eligible work and respects retry delays, ca
     assert.equal(service.nextAutomaticRunAt({},now),now);
     service.store.transition(id,'deferred','source failure',now+5*60000);
     assert.equal(service.nextAutomaticRunAt({},now),now+5*60000);
-    assert.equal(service.nextAutomaticRunAt({deferred:'Playout recovery is active'},now),now+1800000);
+    assert.equal(service.nextAutomaticRunAt({deferred:'Playout recovery is active'},now),now+60000);
     const other=service.store.remember({...candidate(sub),durationMs:2000,sourceId:'2',sourceUrl:'https://example.org/2',title:'Bobo im Garten'});
     assert.equal(service.nextAutomaticRunAt({},now),now);
     service.store.transition(other,'quarantine','ambiguous');sub.maxBytes=1;
     assert.equal(service.nextAutomaticRunAt({},now),now+1800000);
     sub.maxBytes=1000000;sub.source='manual';
     assert.equal(service.nextAutomaticRunAt({},now),now+1800000);
+  }finally{close();}
+});
+
+test('transient errors retry promptly while rate limits and repeated errors back off',()=>{
+  assert.equal(acquisitionRetryDelayMs(new Deferred('Downloader network; retry scheduled'),0),60_000);
+  assert.equal(acquisitionRetryDelayMs(new DownloadHttpError(429),0),30*60_000);
+  assert.equal(acquisitionRetryDelayMs(new Deferred('Downloader extractor; retry scheduled'),20),6*60*60_000);
+});
+
+test('short ORF staging and short current manifests stay preserved and monitored',async()=>{
+  const {root,service,sub,close}=fixture(),previous=process.env.LKP_YT_DLP;try{
+    sub.source='mediathek';const c={...candidate(sub),broadcaster:'ORF',durationMs:771_000};
+    const dir=path.join(root,'staged-orf');fs.mkdirSync(dir);const file=path.join(dir,'episode.mkv');fs.writeFileSync(file,'preserve this staged file');
+    const fake=path.join(root,'fake-downloader');fs.writeFileSync(fake,'#!/bin/sh\nprintf \'%s\\n\' \'{"duration":771,"formats":[{"height":540,"vcodec":"h264","fragments":[{}, {"duration":10.048}]}]}\'\n',{mode:0o755});
+    process.env.LKP_YT_DLP=fake;
+    (service as unknown as {probe:()=>Promise<unknown>}).probe=async()=>({format:{duration:'10.048'}});
+    await assert.rejects(service.downloadCandidateInner(c,dir,sub),error=>error instanceof Monitoring && /placeholder/.test(error.message));
+    assert.equal(fs.readFileSync(file,'utf8'),'preserve this staged file');
+  }finally{if(previous===undefined)delete process.env.LKP_YT_DLP;else process.env.LKP_YT_DLP=previous;close();}
+});
+
+test('old ORF duration failures get one staggered recheck, leaving other errors alone',()=>{
+  const {service,sub,close}=fixture();try{
+    const a=service.store.remember({...candidate(sub),broadcaster:'ORF'});
+    const b=service.store.remember({...candidate(sub),broadcaster:'ORF',sourceId:'2',sourceUrl:'https://example.org/2'});
+    const other=service.store.remember({...candidate(sub),sourceId:'3',sourceUrl:'https://example.org/3'});
+    for(const id of [a,b,other])service.store.transition(id,'deferred','duration/format outside curated range',9999999999999);
+    recoverOrfDurationFailures(service.store,1000);recoverOrfDurationFailures(service.store,2000);
+    const rows=new Map(service.store.candidates(['deferred']).map(r=>[r.id,r]));
+    assert.deepEqual([rows.get(a)!.retryAt,rows.get(b)!.retryAt].sort((x,y)=>x-y),[1000,61000]);
+    assert.equal(rows.get(other)!.retryAt,9999999999999);
+  }finally{close();}
+});
+
+test('scheduler continues productive classification and honours the daily limit and publication retry',()=>{
+  const {service,sub,app,close}=fixture();try{
+    app.station=loadStationConfig(path.resolve('.'))!;sub.profile='ln';sub.source='mediathek';
+    const now=Date.now();service.store.set('inventory-complete','1');service.store.set('last-discovery',String(now));
+    service.store.remember(candidate(sub));
+    assert.equal(service.nextAutomaticRunAt({nachtClassified:1},now),now);
+    const day=new Date(now).toISOString().slice(0,10);
+    service.store.set(`nacht-classifier:${day}`,String(app.station.classifier.maxRequestsPerDay));
+    assert.equal(service.nextAutomaticRunAt({nachtClassified:1},now),now+1800_000);
+    service.store.set('schedule-dirty','1');service.store.set('next-schedule-publication',String(now+120_000));
+    assert.equal(service.nextAutomaticRunAt({},now),now+120_000);
   }finally{close();}
 });
 
@@ -92,6 +160,22 @@ test('scheduled batches immediately move past a failed item, cache discovery and
     assert.ok(retry.retryAt>Date.now());assert.equal(retry.attempts,1);
     assert.ok(Number(service.store.state('next-automatic-run'))>Date.now());
     assert.ok((await service.run({scheduled:true})).idleUntil);assert.equal(scans,2);assert.equal(discoveries,1);
+  }finally{close();}
+});
+
+test('recovery finds only owned processing manifests without walking the media archive',async()=>{
+  const {app,service,sub,db,close}=fixture();try{
+    const c=candidate(sub),id=service.store.remember(c);service.store.transition(id,'processing');
+    const dir=path.join(app.media.root,'.acquisition','staging',id);fs.mkdirSync(dir,{recursive:true});
+    const stagedMedia=path.join(dir,'episode.mp4');fs.writeFileSync(stagedMedia,'fixture');
+    const mediaPath=path.join(app.media.root,sub.id,'acquired',id,'episode.mp4');
+    const recovered={...item(sub.id,1,420000),id:stableId('content',id),mediaPath};
+    fs.writeFileSync(path.join(dir,'ingest.json'),JSON.stringify({item:recovered,candidate:c,mediaSignature:{size:fs.statSync(stagedMedia).size,mtime:fs.statSync(stagedMedia).mtimeMs}}));
+    const unrelated=path.join(app.media.root,'unrelated','ingest.json');fs.mkdirSync(path.dirname(unrelated),{recursive:true});fs.writeFileSync(unrelated,'not a candidate');
+    await (service as unknown as {recover:()=>Promise<void>}).recover();
+    assert.equal(service.store.candidates(['imported']).some(row=>row.id===id),true,JSON.stringify(service.store.candidates().filter(row=>row.id===id).map(row=>({state:row.state,reason:row.reason}))));
+    assert.equal(db.listMedia(false).some(media=>media.id===recovered.id),true);
+    assert.equal(fs.existsSync(unrelated),true);
   }finally{close();}
 });
 
@@ -399,4 +483,56 @@ test('resumed low-resolution and unknown-height downloads cannot enter the catal
       assert.equal(fs.existsSync(file),true);
     } finally {close();}
   }
+});
+
+test('temporary automatic source failures become monitored and reopen when broadcaster availability changes',()=>{
+  const {service,sub,db,close}=fixture();try{
+    sub.source='ct';
+    const c={...candidate(sub),source:'ct' as const,available:false},id=service.store.remember(c);
+    service.store.transition(id,'manual','source unavailable; manual acquisition required');
+    service.store.manual(`candidate:${id}`,sub.id,'Discovered episode cannot be acquired automatically',id);
+    const retry=service.store.remember({...c,sourceId:'retry',available:true,title:'Retry episode'});
+    service.store.transition(retry,'manual','Repeated processing failures; manual preparation required');
+    const editorial=service.store.remember({...c,sourceId:'editorial',available:true,title:'Editorial exclusion'});
+    service.store.transition(editorial,'manual','Manual editorial review required');
+    recoverAutomaticSources(service.store,[sub]);
+    assert.equal(service.store.candidates().find(r=>r.id===id)!.state,'monitoring');
+    assert.equal(service.store.candidates().find(r=>r.id===retry)!.state,'deferred');
+    assert.equal(service.store.candidates().find(r=>r.id===editorial)!.state,'manual');
+    assert.equal((db.db.prepare("SELECT count(*) n FROM acquisition_manual WHERE state='pending'").get() as {n:number}).n,0);
+    service.store.remember({...c,available:true});
+    const reopened=service.store.candidates().find(r=>r.id===id)!;
+    assert.equal(reopened.state,'discovered');assert.equal(reopened.retryAt,0);
+    assert.equal(service.store.candidates(['imported']).length,0);
+  }finally{close();}
+});
+
+test('an expired lease cannot admit a second worker while its owner is still alive',()=>{
+  const {service,db,close}=fixture();try{
+    const owner=`${process.pid}:blocked`;
+    assert.ok(service.store.acquire(owner));
+    db.db.prepare('UPDATE acquisition_lock SET expires=?').run(Date.now()-1);
+    assert.equal(service.store.acquire('second-worker'),false);
+    service.store.release(owner);
+    assert.equal(service.store.acquire('second-worker'),true);
+  }finally{close();}
+});
+
+test('high-attempt automatic sources keep retrying and monitored episodes do not spin the queue',async()=>{
+  const {service,sub,policy,db,close}=fixture();try{
+    sub.source='mediathek';policy.jobsPerRun=1;
+    service.store.set('inventory-complete','1');service.store.set('last-discovery',String(Date.now()));
+    const id=service.store.remember({...candidate(sub),durationMs:2000});
+    db.db.prepare('UPDATE acquisition_candidates SET attempts=20 WHERE id=?').run(id);
+    const waiting=service.store.remember({...candidate(sub),sourceId:'waiting',title:'Future episode',available:false});
+    service.store.transition(waiting,'monitoring','Source currently unavailable; monitoring for availability');
+    const stub=service as unknown as {recover:()=>Promise<void>;index:()=>Promise<object>;incoming:()=>Promise<number>;enrichExisting:()=>Promise<number>;regenerate:()=>Promise<void>;ingest:(row:{id:string})=>Promise<void>};
+    stub.recover=async()=>{};stub.index=async()=>({});stub.incoming=async()=>0;stub.enrichExisting=async()=>0;stub.regenerate=async()=>{};
+    stub.ingest=async row=>{assert.equal(row.id,id);throw new Deferred('Source network failed; retry scheduled');};
+    await service.run({scheduled:true});
+    const retried=service.store.candidates().find(r=>r.id===id)!;
+    assert.equal(retried.state,'deferred');assert.equal(retried.attempts,21);
+    assert.ok(retried.retryAt>Date.now());assert.ok(Number(service.store.state('next-automatic-run'))>Date.now());
+    assert.equal(service.store.candidates().find(r=>r.id===waiting)!.state,'monitoring');
+  }finally{close();}
 });

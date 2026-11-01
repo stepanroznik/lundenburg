@@ -225,6 +225,22 @@ export function isOrf(candidate: SourceCandidate): boolean {
   return candidate.source === 'mediathek' && /\bORF\b/i.test(candidate.broadcaster ?? '');
 }
 
+/** ORF can expose a ten-second slate while reporting the full episode length. */
+export function shortOrfMedia(expectedSeconds:number, actualSeconds:number):boolean {
+  return Number.isFinite(expectedSeconds) && Number.isFinite(actualSeconds) &&
+    expectedSeconds >= 60 && actualSeconds > 0 && actualSeconds <= 30 && actualSeconds < expectedSeconds * 0.2;
+}
+export function shortOrfManifest(expectedSeconds:number, formats:Array<Record<string,unknown>>):boolean {
+  const videos=formats.filter(f=>Number(f.height)>=480 && f.vcodec!=='none');
+  return videos.length>0 && videos.every(f=>{
+    if(!Array.isArray(f.fragments))return false;
+    const durations=f.fragments.map((x:unknown)=>Number((x as {duration?:unknown})?.duration)).filter(n=>Number.isFinite(n)&&n>0);
+    // A manifest commonly has one duration-less initialization fragment; any
+    // further unknown fragments mean its total duration cannot be inferred.
+    return durations.length>0 && f.fragments.length-durations.length<=1 && shortOrfMedia(expectedSeconds,durations.reduce((a,b)=>a+b,0));
+  });
+}
+
 export function usesStreamExtractor(candidate: SourceCandidate): boolean {
   return ['ct', 'youtube'].includes(candidate.source) || isOrf(candidate);
 }

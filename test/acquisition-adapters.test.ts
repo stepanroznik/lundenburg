@@ -5,7 +5,7 @@ import path from 'node:path';
 import { test } from 'node:test';
 import {
   acceptableAcquisitionHeight, AcquisitionCommandError, downloaderFailure, extractorArgs, playlistCandidates,
-  recoverCtExtraction, recoverOrfExtraction, discardOrfPlaylistFiles, usesStreamExtractor, validateYoutubeSubscription, applyEpisodeIdentity, preserveEpisodeIdentity,
+  recoverCtExtraction, recoverOrfExtraction, discardOrfPlaylistFiles, usesStreamExtractor, validateYoutubeSubscription, applyEpisodeIdentity, preserveEpisodeIdentity, shortOrfMedia, shortOrfManifest,
 } from '../src/acquisition/adapters.js';
 
 const subscription = {
@@ -13,6 +13,16 @@ const subscription = {
   channelId: 'UCOk55dAgB8VnMlhaTEMeX5A',
   urls: ['https://www.youtube.com/playlist?list=PLmdZ3yaBIVIW-OxGcVRCtD63thztEGK4_'],
 };
+
+test('ORF short placeholder manifests are distinguished from complete or unknown streams',()=>{
+  const video=(fragments:unknown[])=>({height:540,vcodec:'h264',fragments});
+  assert.equal(shortOrfMedia(771,10.048),true);
+  assert.equal(shortOrfManifest(771,[video([{}, {duration:10.048}])]),true);
+  assert.equal(shortOrfManifest(771,[video([{}, {duration:771}])]),false);
+  assert.equal(shortOrfManifest(771,[video([{}, {duration:10}]),{height:720,vcodec:'h264'}]),false);
+  assert.equal(shortOrfManifest(771,[video([{}, {}, {duration:10}])]),false);
+  assert.equal(shortOrfManifest(10,[video([{}, {duration:10}])]),false);
+});
 
 test('retired endpoints and transient extraction failures remain retryable without leaking diagnostics', () => {
   for (const text of [

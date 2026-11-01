@@ -22,8 +22,8 @@ async function collect() {
   // Resolve on each refresh so a deployed acquisition fix is reflected immediately.
   const release = fs.realpathSync(process.env.LKP_ACQUISITION_RELEASE ?? '/home/lundenburg/lkp-content/current');
   const load = name => import(pathToFileURL(path.join(release, `dist/src/${name}.js`)));
-  const [{ loadConfig }, { LkpDatabase }, { ContentAcquisition }, { AcquisitionStore }, { loadAcquisitionConfig, candidateScore }, { processAlive }, { usesStreamExtractor }, { NachtStorage }] = await Promise.all([
-    load('config'), load('database'), load('acquisition/service'), load('acquisition/store'), load('acquisition/model'), load('acquisition/io'), load('acquisition/adapters'),
+  const [{ loadConfig }, { LkpDatabase }, { ContentAcquisition }, { AcquisitionStore }, { loadAcquisitionConfig, candidateScore }, { processAlive }, { NachtStorage }] = await Promise.all([
+    load('config'), load('database'), load('acquisition/service'), load('acquisition/store'), load('acquisition/model'), load('acquisition/io'),
     fs.existsSync(path.join(release, 'dist/src/acquisition/nacht-storage.js')) ? load('acquisition/nacht-storage') : Promise.resolve({}),
   ]);
   const app = loadConfig(), config = loadAcquisitionConfig(app);
@@ -57,20 +57,29 @@ async function collect() {
       service.usage = id => usage.get(id);
       const lease = db.prepare('SELECT owner,expires FROM acquisition_lock WHERE id=1').get();
       const pid = Number(lease?.owner.split(':')[0]);
-      const workerActive = Boolean(lease?.expires > at && Number.isSafeInteger(pid) && pid > 0 && processAlive(pid, at));
+      const workerAlive = Boolean(Number.isSafeInteger(pid) && pid > 0 && processAlive(pid, Math.min(at,lease.expires)));
+      const workerActive = workerAlive && lease.expires > at;
+      const workerStalled = workerAlive && !workerActive;
+      let workerPhase='';
+      try{const status=JSON.parse(fs.readFileSync(path.join(app.storage.runtimeDirectory,'acquisition/worker-status.json'),'utf8'));
+        if(status.workerPid===pid&&workerAlive)workerPhase=safeText(status.phase);
+      }catch{}
       const downloads = service.currentDownloads().map(d => ({ programme: safeText(d.programme), title: safeText(d.title), downloadedBytes: d.downloadedBytes, lastProgressSecondsAgo: d.lastProgressSecondsAgo }));
       const activeId = (() => { try { const d = JSON.parse(states.get('active-download') ?? ''); return workerActive && d.pid === pid ? d.id : null; } catch { return null; } })();
       const ready = [], delayed = [], reasons = [], shows = [];
       for (const s of [...config.subscriptions].sort((a, b) => b.priority - a.priority)) {
         const owned = files.filter(f => f.show_id === s.id && f.state === 'indexed' && byId.get(f.catalogue_id)?.enabled);
         const rows = candidates.filter(c => c.metadata.showId === s.id), counts = new Map();
-        let nowCount = 0, later = 0;
+        let nowCount = 0, later = 0, monitored = 0;
         const addReason = reason => { const text = safeText(reason.startsWith('duplicate:') ? 'Already in library' : reason); counts.set(text, (counts.get(text) ?? 0) + 1); };
         for (const row of rows) {
           if (['manual', 'quarantine'].includes(row.state)) addReason(row.reason || row.state);
-          if (!['discovered', 'deferred', 'processing', 'bounded'].includes(row.state) || row.id === activeId) continue;
+          if(row.state==='monitoring'){
+            monitored++;addReason(row.reason||'Monitoring source availability');
+            if(!row.metadata.available)continue;
+          }
+          if (!['discovered', 'deferred', 'processing', 'bounded','monitoring'].includes(row.state) || row.id === activeId) continue;
           if (s.profile === 'ln' && !row.metadata.broadcastPolicy) { addReason('Awaiting LN curation'); continue; }
-          if (row.attempts >= 5 && !usesStreamExtractor(row.metadata)) { addReason('Retry limit reached; manual preparation required'); continue; }
           const reason = service.budget(row.metadata, s);
           if (reason) { if (!reason.startsWith('duplicate:')) addReason(reason); continue; }
           if (['manual', 'existing'].includes(s.source) || row.state === 'bounded') continue;
@@ -82,6 +91,7 @@ async function collect() {
         if (usage.get(s.id).episodes >= s.targetEpisodes) plan = 'Target reached';
         else if (s.source === 'existing') plan = 'Existing library only';
         else if (s.source === 'manual') plan = 'Manual source';
+        else if(monitored&&!nowCount&&!later)plan='Monitoring source availability';
         else if (counts.size && !nowCount && !later) plan = [...counts].sort((a, b) => b[1] - a[1])[0][0];
         if (rows.some(c => c.id === activeId)) plan = downloads.length ? 'Downloading' : 'Preparing / downloading';
         shows.push({ title: safeText(s.title), language: s.language, have: owned.length, target: s.targetEpisodes,
@@ -89,7 +99,7 @@ async function collect() {
           rankCounts: s.editorialClassification ? Object.fromEntries(['A+', 'A', 'B', 'C', 'D', 'X', 'pending'].map(rank =>
             [rank, rows.filter(row => (row.metadata.classification?.rank ?? 'pending') === rank).length])) : null,
           added: owned.filter(f => f.new_asset).length, durationMs: owned.reduce((n, f) => n + byId.get(f.catalogue_id).durationMs, 0),
-          bytes: owned.reduce((n, f) => n + f.size, 0), ready: nowCount, later, blocked, plan });
+          bytes: owned.reduce((n, f) => n + f.size, 0), ready: nowCount, later, blocked, monitored, plan });
         if (!['Target reached', 'Existing library only'].includes(plan)) {
           for (const [reason, count] of [...counts].sort((a, b) => b[1] - a[1]).slice(0, 2)) reasons.push({ show: safeText(s.title), reason, count });
           if (!counts.size && ['Manual source', 'No candidates'].includes(plan)) reasons.push({ show: safeText(s.title), reason: plan, count: 1 });
@@ -101,7 +111,10 @@ async function collect() {
       const next = ready.slice(0, limit).map(c => ({ show: safeText(service.sub(c.metadata.showId).title), title: safeText(c.metadata.classification?.title ?? c.metadata.title), rank: c.metadata.classification?.rank ?? '', attempts: c.attempts }));
       const recent = files.filter(f => f.new_asset && f.state === 'indexed' && byId.get(f.catalogue_id)?.enabled).sort((a, b) => b.acquired_at - a.acquired_at).slice(0, limit)
         .map(f => ({ at: f.acquired_at, show: safeText(byId.get(f.catalogue_id).showTitle), title: safeText(byId.get(f.catalogue_id).episodeTitle), bytes: f.size }));
-      return { at, timeZone: app.channel.timezone, activity: downloads.length ? 'downloading' : workerActive ? 'working' : 'waiting', workerActive, downloads,
+      const publication=db.prepare("SELECT event,reason FROM acquisition_history WHERE item='schedule' ORDER BY at DESC,id DESC LIMIT 1").get();
+      return { at, timeZone: app.channel.timezone, activity: workerStalled?'stalled':downloads.length ? 'downloading' : workerActive ? 'working' : 'waiting', workerActive, workerStalled, workerPhase, downloads,
+        publicationRetry: Number(states.get('next-schedule-publication'))||null,
+        publicationFailure: publication?.event==='publication-deferred' ? safeText(publication.reason) : '',
         nextRun: Number(states.get('next-automatic-run')) || null, lastDiscovery: Number(states.get('last-discovery')) || null,
         inventoryComplete: states.get('inventory-complete') === '1', publicationPending: states.get('schedule-dirty') === '1',
         classificationStatus: safeText(states.get('classification-status') ?? ''),

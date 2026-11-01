@@ -8,7 +8,7 @@ import { parse } from 'yaml';
 import { config, item } from './helpers.js';
 import { ageEligible, childrenPolicy, loadChildrenConfig } from '../src/children-policy.js';
 import { buildChildrenSchedule, programmeParts } from '../src/children-schedule.js';
-import { buildScheduleEntries, schedulePlanning, setChildrenAge, validateTimeline } from '../src/schedule.js';
+import { buildScheduleEntries, schedulePlanning, setChildrenAge, validateTimeline,rebuildFutureSchedule } from '../src/schedule.js';
 import { childrenSettings } from '../src/children-settings.js';
 import { channelEntryAllowed, loadStationConfig, profileWindow } from '../src/channels.js';
 import { LkpDatabase } from '../src/database.js';
@@ -50,6 +50,21 @@ test('all configured acquisition shows and shared library shows have explicit ed
     for(const show of data.subscriptions) assert.ok(c.policies[show.id],show.id);
   }
   for(const id of ['the-man-from-earth','breclav-tv','unsere-heimat','unusualvideos','wreck-it-ralph']) assert.ok(c.policies[id]);
+});
+test('children policy refresh reserves its write transaction before reading the catalogue',()=>{
+  const f=fixture();const other=new LkpDatabase(f.app.storage.database);
+  try {
+    other.db.pragma('busy_timeout = 0');
+    const list=f.db.listMedia.bind(f.db);let attempted=false;
+    f.db.listMedia=(...args:Parameters<typeof list>)=>{
+      const rows=list(...args);attempted=true;
+      assert.throws(()=>other.db.prepare('UPDATE media_items SET enabled=enabled WHERE id=?').run(rows[0]!.id),{code:'SQLITE_BUSY'});
+      return rows;
+    };
+    childrenSettings(f.db,f.app);
+    assert.ok(attempted);
+    assert.ok((f.db.db.prepare('SELECT COUNT(*) n FROM children_show_policies').get() as {n:number}).n>0);
+  } finally {other.close();f.close();}
 });
 test('age tolerance applies exactly once, ceilings exclude toddler shows after five, unknown fails closed',()=>{
   const c=loadChildrenConfig(path.resolve('.'))!;
@@ -113,6 +128,23 @@ test('chapter-only segmentation preserves all content and persistent multipart s
 test('an empty age-eligible library refuses generation instead of scheduling holding screens',()=>{
   const f=fixture();try{
     assert.throws(()=>buildChildrenSchedule([],'empty',ms('2026-10-26T06:00'),ms('2026-10-26T20:00'),0,[],f.app),/No playable age-eligible/);
+  }finally{f.close();}
+});
+
+test('bounded acquisition publication preserves distant events, EPG identities and the full horizon',()=>{
+  const f=fixture();try{
+    const start=ms('2026-10-26T06:00'),end=ms('2026-10-30T06:00');
+    const rows=buildScheduleEntries(f.media,'test',start,end,0,[],schedulePlanning(f.db,f.app));
+    f.db.insertSchedule(rows);
+    const unchangedAfter=ms('2026-10-28T06:00');
+    const omitSequence=({sequence,...row}:ScheduleEntry)=>row;
+    const original=f.db.listSchedule(unchangedAfter,end).map(omitSequence);
+    const result=rebuildFutureSchedule(f.db,f.app,ms('2026-10-26T10:00'),{
+      untilMs:ms('2026-10-27T21:00'),
+    });
+    assert.equal(result.lastMs,end);assert.ok(result.removed>0);
+    assert.deepEqual(f.db.listSchedule(unchangedAfter,end).map(omitSequence),original);
+    assert.deepEqual(validateTimeline(f.db.listSchedule(start,end)),[]);
   }finally{f.close();}
 });
 test('atomic age regeneration preserves current, history, Nacht identities and rolls back failure',()=>{

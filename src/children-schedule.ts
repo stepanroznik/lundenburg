@@ -306,7 +306,13 @@ export function buildChildrenSchedule(catalogue: MediaItem[], seed: string, star
     const startIndex=result.length;
     if (showId) make(showId,limit,slot,date);
     const rollbackFloor=c.adBreakEveryMinutes?result.length:0;
+    // Backtracking can reproduce the same programme/filler tail indefinitely.
+    // Reject a repeated planning state instead of monopolising acquisition.
+    const visited=new Set<string>();
     while(cursor<until) {
+      const position=JSON.stringify([cursor,closing,result.slice(-4).map(e=>e.id)]);
+      if(visited.has(position))throw new Error(`Children filler cannot close the boundary near ${new Date(cursor).toISOString()}`);
+      visited.add(position);
       if(!hard && until-cursor<=toleranceMs) return;
       const before=cursor;
       const last=result.at(-1) ?? previous.at(-1);

@@ -13,9 +13,13 @@ export function table(headers, rows) {
 export function renderReport(r) {
   const time = value => value ? new Intl.DateTimeFormat('en-GB', { timeZone: r.timeZone, dateStyle: 'short', timeStyle: 'medium' }).format(Number(value)) : 'not recorded';
   const out = [`Acquisition · ${time(r.at)} · ${safeText(r.activity)}`];
+  if(r.workerStalled)out.push('Worker is alive with an expired lease; recovery is required.');
+  if(r.workerPhase)out.push(`Worker phase: ${safeText(r.workerPhase)}`);
   for (const d of r.downloads) out.push(`Downloading: ${safeText(d.programme)} — ${safeText(d.title)}\n  ${gib(d.downloadedBytes)} received; last progress ${d.lastProgressSecondsAgo}s ago (total size unknown)`);
   out.push(`Next automatic check: ${r.nextRun && r.nextRun <= r.at ? 'due now' : time(r.nextRun)}${r.workerActive ? ' (current batch is running)' : ''}`);
   out.push(`Last discovery: ${time(r.lastDiscovery)} · Inventory: ${r.inventoryComplete ? 'complete' : 'incomplete'} · Schedule publication: ${r.publicationPending ? 'pending' : 'no pending changes'}`);
+  if(r.publicationPending&&r.publicationRetry>r.at)out.push(`Next schedule publication attempt: ${time(r.publicationRetry)}; acquisition continues independently.`);
+  if(r.publicationPending&&r.publicationFailure)out.push(`Last publication result: ${safeText(r.publicationFailure)}`);
   const usable = r.shows.reduce((n, s) => n + s.have, 0), added = r.shows.reduce((n, s) => n + s.added, 0);
   out.push(`Library: ${usable} usable episodes; ${added} acquired · Automatic queue: ${r.readyTotal} ready, ${r.shows.reduce((n, s) => n + s.later, 0)} waiting for retry`);
   const short = text => Array.from(text).length > 28 ? Array.from(text).slice(0, 27).join('') + '…' : text;
@@ -34,7 +38,7 @@ export function renderReport(r) {
   out.push(`\nUp next (${r.readyTotal} eligible now; order can change after imports/discovery):`);
   out.push(r.next.length ? table(['Show', 'Episode', 'Rank', 'Attempts'], r.next.map(n => [n.show, n.title, n.rank ?? '', n.attempts])) : '  No eligible discovered episode right now; future discovery may find more.');
   if (r.earliestRetry) out.push(`Earliest eligible retry: ${time(r.earliestRetry)}`);
-  out.push('\nWhy work is waiting / blocked:');
+  out.push('\nSource monitoring / blockers:');
   out.push(r.reasons.length ? r.reasons.map(x => `  ${safeText(x.show)}: ${x.count} × ${safeText(x.reason)}`).join('\n') : '  No recorded blockers.');
   out.push('\nRecently acquired:');
   out.push(r.recent.length ? table(['When', 'Show', 'Episode', 'Size'], r.recent.map(x => [time(x.at), x.show, x.title, gib(x.bytes)])) : '  No acquired episodes recorded.');

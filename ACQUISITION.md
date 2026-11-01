@@ -51,8 +51,11 @@ time: eligible queued work continues with the next batch, while an idle library
 waits up to `idlePollSeconds` (default thirty minutes). Source discovery is also
 limited to that interval. Idle checks do not scan the media drive or query
 providers. Individual failed candidates retain their retry delays and other
-eligible candidates continue. Resource protection failures defer the whole
-worker for the idle interval. The per-run job limit remains in force. `maxRunSeconds` is a soft batch limit:
+eligible candidates continue. Network failures start at one minute, ordinary
+extractor failures at five minutes, and rate limits at thirty minutes, with
+exponential backoff capped at six hours. An attempt count never turns a temporary
+failure into a manual subscription. Resource protection failures defer the whole
+worker for one minute before checking again. The per-run job limit remains in force. `maxRunSeconds` is a soft batch limit:
 after it expires, the current episode completes download, preparation and import
 before the next batch is scheduled. It does not interrupt a healthy transfer.
 HTTP connections are bounded by `connectTimeoutSeconds` (default twenty), while
@@ -64,6 +67,20 @@ source queries and optional metadata calls retain their individual timeouts.
 Playout, lease, mount and storage protection remain active throughout an episode.
 The systemd service has no wall-time cutoff; configure these application
 watchdogs rather than introducing a second batch deadline in systemd.
+Scheduled runs have an independent supervising process. If the worker's event
+loop stops sending heartbeats for three minutes, the supervisor terminates it and
+its downloader process groups; the existing timer starts another batch. The
+worker yields while persisting large discovery results, and crash recovery checks
+only owned staging/final directories instead of walking the full media archive. Healthy
+transfers can run longer than the batch budget. Supervisor phase and outcome are
+saved privately in `runtime/acquisition/worker-status.json`.
+For a bounded 24-hour health observation, run `node scripts/acquisition-observe.mjs`
+from the maintained checkout. It writes private fifteen-minute aggregate samples
+under `runtime/acquisition/`, covering imports, publication events, queue states,
+service resource counters and free space. It makes no provider requests.
+An unchanged, complete media inventory is reused for thirty minutes; incoming
+files are still checked every batch. Queue admission uses a single catalogue
+snapshot rather than repeatedly reading the entire library for each candidate.
 Changing the symlink affects only the acquisition service. No RF or playout
 operation is performed.
 
@@ -110,7 +127,9 @@ On the Pi use `node dist/src/acquisition/main.js content ...` from the acquisiti
 release. `discover` performs no downloads. `index` inventories existing media without hashing it and updates scheduling
 when needed. A run uses a SQLite
 worker lease; a concurrent invocation defers without asking a question. A killed
-worker's lease is reclaimed once its owning process has exited, or expires automatically. An interrupted prepared import recovers
+worker's lease is reclaimed once its owning process has exited. An expired lease
+owned by a live process is never stolen; status reports it as stalled. Release
+activation observes the same rule. An interrupted prepared import recovers
 from its `ingest.json` manifest.
 
 ## Policy and storage
@@ -209,9 +228,19 @@ approved URLs, then paginates the broadcaster’s public GraphQL episode browser
 for that identity. This avoids stopping at the ten server-rendered cards. It retains title, description, duration, playability, exposed expiry text,
 source identity, first/last seen and any inferred episode/season. The existing
 supported yt-dlp extractor is used only for public non-DRM media. No cookies,
-authentication workarounds, DRM options or geography bypass are used. Missing
-formats, access restrictions and extractor failures create persistent manual
-records; the same unresolved item is not repeatedly notified.
+authentication workarounds, DRM options or geography bypass are used. Episodes
+that are not currently playable remain in a `monitoring` state. Discovery keeps
+checking the approved programme and automatically requeues an episode when ČT
+marks it playable, including a future rebroadcast of Maxipes Fík. This does not
+assume a rebroadcast date or require manual intervention. Access/format failures
+receive a daily automatic recheck; other extractor/network failures use backoff.
+ORF occasionally advertises a full episode while serving a ten-second slate.
+Short prepared files and short known video manifests remain preserved and are
+monitored rather than repeatedly treated as complete programmes. If the stream
+later changes, the old staged file is retained separately before a fresh download.
+The worker migrates legacy temporary failures out of the manual queue while
+preserving genuine editorial/manual-review decisions. Temporary source access
+failure is not an editorial rejection and does not create a cached X rating.
 
 Peppa, Bing, the four compact English additions, Pingu and optional Timmy Time
 use the manual route until a suitable automatic source is configured. A
@@ -352,7 +381,16 @@ that boundary and published weather, takes a rolling SQLite backup, checks for
 concurrent schedule changes and atomically replaces only the future tail through
 the established planner. EPG is written atomically. No broadcaster restart occurs.
 Failures leave valid programming and pending regeneration in place for a later
-run.
+run. Acquisition publication runs in an isolated worker thread with a two-minute
+progress watchdog and a ten-minute total limit. It refreshes the next seven days,
+joining the untouched distant timeline at an existing station handover. Distant
+event IDs, times, plans and EPG IDs remain intact; sequence numbers are adjusted
+atomically. Successful publication is limited to once per thirty minutes and
+refreshes the rolling window daily even when no new item arrives. Failed
+publication retries after an hour without blocking subsequent download batches.
+Filler backtracking detects repeated planning states and fails safely instead of
+looping indefinitely. Every publication rechecks its safe boundary and runtime
+protection before committing.
 
 Actual RF continuity under simultaneous acquisition still requires observing a
 running broadcaster on the Pi; resource limits and automated tests cannot prove

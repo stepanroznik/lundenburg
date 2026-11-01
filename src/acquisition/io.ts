@@ -12,15 +12,26 @@ const childGroups=new Set<number>();
 export function terminateChildren():void {for(const pid of childGroups){try{process.kill(-pid,'SIGKILL');}catch{}}}
 export class Deferred extends Error {
 }
+// Availability/rights can change. These episodes remain automatically monitored.
+export class Monitoring extends Deferred {
+}
 export class Quarantined extends Error {
 }
 export class DownloadHttpError extends Error {
 
     constructor(readonly status:number){super(`Download HTTP ${status}`);}
 }
+/** Back off per item: transient connectivity failures get a quick first retry. */
+export function acquisitionRetryDelayMs(error:unknown,attempts:number):number {
+  const message=error instanceof Error?error.message:'';
+  const status=error instanceof DownloadHttpError?error.status:Number(/\bHTTP (\d{3})\b/.exec(message)?.[1]??0);
+  const base=status===429||status===403?30*60_000:
+    status>=500||/\bnetwork\b|timed?\s*out|connection|temporar|stalled/i.test(message)?60_000:5*60_000;
+  return Math.min(6*60*60_000,base*2**Math.min(Math.max(0,attempts),8));
+}
 export function failureCode(error:unknown):string {
   const code=(error as {code?:unknown}|null)?.code;
-  const allowed=['EACCES','EPERM','EROFS','ENOSPC','ENOENT','EBUSY','EMFILE','SQLITE_BUSY','SQLITE_READONLY','SQLITE_READONLY_DBMOVED','SQLITE_CANTOPEN','SQLITE_FULL','SQLITE_CORRUPT','MEDIA_ROOT_MISSING','MEDIA_MOUNT_MISSING','MEDIA_MOUNT_MISMATCH'];
+  const allowed=['EACCES','EPERM','EROFS','ENOSPC','ENOENT','EBUSY','EMFILE','SQLITE_BUSY','SQLITE_BUSY_SNAPSHOT','SQLITE_PROTOCOL','SQLITE_READONLY','SQLITE_READONLY_DBMOVED','SQLITE_CANTOPEN','SQLITE_FULL','SQLITE_CORRUPT','MEDIA_ROOT_MISSING','MEDIA_MOUNT_MISSING','MEDIA_MOUNT_MISMATCH'];
   return typeof code==='string'&&allowed.includes(code)?code:'UNEXPECTED';
 }
 export function signature(file:string): {size:number;mtime:number} { const s=fs.statSync(file); return {size:s.size,mtime:s.mtimeMs}; }
@@ -42,6 +53,10 @@ export function processAlive(pid:number,updatedAt:number):boolean {
     if(startedAt>updatedAt+1000)return false;
   }catch{} // Unknown liveness is treated conservatively as active.
   return true;
+}
+export function liveLeaseOwner(lease:{owner:string;expires:number}|undefined,now=Date.now()):boolean {
+  const pid=lease&&/^(?:release-activation:)?(\d+)(?::|$)/.exec(lease.owner)?.[1];
+  return Boolean(pid&&processAlive(Number(pid),Math.min(now,lease!.expires)));
 }
 export class BroadcastGuard {
 
@@ -71,6 +86,7 @@ export async function execute(binary:string, args:string[], guard?:()=>void, tim
         const child = spawn('nice', ['-n', '19', 'ionice', '-c', '3', binary, ...args], { stdio: ['ignore', 'pipe', 'pipe'], detached: true });
         if (child.pid)
             childGroups.add(child.pid);
+        if(child.pid&&process.connected)process.send?.({type:'child-group',pid:child.pid,active:true});
         const kill = () => { if (child.pid) {
             try {
                 process.kill(-child.pid, 'SIGKILL');
@@ -97,8 +113,8 @@ export async function execute(binary:string, args:string[], guard?:()=>void, tim
             kill();
         } }, 1000);
         child.on('error', () => { clearTimeout(timer); clearInterval(watch); reject(new Error(`${path.basename(binary)} could not start`)); });
-        child.on('close', (code) => { if (child.pid)
-            childGroups.delete(child.pid); clearTimeout(timer); clearInterval(watch); if (failed)
+        child.on('close', (code) => { if (child.pid){
+            childGroups.delete(child.pid);if(process.connected)process.send?.({type:'child-group',pid:child.pid,active:false});} clearTimeout(timer); clearInterval(watch); if (failed)
             reject(failed);
         else if (code !== 0)
             reject(path.basename(binary) === 'yt-dlp' ? downloaderFailure(stderr) : new Error(`${path.basename(binary)} failed (${code})`));

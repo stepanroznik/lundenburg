@@ -150,6 +150,19 @@ test('quota exhaustion pauses paid classification globally and resumes after the
   } finally { db.close(); }
 });
 
+test('source access failures are monitored without caching a permanent editorial rejection',async()=>{
+  const db=new Database(':memory:'),transitions:unknown[][]=[];
+  const c=candidate();
+  const service={db:{db},config:{metadataRequestsPerRun:12,metadataModel:'gpt-4.1-mini'},app:{projectRoot:'/tmp'},batchDeadline:Infinity,
+    sub:()=>subscription,guard:{check(){}},duplicate:()=>undefined,
+    store:{candidates:()=>[{id:'temporary',metadata:c,retryAt:0}],state:()=>undefined,set(){},remember(){},transition:(...v:unknown[])=>transitions.push(v)}};
+  try{
+    await classifyPending(service,{execute:async()=>{throw new AcquisitionCommandError('unavailable');},request:async()=>{throw Error('API touched');},credential:()=>undefined,extractorArgs:()=>[]});
+    assert.equal(transitions[0]![1],'monitoring');assert.equal(new EducationalClassifier(db).cached(c.sourceId),undefined);
+    assert.equal(c.invalidReason,undefined);
+  }finally{db.close();}
+});
+
 test('missing optional channel tabs do not mask real errors and all uploads are discovered', async () => {
   let calls = 0;
   const execute = async (_binary: string, args: string[]) => {

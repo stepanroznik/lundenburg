@@ -33,6 +33,13 @@ compiled release or only on one machine. Report any synchronization/deployment
 step that remains incomplete. Synchronization does not authorize unrelated
 rendering, scheduling, or starting/stopping playout.
 
+The isolated weather copy must receive matching `package.json` and lockfile
+alongside shared source updates. Run `node scripts/verify-weather-installation.mjs`
+inside that installation before considering a repair complete; it checks installed
+dependency versions and loads the weather command without rendering or scheduling.
+Use `scripts/repair-weather-pi.sh` for an existing installation, preserving its
+credentials, speech cache and generated media.
+
 ## Children’s scheduling
 
 Read [CHILDREN-SCHEDULING.md](../../CHILDREN-SCHEDULING.md) before changing LKP
@@ -127,6 +134,22 @@ Build humour from personality, local knowledge, or a clear visual event. If a fa
 - Separate creation from playout. Do not schedule, publish, start a broadcast, or replace a reviewed master unless the user asks for that operation.
 
 ## Acquisition quality
+
+Keep acquisition live independently of scheduling. Scheduled workers use a
+separate heartbeat supervisor; a stalled event loop must not retain the queue
+indefinitely. Never steal an expired lease from a live process, including during
+release activation. Run guarded schedule publication off the download event
+loop, with bounded progress/total time and deferred retries. Routine acquisition
+refreshes a rolling seven-day window and preserves the distant timetable at a
+station handover; never compile the entire year for each import. Detect filler
+backtracking cycles. Preserve CPU/I/O, memory, disk-reserve and playout guards;
+reuse inventory and queue snapshots rather than repeatedly reading all media.
+Temporary broadcaster unavailability is automatic monitoring, not a manual task
+or editorial rejection. Rediscovery must requeue playable episodes (including
+future ČT rebroadcasts); retain capped backoff without a terminal attempt limit.
+Do not repeatedly ingest ORF's short placeholder streams as full-length episodes;
+keep existing staged media and monitor until a complete stream is available.
+Keep actual editorial exclusions and genuinely manual sources distinct.
 
 Prefer 1080p whenever available, with resolution taking priority over codec.
 Never acquire programmes below 480p. Advertisements have an explicit exception:

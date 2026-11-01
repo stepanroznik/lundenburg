@@ -6,7 +6,7 @@ import type { ProbeResult } from '../media.js';
 import type { CandidateRow, FileRow } from './store.js';
 import type { AcquisitionConfig, Candidate, Subscription, Usage } from './model.js';
 import fs from 'node:fs';
-import { AcquisitionCommandError, extractorArgs, discoverYoutube, recoverCtExtraction, recoverOrfExtraction, isOrf, usesStreamExtractor, discardOrfPlaylistFiles, applyEpisodeIdentity } from './adapters.js';
+import { AcquisitionCommandError, extractorArgs, discoverYoutube, recoverCtExtraction, recoverOrfExtraction, isOrf, usesStreamExtractor, discardOrfPlaylistFiles, applyEpisodeIdentity, shortOrfMedia, shortOrfManifest } from './adapters.js';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { classifyPending, rankPriority } from './classification.js';
@@ -17,10 +17,8 @@ import { parse, stringify } from 'yaml';
 import { scanMedia, walk, parseEpisodeFilename } from '../media.js';
 import { assertMediaStorage } from '../media-storage.js';
 import { normalizeLanguage, stableId } from '../util.js';
-import { rebuildFutureSchedule, ensureSchedule } from '../schedule.js';
 import { writeEpgAtomic } from '../epg.js';
-import { readPlayoutStatus } from '../playout-status.js';
-import { AcquisitionStore } from './store.js';
+import { AcquisitionStore, leaseRenewalMayWait } from './store.js';
 import { admission, unsupportedEdition, candidateScore, logicalKeys, normalize } from './model.js';
 import { austrianDiscovery, ceskaTelevize, mediathek } from './sources.js';
 import { BroadcastGuard, Deferred, Quarantined, DownloadHttpError, download, execute, reserve, progressWatch, processAlive, sameSignature, signature } from './io.js';
@@ -29,6 +27,10 @@ import { classifyNachtPending, deterministicNacht } from './nacht-classification
 import { NachtStorage } from './nacht-storage.js';
 import { validateMediaPolicy } from '../channels.js';
 import { nachtPolicy, type NachtClassification } from './nacht-classification.js';
+import { publishSchedule, publicationFailureSummary } from './publication.js';
+import { workerPhase } from './supervisor.js';
+import { recoverAutomaticSources, recoverOrfDurationFailures } from './recovery.js';
+import { Monitoring,liveLeaseOwner,acquisitionRetryDelayMs } from './io.js';
 export class ContentAcquisition {
 
 
@@ -39,6 +41,32 @@ export class ContentAcquisition {
     private guard:BroadcastGuard;
     private paidRequests=0;
     private batchDeadline=Infinity;
+    private budgetCache:{files:ReturnType<AcquisitionStore['files']>;candidates:CandidateRow[];usage:Map<string,Usage>;newBytes:number;nacht:ReturnType<NachtStorage['report']>;
+      keys:Map<string,string>;urls:Map<string,string>;indexedKeys:Set<string>;importedKeys:Set<string>;components:Set<string>}|undefined;
+    private withBudgetSnapshot<T>(read:()=>T):T {
+      const previous=this.budgetCache;
+      const files=this.store.files(),candidates=this.store.candidates(),media=new Map(this.db.listMedia(false).map(m=>[m.id,m]));
+      const usage=new Map<string,Usage>(),counted=new Set<string>();
+      for(const f of files.filter(f=>['indexed','unprobed','quarantine'].includes(f.state))){
+        const u=usage.get(f.show_id)??{episodes:0,durationMs:0,bytes:0};
+        u.episodes++;u.bytes+=f.size;
+        const identity=`${f.show_id}:${f.catalogue_id}`;
+        if(!counted.has(identity)){u.durationMs+=media.get(f.catalogue_id??'')?.durationMs??0;counted.add(identity);}usage.set(f.show_id,u);
+      }
+      const newBytes=this.newBytes(),nacht=this.nachtStorage.report();
+      const keys=new Map<string,string>(),urls=new Map<string,string>(),indexedKeys=new Set<string>(),importedKeys=new Set<string>(),components=new Set<string>();
+      for(const f of files){const stored=JSON.parse(f.keys_json) as string[];
+        if(!['missing','quarantine'].includes(f.state))for(const k of stored)if(!keys.has(k))keys.set(k,f.catalogue_id??f.path);
+        if(f.state==='indexed')for(const k of stored)indexedKeys.add(k);
+      }
+      for(const c of candidates.filter(c=>c.state==='imported')){
+        if(!urls.has(c.metadata.sourceUrl))urls.set(c.metadata.sourceUrl,c.catalogueId??c.id);
+        for(const k of logicalKeys(c.metadata))importedKeys.add(k);
+        for(const k of c.metadata.components)components.add(k);
+      }
+      this.budgetCache={files,candidates,usage,newBytes,nacht,keys,urls,indexedKeys,importedKeys,components};
+      try{return read();}finally{this.budgetCache=previous;}
+    }
     private subtitleBudget=(kind:'search'|'download'):boolean=>{
     const key=`subtitle-quota:${new Date().toISOString().slice(0,10)}:${kind}`;
     const count=Number(this.store.state(key)??0),limit=kind==='search'?this.config.subtitleRequestsPerDay:this.config.subtitleDownloadsPerDay;
@@ -132,14 +160,16 @@ export class ContentAcquisition {
     this.store.set('last-index',String(Date.now()));return {files:files.length,pending};
   }
     usage(showId:string):Usage {
+    if(this.budgetCache)return this.budgetCache.usage.get(showId)??{episodes:0,durationMs:0,bytes:0};
     const files=this.store.files().filter(f=>f.show_id===showId&&['indexed','unprobed','quarantine'].includes(f.state));
     const ids=new Set(files.map(f=>f.catalogue_id).filter(Boolean));
     const media=this.db.listMedia(false).filter(i=>ids.has(i.id));
     return {episodes:files.length,durationMs:media.reduce((a,i)=>a+i.durationMs,0),bytes:files.reduce((a,i)=>a+i.size,0)};
   }
-    private newBytes():number{return this.store.files().filter(f=>f.new_asset&&f.state!=='missing').reduce((a,f)=>a+f.size,0)+this.directoryBytes(path.join(this.root,'staging'))+this.directoryBytes(path.join(this.root,'quarantine'));}
+    private newBytes():number{return this.budgetCache?.newBytes??(this.store.files().filter(f=>f.new_asset&&f.state!=='missing').reduce((a,f)=>a+f.size,0)+this.directoryBytes(path.join(this.root,'staging'))+this.directoryBytes(path.join(this.root,'quarantine')));}
     private duplicate(c:Candidate):string|undefined {
     const keys=logicalKeys(c);
+    if(this.budgetCache)return keys.map(k=>this.budgetCache!.keys.get(k)).find(Boolean)??this.budgetCache.urls.get(c.sourceUrl);
     for(const file of this.store.files().filter(f=>f.state!=='missing'&&f.state!=='quarantine')) {
       if(JSON.parse(file.keys_json).some((k:string)=>keys.includes(k)))return file.catalogue_id??file.path;
     }
@@ -149,11 +179,13 @@ export class ContentAcquisition {
   }
     async discover() : Promise<{discovered:number;errors:number}> {
         let discovered = 0, errors = 0;
+        const candidateState=this.db.db.prepare('SELECT state FROM acquisition_candidates WHERE id=?');
         for (const s of [...this.config.subscriptions].sort((a, b) => b.priority - a.priority)) {
             this.guard.check();
             if (s.enabled === false) continue;
             const previousScan = Number(this.store.state(`subscription-scan:${s.id}`) ?? 0);
-            if (s.scanSeconds && Date.now() - previousScan < s.scanSeconds * 1000) continue;
+            if (Date.now() - previousScan < (s.scanSeconds??this.config.idlePollSeconds)*1000) continue;
+            if (Date.now() >= this.batchDeadline) break;
             if (s.source === 'existing')
                 continue;
             if (s.source === 'manual' && this.usage(s.id).episodes >= s.targetEpisodes)
@@ -169,28 +201,38 @@ export class ContentAcquisition {
                     : s.source === 'mediathek' ? mediathek(s, this.config.discoveryLimit) : ceskaTelevize(s, this.config.discoveryLimit));
                 if (s.profile === 'ln' && s.channelId) this.store.set(`nacht-channel:${s.id}`, s.channelId);
                 let latestChosen = false;
+                let remembered=0;
                 for (const c of found) {
+                    // Yield before branches that skip historical or rejected
+                    // uploads, so every discovery result contributes to progress.
+                    if(++remembered%25===0){workerPhase('discovering');await new Promise<void>(resolve=>setImmediate(resolve));}
                     const id = this.store.remember(c);
                     if (s.retention === 'latest-only') {
                       const matches = deterministicNacht(c, s)?.eligible === true;
                       if (!matches || latestChosen) {
-                        const existing = this.store.candidates().find(row => row.id === id);
+                        const existing = candidateState.get(id) as {state:string}|undefined;
                         if (existing?.state !== 'imported') this.store.transition(id, matches ? 'superseded' : 'rejected', matches ? 'Historical bulletin; latest-only subscription' : 'Title does not match Břeclavská televize');
                         continue;
                       }
                       latestChosen = true;
                     }
                     discovered++;
-                    if (!c.available && !s.editorialClassification && !this.duplicate(c))
-                        this.store.manual(`candidate:${id}`, s.id, 'Discovered episode cannot be acquired automatically', id);
+                    if (!c.available && !s.editorialClassification && !this.duplicate(c)) {
+                        const row=candidateState.get(id) as {state:string}|undefined;
+                        if(row&&['discovered','deferred','monitoring'].includes(row.state)) {
+                          this.store.transition(id,'monitoring','Source currently unavailable; monitoring for availability');
+                          this.store.resolveManual(id);
+                        }
+                    }
                 }
-                if (!found.length && this.usage(s.id).episodes < s.targetEpisodes)
-                    this.store.manual(`show:${s.id}`, s.id, 'No currently discoverable approved episodes; monitoring remains active');
+                this.db.db.prepare("UPDATE acquisition_manual SET state='resolved' WHERE id=? AND reason='No currently discoverable approved episodes; monitoring remains active'").run(`show:${s.id}`);
                 this.store.set(`discovery:${s.id}`, JSON.stringify({ at: Date.now(), candidates: found.length }));
                 this.store.set(`subscription-scan:${s.id}`, String(Date.now()));
             }
             catch {
                 errors++;
+                // A failing provider must not be queried again for every batch.
+                this.store.set(`subscription-scan:${s.id}`,String(Date.now()));
                 this.store.set(`discovery:${s.id}`, JSON.stringify({ at: Date.now(), error: 'Source discovery unavailable; will retry' }));
             }
         }
@@ -215,16 +257,21 @@ export class ContentAcquisition {
     if(this.store.state('inventory-complete')!=='1')return 'Existing-library inventory is incomplete';
     const duplicate=this.duplicate(c);if(duplicate)return `duplicate:${duplicate}`;
     if(!logicalKeys(c).length)return 'Episode identity is ambiguous';
+    if(this.budgetCache){
+      if(c.components.some(k=>this.budgetCache!.indexedKeys.has(k)))return 'Known component already stored individually';
+      if(c.components.some(k=>this.budgetCache!.importedKeys.has(k))||logicalKeys(c).some(k=>this.budgetCache!.components.has(k)))return 'Known compilation/episode overlap';
+    }else {
     for(const file of this.store.files().filter(f=>f.state==='indexed'))if(JSON.parse(file.keys_json).some((k:string)=>c.components.includes(k)))return 'Known component already stored individually';
     // Deterministic explicit component relationships, never speculative visual chopping.
     for(const row of this.store.candidates(['imported'])) {
       const left=logicalKeys(c),right=logicalKeys(row.metadata);
       if(c.components.some(k=>right.includes(k))||row.metadata.components.some(k=>left.includes(k)))return 'Known compilation/episode overlap';
     }
+    }
     const denied = admission(c,s,this.usage(s.id),this.newBytes(),this.config);
     if (denied) return denied;
     if (s.profile === 'ln') {
-      const report = this.nachtStorage.report();
+      const report = this.budgetCache?.nacht??this.nachtStorage.report();
       const staged = path.join(this.root, 'staging', stableId(c.source, c.sourceId));
       const already = fs.existsSync(staged) ? this.directoryBytes(staged) : 0;
       const required = Math.max(0, c.size * 3 - already);
@@ -242,8 +289,12 @@ export class ContentAcquisition {
         // Trust its completed filename; .part files never enter this path.
         if (isOrf(c)) discardOrfPlaylistFiles(dir);
         const completed = fs.readdirSync(dir).filter(n => /^(?:source|episode)\.(mp4|mkv|webm|mov)$/.test(n));
-        if (completed.length === 1)
-            return path.join(dir, completed[0]!);
+        let incompleteOrf:string|undefined;
+        if (completed.length === 1) {
+            const file=path.join(dir,completed[0]!);
+            if(isOrf(c) && shortOrfMedia(c.durationMs/1000,Number((await this.probe(file)).format.duration)))incompleteOrf=file;
+            else return file;
+        }
         const ceiling = Math.min(s.maxBytes - this.usage(s.id).bytes, this.config.maxNewBytes - this.newBytes());
         if (usesStreamExtractor(c)) {
             const local = path.join(this.app.projectRoot, 'runtime/tools/yt-dlp/bin/yt-dlp');
@@ -255,7 +306,7 @@ export class ContentAcquisition {
             }
             catch (error) {
                 if (error instanceof Deferred) throw error;
-                if (error instanceof AcquisitionCommandError && error.permanent) throw new Quarantined(error.message);
+                if (error instanceof AcquisitionCommandError && error.permanent) throw new Monitoring('Source access currently restricted; monitoring for availability');
                 throw new Deferred(error instanceof AcquisitionCommandError ? error.message : 'Downloader metadata extraction failed; retry scheduled');
             }
             // An expired ORF page may omit media that its discovered HLS URL still serves.
@@ -265,7 +316,7 @@ export class ContentAcquisition {
                     metadata = JSON.parse(await execute(downloader, ['--ignore-config', '--no-playlist', '--no-geo-bypass', '--no-warnings', '--dump-single-json', mediaUrl], () => this.guard.check(), 40_000));
                 } catch (error) {
                     if (error instanceof Deferred) throw error;
-                    if (error instanceof AcquisitionCommandError && error.permanent) throw new Quarantined(error.message);
+                    if (error instanceof AcquisitionCommandError && error.permanent) throw new Monitoring('Source access currently restricted; monitoring for availability');
                     throw new Deferred(error instanceof AcquisitionCommandError ? error.message : 'ORF playlist extraction failed; retry scheduled');
                 }
                 metadata.duration ??= c.durationMs / 1000;
@@ -277,7 +328,9 @@ export class ContentAcquisition {
                 throw new Quarantined('Source page has ambiguous multiple media editions');
             const formats = (metadata.formats as Array<Record<string,unknown>>|undefined);
             if (!formats?.length || metadata.has_drm === true || formats.every(f => f.has_drm === true))
-                throw new Quarantined('No supported non-DRM media format; manual acquisition required');
+                throw new Monitoring('No supported non-DRM media currently available; monitoring for availability');
+            if(isOrf(c) && shortOrfManifest(c.durationMs/1000,formats))
+                throw new Monitoring('ORF currently supplies only a short placeholder; monitoring availability');
             if (c.source === 'youtube' && (metadata.channel_id !== s.channelId || metadata.id !== c.sourceId || (!s.editorialClassification && metadata.language && !(new RegExp(`^${s.language}(?:-|$)`, 'i')).test(String(metadata.language)))))
                 throw new Quarantined('Video does not match the approved English YouTube channel');
             if (c.source === 'youtube' && !acceptableAcquisitionHeight(metadata.height))
@@ -306,6 +359,11 @@ export class ContentAcquisition {
             const denied = this.budget(c, s);
             if (denied)
                 throw new Deferred(denied);
+            if(incompleteOrf) {
+                // Preserve the old managed staging file for inspection without
+                // letting it be mistaken for the newly downloaded episode.
+                fs.renameSync(incompleteOrf,path.join(dir,`incomplete-${randomUUID()}.retained`));
+            }
             reserve(this.root, c.size * 2, this.config.reserveBytes);
             const progress = progressWatch(() => fs.readdirSync(dir).filter(n => /\.(?:part|mp4|mkv|webm|mov|ytdl|ts)$/.test(n)).reduce((sum, n) => sum + signature(path.join(dir, n)).size, 0), this.config.downloadStallSeconds);
             const watch = () => { progress(); this.guard.check(); if (s.profile === 'ln') this.nachtStorage.assertAdmission(this.config.downloadBytesPerSecond * 2); reserve(this.root, Math.max(0, c.size), this.config.reserveBytes); const bytes = fs.readdirSync(dir).filter(n => fs.statSync(path.join(dir, n)).isFile()).reduce((a, n) => a + signature(path.join(dir, n)).size, 0); if (bytes > ceiling)
@@ -316,7 +374,7 @@ export class ContentAcquisition {
             catch (error) {
                 if (error instanceof Deferred)
                     throw error;
-                if (error instanceof AcquisitionCommandError && error.permanent) throw new Quarantined(error.message);
+                if (error instanceof AcquisitionCommandError && error.permanent) throw new Monitoring('Source access currently restricted; monitoring for availability');
                 throw new Deferred(error instanceof AcquisitionCommandError ? error.message : 'Downloader transfer failed; retry scheduled');
             }
             const files = fs.readdirSync(dir).filter(n => /^source\.(mp4|mkv|webm|mov)$/.test(n));
@@ -473,9 +531,15 @@ export class ContentAcquisition {
         const acceptedKeys = (JSON.parse(this.store.files().find(f=>f.path===source)?.keys_json??'[]') as string[]);
         if (acceptedKeys.length)
             throw new Quarantined('Incoming asset is already indexed as existing media');
+        if(isOrf(c) && shortOrfMedia(c.durationMs/1000,item.durationMs/1000))
+            throw new Monitoring('ORF returned a short placeholder; monitoring availability');
         c.durationMs = item.durationMs;
         c.size = signature(output).size;
         const finalReason = this.budget(c, s);
+        if (finalReason==='duration/format outside curated range') {
+            this.store.remember(c);
+            throw new Monitoring('Prepared duration outside curated range; monitoring source changes');
+        }
         if (finalReason)
             throw new Deferred(finalReason);
         item.technical = { ...item.technical, acquisition: { profile: s.profile ?? 'lkp', channelId: c.channelId, nachtClassification: c.nachtClassification, source: c.source, sourceId: c.sourceId, broadcaster: c.broadcaster, sourceUrl: c.sourceUrl, acquiredAt: Date.now(), rightsStatus: 'unknown', technicalAvailability: 'validated-accessible', publishedAt: c.publishedAt, expiresAt: c.expiresAt, originalTitle: c.originalTitle ?? c.title, classification: c.classification, classificationVersion: c.classificationVersion, classificationModel: c.classificationModel, description: description.provenance, ...(source ? { originalFilename: path.basename(source) } : {}) } };
@@ -610,33 +674,21 @@ export class ContentAcquisition {
   }
     async regenerate() : Promise<void> {
         if (this.config.publishToSchedule === false) return;
-        if (this.store.state('schedule-dirty') !== '1')
+        const lastPublication=Number(this.store.state('last-schedule-publication')??0);
+        if (this.store.state('schedule-dirty') !== '1'&&(!lastPublication||Date.now()-lastPublication<86400000))
             return;
-        this.guard.check();
-        const now = Date.now(), bounds = this.db.scheduleBounds();
-        if (!bounds)
-            ensureSchedule(this.db, this.app);
-        else {
-            // Preserve current/preloaded events, published weather and all continuity through a guarded future boundary.
-            const status = readPlayoutStatus(path.join(this.app.storage.runtimeDirectory, 'playout-status.json'));
-            const protectedIds = [status?.current?.scheduleEntryId, status?.next?.scheduleEntryId].filter(Boolean);
-            const weather = (this.db.db.prepare("SELECT MAX(ends_at_ms) end FROM schedule_entries WHERE show_id='lkp-weather' AND ends_at_ms>?").get(now) as {end:number|null});
-            let earliest = Math.max(now + this.config.scheduleGuardSeconds * 1000, this.app.station?.enabled ? 0 : weather.end ?? 0);
-            for (const id of protectedIds) {
-                const row = (this.db.db.prepare('SELECT ends_at_ms FROM schedule_entries WHERE id=?').get(id) as {ends_at_ms:number}|undefined);
-                if (row)
-                    earliest = Math.max(earliest, row.ends_at_ms);
-            }
-            const backup = `${this.app.storage.database}.before-acquisition.sqlite`;
-            await this.db.db.backup(backup);
-            // This rebuild calls the existing editorial/ad/intermission planner without owning playout.
-            if (!this.db.nextAfter(earliest))
-                throw new Deferred('No safe future schedule boundary; regeneration remains pending');
-            rebuildFutureSchedule(this.db, this.app, earliest);
+        if(Number(this.store.state('next-schedule-publication')??0)>Date.now())return;
+        workerPhase('publishing');
+        try {
+            await publishSchedule(this.app,this.config.scheduleGuardSeconds,()=>this.guard.check(),{policy:this.config});
+            this.store.set('schedule-dirty', '0');
+            this.store.set('last-schedule-publication',String(Date.now()));
+            this.store.set('next-schedule-publication',String(Date.now()+30*60_000));
+            this.store.event('schedule', 'regenerated', 'Protected current/preloaded events and published weather');
+        } catch (error) {
+            this.store.set('next-schedule-publication',String(Date.now()+60*60_000));
+            this.store.event('schedule','publication-deferred',publicationFailureSummary(error));
         }
-        writeEpgAtomic(this.db.listSchedule(now - 86400000, now + this.app.schedule.epgDays * 86400000), this.app);
-        this.store.set('schedule-dirty', '0');
-        this.store.event('schedule', 'regenerated', 'Protected current/preloaded events and published weather');
     }
     private refreshQc(item:MediaItem):void {
     item.qcWarnings=(item.qcWarnings??[]).filter(warning=>{
@@ -649,20 +701,36 @@ export class ContentAcquisition {
     item.ingestState=item.qcWarnings.length?'review':'ready';
   }
     private async recover():Promise<void> {
-    for(const file of walk(this.app.media.root,new Set(this.app.media.supportedExtensions))) {
-      const dir=path.dirname(file),manifest=path.join(dir,'ingest.json');
-      if(!fs.existsSync(manifest))continue;
-      const id=path.basename(dir),row=this.store.candidates().find(r=>r.id===id);
-      if(row&&row.state!=='imported'&&row.state!=='quarantine'){
-        try{this.guard.check(file);this.commit(dir,id);}
-        catch(error){
-          if(error instanceof Deferred){this.store.transition(id,'deferred','Recovery waits for a protected asset',Date.now()+30*60_000);continue;}
-          const reason=error instanceof Quarantined?error.message:'Recovery manifest is invalid';
-          this.store.transition(id,'quarantine',reason);
-          const existing=this.db.listMedia(false).find(i=>i.mediaPath===file);
-          if(existing){this.db.upsertMedia([{...existing,enabled:false,ingestState:'failed',qcWarnings:[...(existing.qcWarnings??[]),reason]}]);this.store.set('schedule-dirty','1');}
-          else{const target=path.join(this.root,'quarantine',`${id}-recovery`);fs.mkdirSync(path.dirname(target),{recursive:true});if(!fs.existsSync(target)){fs.renameSync(dir,target);fs.writeFileSync(path.join(target,'reason.json'),JSON.stringify({reason,at:Date.now()}));}}
+    // Recovery manifests belong only to candidates left in `processing`.
+    // Walking the entire media library on every batch made startup scale with
+    // the full archive and could starve discovery on the Pi. Resolve each
+    // owned staging/final directory directly from the persisted candidate.
+    for(const row of this.store.candidates(['processing'])) {
+      if(Date.now()>=this.batchDeadline)break;
+      const subscription=this.sub(row.metadata.showId);
+      if(!subscription||!/^[a-f0-9]{24}$/.test(row.id))continue;
+      const stagingDir=path.join(this.root,'staging',row.id),finalDir=path.join(this.app.media.root,subscription.id,'acquired',row.id);
+      for(const candidateDir of [stagingDir,finalDir]){
+        const manifest=path.join(candidateDir,'ingest.json');
+        if(!fs.existsSync(manifest))continue;
+        let dir=candidateDir;
+        try{
+          this.guard.check();
+          if(candidateDir===stagingDir){
+            if(fs.existsSync(finalDir))throw new Quarantined('Both staging and final recovery directories exist');
+            fs.mkdirSync(path.dirname(finalDir),{recursive:true});fs.renameSync(stagingDir,finalDir);dir=finalDir;
+          }
+          this.commit(dir,row.id);
         }
+        catch(error){
+          if(error instanceof Deferred){this.store.transition(row.id,'deferred','Recovery waits for a protected asset',Date.now()+30*60_000);break;}
+          const reason=error instanceof Quarantined?error.message:'Recovery manifest is invalid';
+          this.store.transition(row.id,'quarantine',reason);
+          const existing=this.db.listMedia(false).find(i=>i.mediaPath===path.join(dir,'episode.mp4')||i.mediaPath===path.join(dir,'episode.mkv'));
+          if(existing){this.db.upsertMedia([{...existing,enabled:false,ingestState:'failed',qcWarnings:[...(existing.qcWarnings??[]),reason]}]);this.store.set('schedule-dirty','1');}
+          else{const target=path.join(this.root,'quarantine',`${row.id}-recovery`);fs.mkdirSync(path.dirname(target),{recursive:true});if(!fs.existsSync(target)){fs.renameSync(dir,target);fs.writeFileSync(path.join(target,'reason.json'),JSON.stringify({reason,at:Date.now()}));}}
+        }
+        break;
       }
     }
   }
@@ -718,14 +786,34 @@ export class ContentAcquisition {
         return enriched;
     }
     nextAutomaticRunAt(result:Record<string,unknown>,now=Date.now()):number {
+    return this.withBudgetSnapshot(()=>this.computeNextAutomaticRunAt(result,now));
+  }
+    private computeNextAutomaticRunAt(result:Record<string,unknown>,now:number):number {
     const idle=now+this.config.idlePollSeconds*1000;
     // Runtime protection failures pause globally; source failures retain their
     // individual backoff and must not hold up other eligible candidates.
-    if(result.deferred&&result.deferred!=='Run time budget reached')return idle;
+    if(result.deferred&&result.deferred!=='Run time budget reached')return Math.min(idle,now+60_000);
     let next=Math.max(now,Number(this.store.state('last-discovery')??0)+this.config.idlePollSeconds*1000);
-    for(const row of this.store.candidates(['discovered','deferred','processing'])) {
+    if(this.store.state('schedule-dirty')==='1') {
+      const publication=Number(this.store.state('next-schedule-publication')??0);
+      next=Math.min(next,Math.max(now,publication));
+    }
+    // Continue bounded classification batches immediately when the previous
+    // batch made progress and the daily/request pause still permits work.
+    const classifier=this.app.station?.classifier;
+    const day=new Date(now).toISOString().slice(0,10);
+    const nightAvailable=classifier && classifier.maxRequestsPerRun>0 &&
+      Number(this.store.state(`nacht-classifier:${day}`)??0)<classifier.maxRequestsPerDay;
+    const educationAvailable=this.config.metadataRequestsPerRun>0 && Number(this.store.state('classification-next-at')??0)<=now;
+    if(this.budgetCache!.candidates.some(row=>{
+      const s=this.sub(row.metadata.showId),c=row.metadata;
+      if(!s||s.enabled===false||!c.available||row.retryAt>now||!['discovered','deferred','processing','bounded','monitoring'].includes(row.state))return false;
+      return Boolean(Number(result.nachtClassified)>0&&(nightAvailable||s.deterministicSeries)&&s.profile==='ln'&&!c.nachtClassification ||
+        Number(result.classified)>0&&educationAvailable&&s.editorialClassification&&!c.classification);
+    }))return now;
+    for(const row of this.budgetCache!.candidates.filter(r=>['discovered','deferred','processing','bounded','monitoring'].includes(r.state))) {
       const s=this.sub(row.metadata.showId);
-      if(!s||s.source==='manual'||s.source==='existing'||this.budget(row.metadata,s))continue;
+      if(!s||s.enabled===false||s.source==='manual'||s.source==='existing'||this.budget(row.metadata,s))continue;
       if(row.retryAt<=now)return now;
       next=Math.min(next,row.retryAt);
     }
@@ -736,13 +824,18 @@ export class ContentAcquisition {
             return { idleUntil: Number(this.store.state('next-automatic-run')) };
         this.dirs();
         const owner = `${process.pid}:${randomUUID()}`;
-        if (!this.store.acquire(owner, (this.config.maxRunSeconds + 300) * 1000))
+        const leaseMs=(this.config.maxRunSeconds + 300) * 1000;
+        let leaseExpires=Date.now()+leaseMs;
+        if (!this.store.acquire(owner, leaseMs))
             return { deferred: 'Another content-acquisition worker owns the lease' };
         let leaseError: Error|undefined;
         const renew = setInterval(() => { try {
-            this.store.renew(owner, (this.config.maxRunSeconds + 300) * 1000);
+            const renewedUntil=Date.now()+leaseMs;
+            this.store.renew(owner, leaseMs);
+            leaseExpires=renewedUntil;
         }
         catch (e) {
+            if (leaseRenewalMayWait(e,leaseExpires)) return;
             leaseError = e instanceof Error ? e : new Error(String(e));
             this.guard = new BroadcastGuard(this.app, this.db, this.config, 0);
         } }, 20_000);
@@ -776,6 +869,8 @@ export class ContentAcquisition {
             }
             recoverCtExtraction(this.store);
             recoverOrfExtraction(this.store);
+            recoverAutomaticSources(this.store,this.config.subscriptions);
+            recoverOrfDurationFailures(this.store);
             // First batch after adding the channels discovers them even when an
             // old immutable worker recently refreshed its other subscriptions.
             if (!this.store.state('educational-subscriptions-v1')) {
@@ -796,34 +891,42 @@ export class ContentAcquisition {
                 }
             }
             if (!options.discoverOnly) {
+                workerPhase('recovering');
                 await purgeRecycled(this);
-                await this.recover();
                 this.quarantineUnsupportedEditions();
-                result.index = await this.index(options.indexLimit ?? 25);
+                if(options.indexOnly||this.store.state('inventory-complete')!=='1'||Date.now()-Number(this.store.state('last-index')??0)>=this.config.idlePollSeconds*1000){
+                    await this.recover();
+                    workerPhase('indexing');
+                    result.index = await this.index(options.indexLimit ?? 25);
+                }else result.index={cached:true};
                 checkLease();
             }
             if (options.indexOnly) {
                 await this.regenerate();
                 return result;
             }
+            workerPhase('discovering');
             if (!options.scheduled || Date.now() - Number(this.store.state('last-discovery') ?? 0) >= this.config.idlePollSeconds * 1000)
                 result.discovery = await this.discover();
             else
                 result.discovery = { cached: true };
             checkLease();
+            workerPhase('classifying');
             result.classified = await classifyPending(this, { execute, request: fetchText, credential, extractorArgs });
             result.nachtClassified = await classifyNachtPending({ app: this.app, store: this.store, subscriptions: this.config.subscriptions, check: () => this.guard.check(), deadline: this.batchDeadline });
             checkLease();
             if (options.discoverOnly)
                 return result;
             result.nachtExpired = this.nachtStorage.expire();
+            workerPhase('incoming');
             result.incoming = await this.incoming();
             checkLease();
-            result.enriched = await this.enrichExisting();
             let imported = 0;
-            const rows = this.store.candidates(['discovered', 'deferred', 'processing', 'bounded']).filter(r => r.retryAt <= Date.now());
+            const rows = this.store.candidates(['discovered', 'deferred', 'processing', 'bounded','monitoring']).filter(r => r.retryAt <= Date.now()&&(r.state!=='monitoring'||r.metadata.available));
+            const decisions=this.withBudgetSnapshot(()=>new Map(rows.map(row=>{const s=this.sub(row.metadata.showId);return [row.id,s?this.budget(row.metadata,s):'Source disabled'];})));
             rows.sort((a, b) => { const sa = this.sub(a.metadata.showId), sb = this.sub(b.metadata.showId); return rankPriority(b.metadata.classification?.rank) - rankPriority(a.metadata.classification?.rank) || (sb?.priority ?? 0) - (sa?.priority ?? 0) + (sb ? candidateScore(b.metadata, sb) / 100 : 0) - (sa ? candidateScore(a.metadata, sa) / 100 : 0) || a.id.localeCompare(b.id); });
             let attempts = 0;
+            workerPhase('acquiring');
             for (const row of rows) {
                 if (Date.now() >= this.batchDeadline) {
                     result.batchLimitReached = true;
@@ -838,22 +941,22 @@ export class ContentAcquisition {
                     continue;
                 if (s.profile === 'ln' && !row.metadata.broadcastPolicy) continue;
                 if (s.editorialClassification && !row.metadata.classification) continue;
-                const firstReason = this.budget(row.metadata, s);
+                const firstReason = decisions.get(row.id);
                 if (s.profile === 'ln' && (firstReason === 'LN storage budget reached' || firstReason === 'LN reserved filesystem space budget reached')) {
                   const staged = this.directoryBytes(path.join(this.root, 'staging', row.id));
                   try { await this.nachtStorage.makeRoom(Math.max(0, row.metadata.size * 3 - staged), () => this.regenerate()); }
                   catch (error) { if (error instanceof Deferred) { this.store.transition(row.id, 'bounded', error.message, Date.now()+30*60_000); continue; } throw error; }
                 }
-                const reason = this.budget(row.metadata, s);
+                const reason = firstReason&&!firstReason.startsWith('LN ')?firstReason:this.budget(row.metadata, s);
                 if (reason) {
                     if (reason.startsWith('duplicate:')) {
                         const catalogueId = reason.slice('duplicate:'.length);
                         this.store.transition(row.id, 'duplicate', reason, 0, catalogueId);
                         this.db.db.prepare("UPDATE acquisition_manual SET state='resolved',catalogue_id=? WHERE candidate_id=?").run(catalogueId, row.id);
                     }
-                    else if (reason.includes('unavailable')) {
-                        this.store.transition(row.id, 'manual', reason);
-                        this.store.manual(`candidate:${row.id}`, s.id, reason, row.id);
+                    else if (/unavailable|source expired|source size is unknown/i.test(reason)) {
+                        this.store.transition(row.id, 'monitoring', reason,Date.now()+86400000);
+                        this.store.resolveManual(row.id);
                     }
                     else if (reason.includes('target reached') || reason.includes('budget reached'))
                         this.store.transition(row.id, 'bounded', reason);
@@ -863,11 +966,6 @@ export class ContentAcquisition {
                         this.store.transition(row.id, 'rejected', reason);
                     continue;
                 }
-                if (row.attempts >= 5 && !usesStreamExtractor(row.metadata)) {
-                    this.store.transition(row.id, 'manual', 'Repeated processing failures; manual preparation required');
-                    this.store.manual(`candidate:${row.id}`, s.id, 'Repeated processing failures; manual preparation required', row.id);
-                    continue;
-                }
                 attempts++;
                 this.db.db.prepare('UPDATE acquisition_candidates SET attempts=attempts+1 WHERE id=?').run(row.id);
                 try {
@@ -875,7 +973,10 @@ export class ContentAcquisition {
                     imported++;
                 }
                 catch (error) {
-                    if (error instanceof Quarantined) {
+                    if(error instanceof Monitoring){
+                        this.store.transition(row.id,'monitoring',error.message,Date.now()+86400000);
+                        this.store.resolveManual(row.id);
+                    }else if (error instanceof Quarantined) {
                         const state = error.message.startsWith('Duplicate') ? 'duplicate' : usesStreamExtractor(row.metadata) ? 'manual' : 'quarantine';
                         this.store.transition(row.id, state, error.message);
                         if (state === 'manual')
@@ -883,12 +984,15 @@ export class ContentAcquisition {
                     }
                     else {
                         const reason = error instanceof Deferred ? error.message : 'Acquisition processing failed; retry scheduled';
-                        this.store.transition(row.id, 'deferred', reason, Date.now() + Math.min(24 * 60, 30 * 2 ** Math.min(row.attempts, 6)) * 60_000);
+                        this.store.transition(row.id, 'deferred', reason, Date.now() + acquisitionRetryDelayMs(error,row.attempts));
                     }
                 }
             }
             result.imported = imported;
+            workerPhase('enriching');
+            result.enriched = await this.enrichExisting();
             await this.regenerate();
+            workerPhase('finishing');
             result.nachtRetired = this.nachtStorage.cleanup();
             this.store.set('last-run-end', String(Date.now()));
             return result;
@@ -922,8 +1026,9 @@ export class ContentAcquisition {
     if(command==='history')return this.db.db.prepare(`SELECT h.*,json_extract(c.metadata_json,'$.title') AS title,json_extract(c.metadata_json,'$.showId') AS show FROM acquisition_history h LEFT JOIN acquisition_candidates c ON c.id=h.item ORDER BY h.id DESC LIMIT 100`).all();
     if(command==='quarantine')return {candidates:this.store.candidates(['quarantine','manual']),existing:this.store.files().filter(f=>f.state==='quarantine'),directory:path.join(this.root,'quarantine'),files:this.quarantineReports()};
     if(command==='storage')return {...(this.app.station?{nacht:this.nachtStorage.report()}:{}),reserveBytes:this.config.reserveBytes,maxNewBytes:this.config.maxNewBytes,newBytes:this.newBytes(),shows:[...new Set([...this.config.subscriptions.map(s=>s.id),...this.store.files().map(f=>f.show_id)])].map(show=>({show,title:this.sub(show)?.title??show,...this.usage(show)})),staging:this.directoryBytes(path.join(this.root,'staging')),quarantine:this.directoryBytes(path.join(this.root,'quarantine'))};
-    const currentDownloads=this.currentDownloads(),lease=this.db.db.prepare('SELECT owner,expires FROM acquisition_lock').get();
-    return {activity:currentDownloads.length?'downloading':lease?'processing-or-discovering':'waiting',currentDownloads,lease,nextAutomaticRunAt:this.store.state('next-automatic-run'),spokenLanguageTargets:this.app.schedule.spokenLanguageTargets,inventoryComplete:this.store.state('inventory-complete')==='1',lastRunStart:this.store.state('last-run-start'),lastRunEnd:this.store.state('last-run-end'),scheduleDirty:this.store.state('schedule-dirty')==='1',files:this.store.files().length,
+    const currentDownloads=this.currentDownloads(),lease=this.db.db.prepare('SELECT owner,expires FROM acquisition_lock').get() as {owner:string;expires:number}|undefined;
+    const alive=liveLeaseOwner(lease),stalled=alive&&lease!.expires<Date.now();
+    return {activity:stalled?'stalled':currentDownloads.length?'downloading':alive?'processing-or-discovering':'waiting',currentDownloads,lease,nextAutomaticRunAt:this.store.state('next-automatic-run'),nextSchedulePublicationAt:this.store.state('next-schedule-publication'),spokenLanguageTargets:this.app.schedule.spokenLanguageTargets,inventoryComplete:this.store.state('inventory-complete')==='1',lastRunStart:this.store.state('last-run-start'),lastRunEnd:this.store.state('last-run-end'),scheduleDirty:this.store.state('schedule-dirty')==='1',files:this.store.files().length,
       candidateStates:this.db.db.prepare('SELECT state,count(*) count FROM acquisition_candidates GROUP BY state').all(),incoming:path.join(this.root,'incoming'),manualPending:(this.db.db.prepare("SELECT count(*) count FROM acquisition_manual WHERE state='pending'").get() as {count:number}).count,
       vpnFallback:{enabled:Boolean(this.config.vpnFallback?.enabled),configured:Boolean(this.config.vpnFallback&&fs.existsSync(this.config.vpnFallback!.helper)&&fs.existsSync(this.config.vpnFallback!.tokenFile))},subtitleProviders:this.config.subtitleProviders.map(provider=>({name:provider.name,configured:Boolean(credential(this.config,provider.keyEnv))})),subtitleLimits:{searchesPerDay:this.config.subtitleRequestsPerDay,downloadsPerDay:this.config.subtitleDownloadsPerDay}};
   }

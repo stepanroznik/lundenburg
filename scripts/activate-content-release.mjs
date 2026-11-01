@@ -5,6 +5,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import Database from 'better-sqlite3';
 import { parse, stringify } from 'yaml';
+import { liveLeaseOwner } from '../dist/src/acquisition/io.js';
 
 const [prepared, release] = process.argv.slice(2, 4).map(p => path.resolve(p));
 const afterCurrentBatch = process.argv.includes('--after-current-batch');
@@ -46,8 +47,8 @@ try {
   // Loaded workers keep their immutable old release. Changing only the entry
   // symlink is safe while a batch runs; leave its lease and SQLite state alone.
   // The next worker performs migrations after acquiring the normal lease.
-  const activeLease = db.prepare('SELECT expires FROM acquisition_lock WHERE id=1').get();
-  if (afterCurrentBatch && activeLease?.expires > Date.now()) {
+  const activeLease = db.prepare('SELECT owner,expires FROM acquisition_lock WHERE id=1').get();
+  if (afterCurrentBatch && (activeLease?.expires > Date.now()||liveLeaseOwner(activeLease))) {
     const backups = '/home/lundenburg/lundenburg/runtime/acquisition/backups';
     fs.mkdirSync(backups, { recursive: true, mode: 0o700 });
     const backup = path.join(backups, `${path.basename(release)}.sqlite`);
@@ -64,8 +65,8 @@ try {
   } else {
 
   db.transaction(() => {
-    const lease = db.prepare('SELECT expires FROM acquisition_lock WHERE id=1').get();
-    if (lease && lease.expires > Date.now()) throw new Error('ACQUISITION_BUSY');
+    const lease = db.prepare('SELECT owner,expires FROM acquisition_lock WHERE id=1').get();
+    if (lease && (lease.expires > Date.now()||liveLeaseOwner(lease))) throw new Error('ACQUISITION_BUSY');
     db.prepare('DELETE FROM acquisition_lock WHERE id=1').run();
     db.prepare('INSERT INTO acquisition_lock VALUES(1,?,?)').run(owner, Date.now() + 300000);
   }).immediate();

@@ -141,6 +141,10 @@ test('numbered inventory backfill leaves metadata and model budgets available fo
     const accepted = await classifyNachtPending({ app: f.app, store, subscriptions: [sub], check: () => {}, deadline: Date.now() + 60000 },
       { decide: async () => assert.fail('Deterministic titles must not call a model') });
     assert.equal(accepted, 12);
+    store.transition(store.candidates()[0]!.id,'bounded','collection target reached');
+    assert.equal(await classifyNachtPending({app:f.app,store,subscriptions:[sub],check:()=>{},deadline:Date.now()+60000},
+      {decide:async()=>assert.fail('Accepted candidates must retain their queue state')}),0);
+    assert.equal(store.candidates(['bounded']).length,1);
     assert.ok(store.candidates().every(row => row.metadata.broadcastPolicy?.profiles.join() === 'ln'));
     assert.deepEqual(store.candidates().map(row => row.metadata.episode).sort((a, b) => a! - b!), Array.from({ length: 12 }, (_, n) => n + 1));
     assert.equal((f.db.db.prepare("SELECT count(*) count FROM acquisition_state WHERE key LIKE 'nacht-metadata:%'").get() as { count: number }).count, 0);
@@ -167,6 +171,25 @@ test('LN classifications cache by version and metadata, validate strictly, and h
     const unusual = { ...sub, deterministicSeries: 'unusual' as const };
     assert.equal(deterministicNacht({ ...c, title: 'UNUSUAL MEMES COMPILATION V5' }, unusual)?.episode, 5);
   } finally { f.close(); }
+});
+
+test('LN per-batch classification limit leaves remaining candidates eligible for the next batch',async()=>{
+  const f=fixture();try{
+    const base=loadAcquisitionConfig({...f.app,projectRoot:project}).subscriptions.find(s=>s.id==='kraut')!;
+    const sub={...base,source:'mediathek' as const};f.app.station!.classifier.maxRequestsPerRun=1;f.app.station!.classifier.maxRequestsPerDay=10;
+    const store=new AcquisitionStore(f.db);
+    for(let i=1;i<=3;i++)store.remember({source:'mediathek',sourceId:String(i),sourceUrl:`https://example.org/${i}`,showId:sub.id,
+      title:`History ${i}`,language:sub.language,description:'History documentary',descriptionLanguage:sub.language,durationMs:600000,size:1000,
+      broadcaster:'Fixture',components:[],compilation:false,format:'episode',available:true});
+    const result:NachtClassification={eligible:true,standalone:true,category:'history',timeOfNight:'late',intensity:'moderate',topics:[],evergreen:true,
+      series:null,episode:null,recommendedAge:12,confidence:1,reason:'Documentary',descriptionDe:'Ein historischer Dokumentarfilm.'};
+    let calls=0;const context={app:f.app,store,subscriptions:[sub],check:()=>{},deadline:Date.now()+60000};
+    const provider={decide:async()=>{calls++;return result;}};
+    assert.equal(await classifyNachtPending(context,provider),1);
+    const pending=store.candidates(['discovered']).filter(row=>!row.metadata.nachtClassification);
+    assert.equal(pending.length,2);assert.ok(pending.every(row=>row.retryAt===0));
+    assert.equal(await classifyNachtPending(context,provider),1);assert.equal(calls,2);
+  }finally{f.close();}
 });
 
 test('YouTube inventory pins canonical IDs and refuses a different channel on subsequent scans', async () => {

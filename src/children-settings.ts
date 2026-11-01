@@ -35,7 +35,7 @@ export function childrenSettings(db: LkpDatabase, config: AppConfig): void {
       const policy=childrenPolicy(m,c);
       insert.run(m.showId,JSON.stringify(policy ?? null), m.technical.childrenPolicy?'sidecar':c.policies[m.showId]?'editorial':'classification-or-unknown');
     }
-  })();
+  }).immediate();
 }
 export function saveChildrenAge(db:LkpDatabase,age:number,tolerance:number,atMs:number):void {
   validateAge(age,tolerance);

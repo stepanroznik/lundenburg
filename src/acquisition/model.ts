@@ -147,7 +147,7 @@ export function admission(c: Candidate, s: Subscription, u: Usage, newBytes: num
     if (!Number.isFinite(c.size) || c.size <= 0)
         return 'source size is unknown';
     if (!c.available)
-        return 'source unavailable; manual acquisition required';
+        return 'Source currently unavailable; monitoring for availability';
     if (c.language !== s.language)
         return 'language mismatch';
     if (!Number.isFinite(c.durationMs) || c.durationMs <= 0 || (s.profile !== 'ln' && (c.durationMs < s.minDuration * 1000 || c.durationMs > s.maxDuration * 1000)))

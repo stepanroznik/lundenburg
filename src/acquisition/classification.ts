@@ -176,9 +176,12 @@ export async function classifyPending(service: any, helpers: { execute: Function
   }
   let requests = 0, classified = 0;
   let pausedUntil = Number(service.store.state('classification-next-at') ?? 0);
-  for (const row of service.store.candidates(['discovered', 'deferred', 'processing', 'bounded'])) {
+  for (const row of service.store.candidates(['discovered', 'deferred', 'processing', 'bounded','monitoring'])) {
     const c = row.metadata as ClassifiedCandidate, s = service.sub(c.showId);
     if (!s?.editorialClassification || row.retryAt > Date.now()) continue;
+    if(c.invalidReason==='Source unavailable'){
+      service.store.transition(row.id,'monitoring','Source currently unavailable; monitoring for availability',Date.now()+86400000);continue;
+    }
     if (Date.now() >= service.batchDeadline) break;
     service.guard.check();
     const duplicate = service.duplicate(c);
@@ -244,10 +247,8 @@ export async function classifyPending(service: any, helpers: { execute: Function
         continue;
       }
       if (error && typeof error === 'object' && 'permanent' in error && error.permanent === true) {
-        c.invalidReason = 'Source unavailable or access restricted';
-        applyClassification(c, await classifier.classify(c, s.title, service.config, undefined, helpers.request));
-        service.store.remember(c); service.store.transition(row.id, 'rejected', `Editorial X: ${c.invalidReason}`);
-        classified++; continue;
+        service.store.remember(c);service.store.transition(row.id,'monitoring','Source access currently restricted; monitoring for availability',Date.now()+86400000);
+        continue;
       }
       // Raw API/downloader responses and credential values never enter logs/history.
       service.store.remember(c);

@@ -77,6 +77,7 @@ if(!fs.existsSync(branding))fs.symlinkSync(path.join(root,'runtime/ln-brand'),br
 console.log('Weather will publish to '+config.storage.database);
 NODE
 if [ "$configure_only" = true ]; then exit 0; fi
+node scripts/verify-weather-installation.mjs
 test -s runtime/weather/credentials.env || { echo 'Put ELEVENLABS_API_KEY in runtime/weather/credentials.env before enabling the timer.' >&2; exit 1; }
 chmod 600 runtime/weather/credentials.env
 sudo install -m 644 deploy/systemd/lkp-weather.service /etc/systemd/system/lkp-weather.service

@@ -2,9 +2,15 @@ import type { LkpDatabase } from '../database.js';
 import type { Candidate } from './model.js';
 export interface CandidateRow { id: string; metadata: Candidate; state: string; reason: string; attempts: number; retryAt: number; catalogueId?: string }
 export interface FileRow { path: string; size: number; mtime: number; show_id: string; language: string; keys_json: string; catalogue_id: string | null; state: string; new_asset: number; acquired_at: number }
+/** A competing writer can briefly block renewal without changing ownership. */
+export function leaseRenewalMayWait(error:unknown,expires:number,now=Date.now()):boolean {
+  const code=(error as {code?:unknown}|null)?.code;
+  return typeof code==='string' && (code==='SQLITE_BUSY'||code.startsWith('SQLITE_BUSY_')) && now<expires;
+}
 import { stableId } from '../util.js';
 import { preserveEpisodeIdentity } from './adapters.js';
 import { preserveClassification } from './classification.js';
+import { liveLeaseOwner } from './io.js';
 export class AcquisitionStore {
 
     constructor(readonly catalogue: LkpDatabase) {
@@ -36,7 +42,7 @@ export class AcquisitionStore {
   }
     remember(c: Candidate) : string {
         const id = stableId(c.source, c.sourceId), now = Date.now();
-        const previous = (this.catalogue.db.prepare('SELECT metadata_json,state FROM acquisition_candidates WHERE id=?').get(id) as {metadata_json:string;state:string}|undefined);
+        const previous = (this.catalogue.db.prepare('SELECT metadata_json,state,retry_at FROM acquisition_candidates WHERE id=?').get(id) as {metadata_json:string;state:string;retry_at:number}|undefined);
         if (previous) { const old = JSON.parse(previous.metadata_json); preserveEpisodeIdentity(old, c); preserveClassification(old, c);
           if (!c.nachtClassification) { c.nachtClassification = old.nachtClassification; c.broadcastPolicy ??= old.broadcastPolicy; }
           c.channelId ??= old.channelId;
@@ -44,9 +50,14 @@ export class AcquisitionStore {
         this.catalogue.db.prepare(`INSERT INTO acquisition_candidates(id,source,source_id,url_identity,show_id,metadata_json,first_seen,last_seen)
       VALUES(?,?,?,?,?,?,?,?) ON CONFLICT(source,source_id) DO UPDATE SET metadata_json=excluded.metadata_json,last_seen=excluded.last_seen`)
             .run(id, c.source, c.sourceId, c.sourceUrl, c.showId, JSON.stringify(c), now, now);
-        if (previous && previous.state !== 'imported' && previous.state === 'manual' && !JSON.parse(previous.metadata_json).available && c.available)
+        if (previous && ['manual','monitoring'].includes(previous.state) && !JSON.parse(previous.metadata_json).available && c.available) {
             this.transition(id, 'discovered', 'Source became available');
+            this.resolveManual(id);
+        }
         return id;
+    }
+    resolveManual(candidateId:string):void {
+      this.catalogue.db.prepare("UPDATE acquisition_manual SET state='resolved' WHERE candidate_id=? AND state='pending'").run(candidateId);
     }
     candidates(states?: string[]): CandidateRow[] {
     const rows = this.catalogue.db.prepare(`SELECT * FROM acquisition_candidates ${states ? `WHERE state IN (${states.map(()=>'?').join(',')})` : ''} ORDER BY first_seen,id`).all(...(states ?? [])) as Array<Record<string,unknown>>;
@@ -72,10 +83,12 @@ export class AcquisitionStore {
   }
     acquire(owner: string, leaseMs = 60_000): boolean {
     return this.catalogue.db.transaction(()=> {
-      this.catalogue.db.prepare('DELETE FROM acquisition_lock WHERE expires<?').run(Date.now());
-      const current=this.catalogue.db.prepare('SELECT owner FROM acquisition_lock WHERE id=1').get() as {owner:string}|undefined;
-      const pid=current&&/^(\d+):/.exec(current.owner)?.[1];
-      if(pid){try{process.kill(Number(pid),0);}catch(error){if((error as NodeJS.ErrnoException).code==='ESRCH')this.catalogue.db.prepare('DELETE FROM acquisition_lock WHERE owner=?').run(current!.owner);}}
+      const current=this.catalogue.db.prepare('SELECT owner,expires FROM acquisition_lock WHERE id=1').get() as {owner:string;expires:number}|undefined;
+      const pid=current&&/^(?:release-activation:)?(\d+)(?::|$)/.exec(current.owner)?.[1];
+      // A blocked event loop can miss renewals while still owning child processes.
+      // Only reclaim its lease after the owning process has actually exited.
+      if(current && (pid ? !liveLeaseOwner(current) : current.expires<Date.now()))
+        this.catalogue.db.prepare('DELETE FROM acquisition_lock WHERE owner=?').run(current.owner);
       return this.catalogue.db.prepare('INSERT OR IGNORE INTO acquisition_lock VALUES(1,?,?)').run(owner,Date.now()+leaseMs).changes === 1;
     }).immediate();
   }

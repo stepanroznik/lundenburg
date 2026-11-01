@@ -300,6 +300,7 @@ export function safeRebuildBoundary(db:LkpDatabase,earliestMs:number):ScheduleEn
 
 export function rebuildFutureSchedule(
   db: LkpDatabase, config: AppConfig, earliestMs = Date.now() + 2 * 60_000,
+  hooks:Pick<SchedulePlanning,'onProgress'> & {check?:()=>void;untilMs?:number}={},
 ): { removed: number; added: number; startMs: number; lastMs: number } {
   const bounds = db.scheduleBounds();
   if (!bounds) throw new Error('No schedule to rebuild');
@@ -307,26 +308,42 @@ export function rebuildFutureSchedule(
   if (!boundary) throw new Error('No safe future programme boundary');
   const prefix = db.listSchedule(bounds.firstMs, boundary.startsAtMs);
   const future = db.listSchedule(boundary.startsAtMs, bounds.lastMs + 1);
+  const catalogue=db.listMedia();
+  // Routine acquisition refreshes a rolling window. Keep distant published
+  // events intact rather than compiling the entire year for every batch.
+  const requestedRetainedBoundary=config.station?.enabled&&hooks.untilMs!==undefined
+    ? future.find(e=>e.startsAtMs>=hooks.untilMs!&&e.presentation?.kind==='handover') : undefined;
+  // Keep the already-published distant tail byte-for-byte stable. Acquisition
+  // updates the rolling window; media replacement and policy changes have
+  // their own guarded schedule rebuild paths.
+  const retainedBoundary=requestedRetainedBoundary;
+  const targetEnd=retainedBoundary?.startsAtMs??bounds.lastMs;
+  const retained=retainedBoundary?future.filter(e=>e.startsAtMs>=targetEnd):[];
+  const replaced=future.filter(e=>e.startsAtMs<targetEnd);
   if (!config.station?.enabled && future.some((entry) => entry.showId === 'lkp-weather')) {
     throw new Error('Future weather programmes are published; move them before rebuilding the schedule');
   }
   const planning: SchedulePlanning = schedulePlanning(db, config);
-  planning.reserved = future.filter(e => e.showId === 'lkp-weather');
-  const generated = buildScheduleEntries(db.listMedia(), config.schedule.seed,
-    boundary.startsAtMs, bounds.lastMs, boundary.sequence, prefix, planning);
-  preserveEpgIdentities(generated,planning.reserved??[],prefix);
-  const errors = validateTimeline([...prefix.slice(-1), ...generated]);
+  if(hooks.onProgress)planning.onProgress=hooks.onProgress;
+  planning.reserved = replaced.filter(e => e.showId === 'lkp-weather');
+  const generated = buildScheduleEntries(catalogue, config.schedule.seed,
+    boundary.startsAtMs, targetEnd, boundary.sequence, prefix, planning);
+  preserveEpgIdentities(generated,[...(planning.reserved??[]),...retained],prefix);
+  const errors = validateTimeline([...prefix.slice(-1), ...generated,...retained.slice(0,1)]);
   if (errors.length) throw new Error(`Rebuilt timeline is invalid: ${errors.slice(0, 3).join('; ')}`);
   db.db.transaction(() => {
+    hooks.check?.();
+    if(hooks.check && boundary.startsAtMs<Date.now()+60_000)throw new Error('Schedule planning boundary expired');
     const current = db.nextAfter(boundary.startsAtMs);
     if (current?.id !== boundary.id || current.startsAtMs !== boundary.startsAtMs || JSON.stringify(db.listSchedule(boundary.startsAtMs,bounds.lastMs+1))!==JSON.stringify(future)) {
       throw new Error('Schedule changed during rebuild');
     }
     db.db.prepare('DELETE FROM schedule_entries WHERE sequence >= ?').run(boundary.sequence);
     db.insertSchedule(generated);
+    db.insertSchedule(retained.map((e,index)=>({...e,sequence:boundary.sequence+generated.length+index})));
   }).immediate();
-  return { removed: future.length, added: generated.length,
-    startMs: boundary.startsAtMs, lastMs: generated.at(-1)!.endsAtMs };
+  return { removed: replaced.length, added: generated.length,
+    startMs: boundary.startsAtMs, lastMs: retained.at(-1)?.endsAtMs??generated.at(-1)!.endsAtMs };
 }
 
 export function validateTimeline(entries: ScheduleEntry[]): string[] {

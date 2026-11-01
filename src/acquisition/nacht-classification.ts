@@ -66,6 +66,7 @@ export function deterministicNacht(c: Candidate, s: Subscription): NachtClassifi
 
 /** Provider boundary: the acquisition source never chooses or authenticates a model. */
 export interface NachtClassifierProvider { decide(input: string): Promise<NachtClassification> }
+class NachtBudgetExhausted extends Error {}
 export function configuredNachtProvider(app: AppConfig, db: Database.Database): NachtClassifierProvider {
   const config = aiConfig(app.projectRoot), selected = app.station?.classifier.model ?? config.model;
   if (!smallClassificationModel(selected)) throw new Error('LN metadata classification requires a configured small model');
@@ -95,7 +96,7 @@ export class NachtClassifier {
     const hash = crypto.createHash('sha256').update(input).digest('hex');
     const row = this.db.prepare('SELECT result_json FROM nacht_classifications WHERE source=? AND source_id=? AND version=? AND metadata_hash=?').get(c.source, c.sourceId, nachtPromptVersion, hash) as { result_json: string } | undefined;
     if (row) return validateNachtClassification(JSON.parse(row.result_json));
-    if (!deterministic && !admitRequest()) throw new Error('LN classification budget exhausted');
+    if (!deterministic && !admitRequest()) throw new NachtBudgetExhausted();
     const result = validateNachtClassification(deterministic ?? await provider.decide(input));
     this.db.prepare('INSERT OR REPLACE INTO nacht_classifications VALUES(?,?,?,?,?,?)').run(c.source, c.sourceId, nachtPromptVersion, hash, JSON.stringify(result), Date.now());
     return result;
@@ -119,10 +120,11 @@ export async function classifyNachtPending(context: { app: AppConfig; store: Acq
     if (requests >= config.maxRequestsPerRun || used >= config.maxRequestsPerDay) return false;
     requests++; store.set(dayKey, String(used + 1)); return true;
   };
-  for (const row of store.candidates(['discovered', 'deferred', 'bounded', 'processing'])) {
+  for (const row of store.candidates(['discovered', 'deferred', 'bounded', 'processing','monitoring'])) {
     if (Date.now() >= context.deadline) break;
     const c = row.metadata, s = context.subscriptions.find(s => s.id === c.showId);
     if (s?.profile !== 'ln' || s.enabled === false || row.retryAt > Date.now()) continue;
+    if(!c.available||c.nachtClassification&&c.broadcastPolicy)continue;
     context.check();
     try {
       // A numbered episode from the pinned channel with inventory duration is
@@ -158,7 +160,10 @@ export async function classifyNachtPending(context: { app: AppConfig; store: Acq
         store.transition(row.id, result.confidence < config.confidence ? 'deferred' : 'rejected',
           `LN ${result.confidence < config.confidence ? 'pending review' : 'excluded'}: ${result.reason}`, result.confidence < config.confidence ? Date.now() + 86400_000 : 0);
       }
-    } catch {
+    } catch (error) {
+      // A per-batch cap is not a provider failure: leave untouched candidates
+      // eligible for the next batch, or the next day when the daily cap resets.
+      if(error instanceof NachtBudgetExhausted)continue;
       store.remember(c); store.transition(row.id, 'deferred', 'LN metadata or classifier unavailable; retry pending', Date.now() + 30 * 60_000);
     }
   }
