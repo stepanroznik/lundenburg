@@ -28,6 +28,10 @@ export function renderReport(r) {
   ])));
   const editorial = r.shows.filter(s => s.rankCounts);
   if (r.classificationStatus) out.push(`\nClassification: ${safeText(r.classificationStatus)}`);
+  if(r.nachtClassification){const n=r.nachtClassification;
+    const status=!n.dailyLimit||!n.perBatchLimit?'disabled by policy':n.used>=n.dailyLimit?`daily limit reached; resets ${time(n.resetsAt)}`:'allowance available';
+    out.push(`Nacht classification: ${n.used}/${n.dailyLimit} requests today; ${n.perBatchLimit} per batch; ${n.pending} awaiting classification; ${status}.`);
+  }
   if (editorial.length) out.push('\nEditorial decisions:', table(['Show', 'A+', 'A', 'B', 'C', 'D', 'X', 'Pending'],
     editorial.map(s => [s.title, ...['A+', 'A', 'B', 'C', 'D', 'X', 'pending'].map(rank => s.rankCounts[rank])])));
   out.push('\nHave = usable indexed episodes; New = downloaded episodes in Have. Ready/Later = eligible now/after retry delay.');

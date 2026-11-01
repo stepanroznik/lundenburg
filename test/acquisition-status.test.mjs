@@ -19,10 +19,13 @@ test('report describes absent work as discovery-dependent, without claiming exha
   const report = renderReport({ at: 1000, timeZone: 'Europe/Vienna', activity: 'waiting', downloads: [], workerActive: false,
     nextRun: 500, lastDiscovery: null, inventoryComplete: false, publicationPending: false, shows: [],
     newBytes: 0, maxNewBytes: 100, reserveBytes: 10, freeBytes: null, rate: 2097152,
-    readyTotal: 0, next: [], earliestRetry: null, reasons: [], recent: [] });
+    readyTotal: 0, next: [], earliestRetry: null, reasons: [], recent: [],
+    nachtClassification:{used:120,dailyLimit:120,perBatchLimit:12,pending:5,resetsAt:86400000} });
   assert.match(report, /due now/);
   assert.match(report, /future discovery may find more/);
   assert.match(report, /Inventory: incomplete/);
+  assert.match(report, /Nacht classification: 120\/120 requests today/);
+  assert.match(report, /daily limit reached; resets/);
 });
 
 test('report explains uncapped storage and preserves decimal GB reserve units in JSON', () => {
@@ -50,6 +53,7 @@ test('CLI uses a read-only snapshot, respects policy/retry delays, and emits onl
   try {
     const catalogue = new LkpDatabase(file), store = new AcquisitionStore(catalogue);
     store.set('inventory-complete', '1');
+    store.set(`nacht-classifier:${new Date().toISOString().slice(0,10)}`,'999');
     const candidate = { source: 'ct', sourceId: 'report-test', sourceUrl: 'https://www.ceskatelevize.cz/porady/1/123/',
       showId: 'byl-jednou-jeden-zivot', title: 'Episode https://example.org/?token=sentinel',
       language: 'cs', description: '', components: [], durationMs: 1500000, size: 10000000,
@@ -92,6 +96,8 @@ test('CLI uses a read-only snapshot, respects policy/retry delays, and emits onl
       assert.match(report.shows.find(s => s.title === 'UnusualVideos').plan, /^(Queued|LN reserved filesystem space budget reached)$/);
       assert.equal(report.shows.find(s => s.title.startsWith('Kurzgesagt')).ready, 0);
       assert.ok(report.reasons.some(r => r.reason === 'Awaiting LN curation'));
+      assert.equal(report.nachtClassification.used,999);
+      assert.equal(report.nachtClassification.pending,1);
     }
   } finally { fs.rmSync(dir, { recursive: true, force: true }); }
 });

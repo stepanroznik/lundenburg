@@ -4,7 +4,6 @@ import fs from 'node:fs';
 import { registerContent } from './acquisition/cli.js';
 import { registerChannels } from './channels-cli.js';
 import { Command, Option } from 'commander';
-import { DateTime } from 'luxon';
 import { loadConfig } from './config.js';
 import { LkpDatabase } from './database.js';
 import { reconcileIntermissions } from './intermissions/rotation.js';

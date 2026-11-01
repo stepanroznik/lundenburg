@@ -1,4 +1,3 @@
-import React from 'react';
 import { AbsoluteFill, Audio, Img, Sequence, staticFile, useCurrentFrame, interpolateColors } from 'remotion';
 import { presenters, presenter } from '../characters.js';
 import { project } from '../geography.js';

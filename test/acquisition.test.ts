@@ -359,7 +359,7 @@ test('free SubDL searches and imports captions with bounded calls; missing crede
     const media={...item(sub.id,1,5000),showTitle:sub.title,mediaPath:path.join(root,'episode.mp4'),subtitles:[]};
     const c={...candidate(sub),season:1,episode:1};let searches=0,downloads=0,calls=0;
     policy.subtitleProviders=[{name:'subdl',keyEnv:'SUBDL_API_KEY'}];
-    globalThis.fetch=async(input,init)=>{
+    globalThis.fetch=async(input,_init)=>{
       calls++;const url=new URL(String(input));assert.equal(url.hostname,'api.subdl.com');
       if(url.pathname==='/api/v2/files/search'){
         assert.equal(url.searchParams.get('engine'),'local');assert.equal(url.searchParams.get('episode_scope'),'exact');
@@ -426,7 +426,7 @@ test('soft batch deadline finishes and imports the current item, then immediatel
 });
 
 test('status exposes active episode progress without source URLs and ignores orphaned/stale partials',()=>{
-  const {root,service,sub,close}=fixture();try{
+  const {service,sub,close}=fixture();try{
     const id=service.store.remember(candidate(sub));const dir=path.join(service.root,'staging',id);fs.mkdirSync(dir,{recursive:true});
     const file=path.join(dir,'source.mp4.part');fs.writeFileSync(file,'12345');
     const status=()=>service.report('status') as {currentDownloads:Array<{title:string;downloadedBytes:number}>};

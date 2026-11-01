@@ -1,4 +1,3 @@
-import React from 'react';
 import { AbsoluteFill, Audio, Composition, registerRoot, staticFile, useCurrentFrame, useVideoConfig, delayRender, continueRender, cancelRender } from 'remotion';
 import { BrandScene } from './Scene.js';
 import { brandFilms, type BrandFilm, type ProgrammeBlock } from './identity.js';

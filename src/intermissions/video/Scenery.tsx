@@ -1,4 +1,3 @@
-import React from 'react';
 import type { Season } from '../model.js';
 
 export const ink = '#334c49';

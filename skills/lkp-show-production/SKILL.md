@@ -39,6 +39,12 @@ inside that installation before considering a repair complete; it checks install
 dependency versions and loads the weather command without rendering or scheduling.
 Use `scripts/repair-weather-pi.sh` for an existing installation, preserving its
 credentials, speech cache and generated media.
+When render verification is requested, `scripts/verify-weather-render.mjs`
+can render a short `.preview.mp4` from an existing timeline with cached speech.
+Run it with `node --import tsx` from the isolated weather installation and apply
+the normal resource limits. Its report explicitly marks the archived forecast,
+zero new speech requests and lack of publication; it is not a fresh broadcast
+edition. Verify the latest real systemd invocation separately.
 
 ## Children’s scheduling
 

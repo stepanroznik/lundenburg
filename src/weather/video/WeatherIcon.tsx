@@ -1,4 +1,3 @@
-import React from 'react';
 import type { WeatherState } from '../model.js';
 export function WeatherIcon({ state, frame = 0 }: { state: WeatherState; frame?: number }) {
   const sunny = ['clear', 'hot', 'partly-cloudy'].includes(state);

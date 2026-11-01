@@ -1,4 +1,3 @@
-import React from 'react';
 import { channelIconPaths, brandColors } from '../../characters/brand.js';
 
 const clamp = (x: number) => Math.max(0, Math.min(1, x));

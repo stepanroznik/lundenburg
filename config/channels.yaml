@@ -17,8 +17,8 @@ storage:
 classifier:
   provider: configured
   model: auto-small
-  maxRequestsPerRun: 8
-  maxRequestsPerDay: 60
+  maxRequestsPerRun: 12
+  maxRequestsPerDay: 120
   confidence: 0.8
 profiles:
   lkp:

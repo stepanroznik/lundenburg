@@ -81,6 +81,12 @@ service resource counters and free space. It makes no provider requests.
 An unchanged, complete media inventory is reused for thirty minutes; incoming
 files are still checked every batch. Queue admission uses a single catalogue
 snapshot rather than repeatedly reading the entire library for each candidate.
+For a read-only source/import inventory, run `node scripts/audit-repository.mjs`.
+On the Pi, `node --import tsx scripts/audit-media.mjs REPORT.json` checks SQLite
+integrity, catalogue and future schedule paths, and inventories unreferenced
+media. Its candidates include archives, generated subtitle caches and retained
+downloads; absence of a direct reference never authorizes deletion. Nacht
+retention refuses linked media files and linked episode directories.
 Changing the symlink affects only the acquisition service. No RF or playout
 operation is performed.
 

@@ -28,6 +28,12 @@ The runtime guard falls back to profile-approved continuity if an entry is missi
 
 `config/nacht-acquisition.yaml` extends the existing acquisition worker. It defines UnusualVideos, Kurzgesagt, Nightshift, Rational Animations, Kraut, the latest-only Břeclav bulletin, regional Mediathek searches, and manual-only sitcom/movie categories. Discovery resolves and persists each canonical YouTube channel ID. UnusualVideos numbering and Břeclav title matching are deterministic; other LN candidates use the configured existing classifier with structured validation, a bounded request budget and cached decisions. Low-confidence items stay pending review.
 
+The classifier allowance is 12 requests per batch and 120 per UTC day, configured
+in `config/channels.yaml`. The daily reset is midnight UTC (01:00 Prague time in
+winter, 02:00 in summer). `npm run acquisition` reports usage, pending candidates
+and the reset time separately from provider availability. Increasing this
+allowance does not change the worker's CPU/I/O limits or editorial thresholds.
+
 The active acquisition release points to the same `config/channels.yaml` as the broadcaster, so guarded catalogue or schedule regeneration uses the current profile eligibility policy.
 
 `npm run acquisition` provides a read-only overview, including LN curation and quota blockers. Its storage checker uses one disk-usage snapshot per refresh. Numbered UnusualVideos episodes from the pinned inventory can be classified without per-video metadata requests when their duration is known; download-time checks still verify channel identity, availability and technical properties. Historical downloads continue in background and are not a prerequisite for activating the station schedule.

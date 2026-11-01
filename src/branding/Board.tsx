@@ -1,6 +1,4 @@
-import React from 'react';
 import { NachtMark } from './Mark.js';
-import { NightField } from './Scene.js';
 import { nacht } from './identity.js';
 
 /** Review artifact only; never becomes an on-air programme. */

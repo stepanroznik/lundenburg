@@ -1,4 +1,3 @@
-import React from 'react';
 import { AbsoluteFill, Audio, staticFile, useCurrentFrame } from 'remotion';
 import { Actor } from '../../intermissions/video/Actor.js';
 import { Logo } from '../../intermissions/video/Logo.js';

@@ -1,4 +1,3 @@
-import React from 'react';
 import type { Film } from '../model.js';
 import { Actor } from './Actor.js';
 import { Outdoor, Stick, Biscuit, Bench, clamp, smooth, lerp, ink } from './Scenery.js';
@@ -33,7 +32,7 @@ function TownHall({ opacity }: { opacity: number }) {
 }
 function TrainCard({ opacity, frame }: { opacity: number; frame: number }) {
   return <g opacity={opacity} transform="translate(970 328)"><rect x="-226" y="-132" width="452" height="227" rx="36" fill="#fffcf4" stroke="#c9d7cc" strokeWidth="4"/>
-    <g transform="translate(-7 -5)" stroke={ink} strokeWidth="4"><path d="M-140 20H100V-46H40V20M35-46h72" fill="#004f4f"/><path d="M-128 17V-17H40V23m-139-40v-41h23v41" fill="#02aafd"/><rect x="54" y="-30" width="30" height="29" rx="3" fill="#fffcf4"/>{[-99,-35,63].map((x,i)=><g key={x} transform={`translate(${x} 33) rotate(${frame*2})`}><circle r="23" fill="#fd6f04"/><path d="M-15 0H15M0-15V15" stroke="#fffcf4" strokeWidth="3"/></g>)}<path d="M-96-64q-19-18 4-27m13-15q18-18-4-26" stroke="#bad1cf" strokeWidth="13" fill="none" strokeLinecap="round"/></g>
+    <g transform="translate(-7 -5)" stroke={ink} strokeWidth="4"><path d="M-140 20H100V-46H40V20M35-46h72" fill="#004f4f"/><path d="M-128 17V-17H40V23m-139-40v-41h23v41" fill="#02aafd"/><rect x="54" y="-30" width="30" height="29" rx="3" fill="#fffcf4"/>{[-99,-35,63].map(x=><g key={x} transform={`translate(${x} 33) rotate(${frame*2})`}><circle r="23" fill="#fd6f04"/><path d="M-15 0H15M0-15V15" stroke="#fffcf4" strokeWidth="3"/></g>)}<path d="M-96-64q-19-18 4-27m13-15q18-18-4-26" stroke="#bad1cf" strokeWidth="13" fill="none" strokeLinecap="round"/></g>
     <text x="0" y="-86" textAnchor="middle" fontSize="32" fill="#004f4f">WIEN · 1907</text>
   </g>;
 }

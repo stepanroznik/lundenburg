@@ -1,4 +1,3 @@
-import React from 'react';
 import { ink, Tree, Cloud } from './Scenery.js';
 
 // Held props use the origin as the grip, so the same drawing can rest on a

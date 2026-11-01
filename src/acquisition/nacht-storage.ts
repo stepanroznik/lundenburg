@@ -143,7 +143,12 @@ export class NachtStorage {
   }
   private ownedAcquisition(m: MediaItem): boolean {
     const rel = path.relative(path.join(this.app.media.root, m.showId, 'acquired'), m.mediaPath);
-    return !rel.startsWith('..') && !path.isAbsolute(rel) && rel.split(path.sep).length === 2;
+    if(rel.startsWith('..') || path.isAbsolute(rel) || rel.split(path.sep).length!==2)return false;
+    // A matching pathname alone does not establish ownership. A linked episode
+    // directory may contain manually retained media outside acquisition storage.
+    try {
+      return fs.realpathSync(path.dirname(m.mediaPath))===path.resolve(path.dirname(m.mediaPath)) && fs.lstatSync(m.mediaPath).isFile();
+    } catch {return false;}
   }
   cleanup(): number {
     const db = this.store.catalogue, future = db.listSchedule(Date.now(), Number.MAX_SAFE_INTEGER);

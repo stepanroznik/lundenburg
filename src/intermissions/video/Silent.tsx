@@ -1,4 +1,3 @@
-import React from 'react';
 import type { Film } from '../model.js';
 import { Actor } from './Actor.js';
 import { Outdoor, Tree, Splash, Leaf, BeachBall, Flower, Shadow, clamp, smooth, lerp, ink } from './Scenery.js';

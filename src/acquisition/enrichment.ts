@@ -1,6 +1,5 @@
 import type { MediaItem, EditorialMarker, SubtitleTrack } from '../types.js';
 import type { AcquisitionConfig, Candidate, Subscription } from './model.js';
-import type { LkpDatabase } from '../database.js';
 import type Database from 'better-sqlite3';
 import type { AiService } from '../ai/index.js';
 import { sourceEpisodeNumbers } from '../catalogue.js';

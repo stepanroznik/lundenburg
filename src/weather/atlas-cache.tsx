@@ -2,7 +2,6 @@ import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
 import { execFileSync } from 'node:child_process';
-import React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { Atlas } from './video/Atlas.js';
 import type { RegionMap } from './geography.js';

@@ -1,4 +1,3 @@
-import React from 'react';
 import { nacht } from './identity.js';
 
 export function Moon({ id = 'ln-moon', phase = 1, color = nacht.colors.gold }: { id?: string; phase?: number; color?: string }) {

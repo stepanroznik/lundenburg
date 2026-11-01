@@ -52,8 +52,11 @@ async function execute(command: string, args: string[]): Promise<string> {
     const result = await run(command, args, { encoding: 'utf8', maxBuffer: 32 * 1024 * 1024 });
     return result.stdout.trim();
   } catch (error) {
-    const value = error as Error & { stderr?: string; code?: string | number };
-    throw new Error(`${command} failed${value.code !== undefined ? ` (${value.code})` : ''}: ${value.stderr?.trim() || value.message}`);
+    const value = error as Error & { code?: string | number };
+    // Provider stderr and exec error messages can contain signed URLs or
+    // authentication arguments. Only fixed command/exit categories may escape.
+    const code=typeof value.code==='number'?String(value.code):/^[A-Z][A-Z0-9_]{0,39}$/.test(value.code??'')?value.code:'UNEXPECTED';
+    throw new Error(`${path.basename(command)} failed (${code})`);
   }
 }
 
@@ -76,7 +79,8 @@ export class AdIngestService {
     fs.mkdirSync(playoutRoot, { recursive: true });
     const template = path.join(sourceRoot, `${metadata.id}.%(ext)s`);
     const downloaded = (await execute(downloader, [
-      '--no-playlist', '--format', 'bv*+ba/b', '--merge-output-format', 'mkv',
+      '--no-playlist', '--format', 'bv*[height>=360][height<=1080]+ba/b[height>=360][height<=1080]',
+      '--format-sort-force', '-S', 'height,vcodec:h264', '--merge-output-format', 'mkv',
       '--output', template, '--print', 'after_move:filepath', url.toString(),
     ])).split(/\r?\n/).filter(Boolean).at(-1);
     if (!downloaded || !fs.existsSync(downloaded)) throw new Error('yt-dlp completed without a readable source file');

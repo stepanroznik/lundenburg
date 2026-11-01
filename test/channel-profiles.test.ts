@@ -15,11 +15,11 @@ import { buildFfmpegArgs } from '../src/playout.js';
 import { prepareLogo } from '../src/logo.js';
 import { AcquisitionStore } from '../src/acquisition/store.js';
 import { NachtStorage } from '../src/acquisition/nacht-storage.js';
-import { NachtClassifier, breclavBulletin, unusualEpisode, deterministicNacht, nachtPolicy, validateNachtClassification, classifyNachtPending, type NachtClassification } from '../src/acquisition/nacht-classification.js';
+import { NachtClassifier, breclavBulletin, unusualEpisode, deterministicNacht, validateNachtClassification, classifyNachtPending, type NachtClassification } from '../src/acquisition/nacht-classification.js';
 import { loadAcquisitionConfig, type Candidate } from '../src/acquisition/model.js';
 import { regionalRelevance } from '../src/acquisition/regional.js';
 import { discoverYoutube } from '../src/acquisition/adapters.js';
-import type { MediaBroadcastPolicy, StationConfig } from '../src/types.js';
+import type { MediaBroadcastPolicy } from '../src/types.js';
 
 const project = path.resolve('.');
 const ms = (s: string) => DateTime.fromISO(s, { zone: 'Europe/Prague' }).toMillis();
@@ -225,6 +225,21 @@ test('latest-only replacement keeps a scheduled old file until the replacement i
     const report = storage.report(); assert.equal(report.bytes >= 100, true);
     assert.throws(() => storage.assertAdmission(report.maxBytes));
   } finally { f.close(); }
+});
+
+test('LN cleanup never follows a linked episode directory or linked media file',()=>{
+  const f=fixture();try {
+    const store=new AcquisitionStore(f.db),storage=new NachtStorage(f.app,store,[]);
+    const retained=path.join(f.root,'retained');fs.mkdirSync(retained);
+    const original=path.join(retained,'episode.mp4');fs.writeFileSync(original,'manually retained media');
+    const acquired=path.join(f.app.media.root,'breclav-tv','acquired');fs.mkdirSync(acquired,{recursive:true});
+    const linkedDir=path.join(acquired,'linked-directory');fs.symlinkSync(retained,linkedDir);
+    const realDir=path.join(acquired,'linked-file');fs.mkdirSync(realDir);fs.symlinkSync(original,path.join(realDir,'episode.mp4'));
+    for(const [i,dir] of [linkedDir,realDir].entries())f.db.upsertMedia([{...item('breclav-tv',i+1),mediaPath:path.join(dir,'episode.mp4'),enabled:false,broadcast:policy('news','latest-only')}]);
+    assert.equal(storage.cleanup(),0);
+    assert.equal(fs.readFileSync(original,'utf8'),'manually retained media');
+    assert.ok(!fs.existsSync(path.join(retained,'episode.yaml')));
+  }finally{f.close();}
 });
 
 test('playback rotation progress survives schedule replacement and duplicate completion calls', () => {

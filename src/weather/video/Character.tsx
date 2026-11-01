@@ -1,4 +1,3 @@
-import React from 'react';
 import { Character as SharedCharacter } from '../../characters/Character.js';
 import { weatherStyle } from '../characters.js';
 import type { Mouth, Presenter, WeatherState } from '../model.js';

@@ -1,4 +1,3 @@
-import React from 'react';
 import { Composition, registerRoot } from 'remotion';
 import { WeatherShow, type ShowProps } from './Show.js';
 import './font.js';

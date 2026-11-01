@@ -112,12 +112,21 @@ async function collect() {
       const recent = files.filter(f => f.new_asset && f.state === 'indexed' && byId.get(f.catalogue_id)?.enabled).sort((a, b) => b.acquired_at - a.acquired_at).slice(0, limit)
         .map(f => ({ at: f.acquired_at, show: safeText(byId.get(f.catalogue_id).showTitle), title: safeText(byId.get(f.catalogue_id).episodeTitle), bytes: f.size }));
       const publication=db.prepare("SELECT event,reason FROM acquisition_history WHERE item='schedule' ORDER BY at DESC,id DESC LIMIT 1").get();
+      const nachtPolicy=app.station?.classifier;
+      const subscriptions=new Map(config.subscriptions.map(s=>[s.id,s]));
+      const nachtClassification=nachtPolicy?{
+        used:Number(states.get(`nacht-classifier:${new Date(at).toISOString().slice(0,10)}`)??0),
+        dailyLimit:nachtPolicy.maxRequestsPerDay,perBatchLimit:nachtPolicy.maxRequestsPerRun,
+        pending:candidates.filter(row=>{const sub=subscriptions.get(row.metadata.showId);return sub?.enabled!==false&&sub?.profile==='ln'&&row.metadata.available&&!row.metadata.nachtClassification&&['discovered','deferred','bounded','processing','monitoring'].includes(row.state);}).length,
+        resetsAt:Date.UTC(new Date(at).getUTCFullYear(),new Date(at).getUTCMonth(),new Date(at).getUTCDate()+1),
+      }:null;
       return { at, timeZone: app.channel.timezone, activity: workerStalled?'stalled':downloads.length ? 'downloading' : workerActive ? 'working' : 'waiting', workerActive, workerStalled, workerPhase, downloads,
         publicationRetry: Number(states.get('next-schedule-publication'))||null,
         publicationFailure: publication?.event==='publication-deferred' ? safeText(publication.reason) : '',
         nextRun: Number(states.get('next-automatic-run')) || null, lastDiscovery: Number(states.get('last-discovery')) || null,
         inventoryComplete: states.get('inventory-complete') === '1', publicationPending: states.get('schedule-dirty') === '1',
         classificationStatus: safeText(states.get('classification-status') ?? ''),
+        nachtClassification,
         shows, newBytes, maxNewBytes: config.maxNewBytes, reserveBytes: config.reserveBytes, freeBytes, rate: config.downloadBytesPerSecond,
         readyTotal: ready.length, earliestRetry: delayed.length ? Math.min(...delayed.map(c => c.retryAt)) : null, next, reasons, recent };
     })();

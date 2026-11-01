@@ -10,7 +10,7 @@ export class TransportPacer extends Transform {
   private timer: NodeJS.Timeout | undefined;
   private readonly startsAtMonotonicMs: number;
 
-  constructor(private readonly bitrate: number, private readonly startsAtMs: number,
+  constructor(private readonly bitrate: number, startsAtMs: number,
     private readonly continuity = new Map<number, number>(), private readonly timestampOffsetMs = 0) {
     super({ highWaterMark: 188 * 64 });
     if (!Number.isFinite(bitrate) || bitrate <= 0) throw new Error('Invalid transport bitrate');

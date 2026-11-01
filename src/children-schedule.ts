@@ -303,7 +303,6 @@ export function buildChildrenSchedule(catalogue: MediaItem[], seed: string, star
   const fill = (until:number,slot:string,date:string,showId?:string,hard=false) => {
     const limit=Math.min(endMs,until+(hard?0:toleranceMs));
     let closing=false;
-    const startIndex=result.length;
     if (showId) make(showId,limit,slot,date);
     const rollbackFloor=c.adBreakEveryMinutes?result.length:0;
     // Backtracking can reproduce the same programme/filler tail indefinitely.
@@ -356,7 +355,6 @@ export function buildChildrenSchedule(catalogue: MediaItem[], seed: string, star
     }
     if(active.showId==='weekend-film' && local.weekday===7) active.rerunOf=active.time;
     if(active.rerunOf) {
-      const yesterday=local.minus({days:1}).startOf('day').set({hour:Number(active.rerunOf.slice(0,2)),minute:Number(active.rerunOf.slice(3))}).toMillis();
       const yesterdayDate=local.minus({days:1}).toISODate();
       const original=state.originals.get(yesterdayDate+':'+active.rerunOf);
       const originals=original?[original]:[];

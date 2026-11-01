@@ -1,4 +1,3 @@
-import React from 'react';
 import { Composition, registerRoot } from 'remotion';
 import { Intermission, type SkitProps } from './Show.js';
 import '../../weather/video/font.js';

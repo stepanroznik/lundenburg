@@ -1,4 +1,3 @@
-import React from 'react';
 import { brandColors } from '../characters/brand.js';
 import { Logo } from '../intermissions/video/Logo.js';
 import { Moon, NachtMark } from './Mark.js';

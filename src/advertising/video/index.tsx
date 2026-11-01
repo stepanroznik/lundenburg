@@ -1,4 +1,3 @@
-import React from 'react';
 import { Composition, registerRoot } from 'remotion';
 import { AdvertisingBumper, type BumperProps } from './Show.js';
 import { bumperFps, bumperFrames } from '../model.js';

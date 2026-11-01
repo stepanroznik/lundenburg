@@ -1,4 +1,3 @@
-import React from 'react';
 import { AbsoluteFill, Audio, staticFile, useCurrentFrame } from 'remotion';
 import type { Film } from '../model.js';
 import { Logo } from './Logo.js';

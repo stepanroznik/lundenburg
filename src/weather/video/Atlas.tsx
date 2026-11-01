@@ -1,4 +1,3 @@
-import React from 'react';
 import { project, type RegionMap } from '../geography.js';
 import type { Presenter } from '../model.js';
 
