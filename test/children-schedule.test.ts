@@ -391,3 +391,26 @@ test('runtime recovery plays whole content and never extends a static logo past 
     assert.throws(()=>playableRecovery(entry,logo.endsAtMs,logo.endsAtMs+100_000,[],f.app,state,[],[],[]),/extended static logo/);
   }finally{f.close();}
 });
+
+test('Christmas films use flexible programme boundaries, keep clock anchors and resume without replay',()=>{
+  const f=fixture();try {
+    const library=JSON.parse(fs.readFileSync(f.app.intermissions!.manifest,'utf8'));
+    const holidayIds=['16-christmas-presents','17-christmas-fireplace','18-christmas-letters','19-christmas-map'];
+    for(const [i,id] of holidayIds.entries())library.clips.push({id,title:id,kind:i<2?'silent':'voiced',availability:'christmas',mediaPath:f.media[0]!.mediaPath,durationMs:[22_000,20_000,90_000,170_000][i],languages:i<2?['zxx']:['de','cs','sk'],synopsis:'Christmas intermission'});
+    fs.writeFileSync(f.app.intermissions!.manifest,JSON.stringify(library));
+    const start=ms('2026-12-01T06:00'),end=ms('2026-12-02T06:00');
+    const rows=buildScheduleEntries(f.media,'christmas',start,end,0,[],schedulePlanning(f.db,f.app));
+    assert.deepEqual(validateTimeline(rows),[]);
+    for(const id of holidayIds)assert.ok(rows.some(e=>e.mediaId===`intermission-${id}`),id);
+    for(const slot of f.app.children!.slots.filter(s=>!s.rerunOf)) {
+      if(slot.weekdays&&!slot.weekdays.includes(2))continue;
+      assert.ok(Math.abs(slotEntry(rows,slot.time,'2026-12-01').startsAtMs-ms(`2026-12-01T${slot.time}`))<=5000,slot.time);
+    }
+    f.db.insertSchedule(rows);
+    const holiday=rows.find(e=>e.mediaId==='intermission-19-christmas-map')!;
+    const current=f.db.currentAt(holiday.startsAtMs+17_000)!;
+    assert.equal(locatePlayoutPosition(current.playoutPlan!,17_000)?.offsetMs,17_000);
+    const outside=buildScheduleEntries(f.media,'christmas',ms('2026-12-26T06:00'),ms('2026-12-27T06:00'),0,[],schedulePlanning(f.db,f.app));
+    assert.ok(outside.every(e=>!holidayIds.some(id=>e.mediaId===`intermission-${id}`)));
+  }finally{f.close();}
+});

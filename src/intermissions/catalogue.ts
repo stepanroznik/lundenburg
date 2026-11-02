@@ -1,5 +1,6 @@
 import { presenter } from '../characters/registry.js';
-import type { Presenter } from '../characters/types.js';
+import type { CharacterId as Presenter } from '../characters/types.js';
+import { christmasSkits } from './christmas.js';
 import type { Line, Skit } from './model.js';
 
 const line = (speaker: Presenter, text: string, pauseAfter = .2): Line => ({ speaker, text, language: presenter(speaker).language, pauseAfter });
@@ -10,6 +11,7 @@ export const soapDialogue = [
 ] as const;
 
 export const catalogue: Skit[] = [
+  ...christmasSkits,
   { id: '01-channel-ident', title: 'Lundenburg! Kids! Preeemiuuum!', scene: 'ident', kind: 'ident', cast: ['knurpsi', 'schalinka', 'sisi'], lead: 0, tail: 0,
     synopsis: 'Das ursprüngliche Regenbogen-L dreht sich ins Bild, KIDS hüpft von rechts herein und das Plus schwingt über sein Ziel hinaus.',
     lines: [line('knurpsi', 'Lundenburg!', .04), line('schalinka', 'Kids!', .04), line('sisi', 'Preeemiuuum!', .05)] },
@@ -79,7 +81,7 @@ export function validateCatalogue(skits = catalogue): void {
   for (const s of skits) {
     if (ids.has(s.id)) throw new Error(`Duplicate skit: ${s.id}`);
     ids.add(s.id);
-    if (s.kind === 'silent' && (s.lines.length || !s.season || !s.seconds)) throw new Error(`Invalid silent skit: ${s.id}`);
+    if (s.kind === 'silent' && (s.lines.length || (!s.season && !s.availability) || !s.seconds)) throw new Error(`Invalid silent skit: ${s.id}`);
     if (s.kind !== 'silent' && !s.lines.length) throw new Error(`Missing dialogue: ${s.id}`);
     for (const l of s.lines) {
       if (!s.cast.includes(l.speaker) || presenter(l.speaker).language !== l.language || !l.text.trim()) throw new Error(`Character/language mismatch: ${s.id}`);

@@ -11,7 +11,7 @@ import { spokenNames } from '../src/weather/speech.js';
 test('the set contains two silent films per season, six voiced sketches and an ident', () => {
   validateCatalogue();
   for (const season of ['spring','summer','autumn','winter']) assert.equal(catalogue.filter(s=>s.season===season&&s.kind==='silent').length,2);
-  assert.equal(catalogue.filter(s=>s.kind==='voiced').length,6);
+  assert.equal(catalogue.filter(s=>s.kind==='voiced'&&!s.availability).length,6);
   assert.equal(catalogue.filter(s=>s.kind==='ident').length,1);
   assert.strictEqual(presenters,weatherPresenters);
 });

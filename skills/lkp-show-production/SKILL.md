@@ -170,6 +170,10 @@ copies only after the atomic file/database swap commits. Reserve space for both
 separate download streams and their merged output; never abort a normal merge
 using a one-file size estimate. Recover completed streams locally after interruption.
 
+## Christmas intermissions
+
+Jeschischek is a Czech-only seasonal visitor in the shared character registry and SVG rig; keep weather's four city presenters separate from the full `CharacterId` cast. His approved brown hedgehog design has a small cream face inset into the quills, a red cape over a green coat, a full collar, and a wing rooted underneath the cape at the shoulder. Preserve the approved head/ear proportions and shared parcel attachment points. Reuse his cached speech and vector gifts/wings. Christmas films carry annual `availability: christmas`, enforced by the shared Prague whole-asset availability helper in scheduling and at playout. Use the ordinary intermission mix with preference for the Christmas collection; the user explicitly replaced the original fixed daily-slot proposal. Do not add Christmas clock slots or a second scheduler. Preserve normal idents, hard programme/profile anchors and persistent restart seeks. Selected `intermissions:publish --id ...` retains previously reviewed masters, avoiding regeneration of the older collection. The Tió remains a domestic gift-pooping log; coordinated international deliveries are LKP fiction. See INTERMISSIONS.md for scripts, durations, preview and rendering commands. The explicit `scripts/finish-christmas.ts` background workflow records tests, render QC, backups, source synchronization, acquisition activation and publication separately; do not expose the new seasonal library to older workers still in flight.
+
 ## Work economically
 
 Advertisements tagged `christmas` may run only on December 1–25 inclusive each

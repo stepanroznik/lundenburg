@@ -1,5 +1,5 @@
+import { rotationClipAt } from './intermissions/rotation.js';
 import type { RotationClip } from './intermissions/rotation.js';
-import { seasonAt } from './intermissions/season.js';
 
 // Recover timing with whole published clips, never by cutting content. Choose
 // a longer clip when early, a shorter one when late; carry any remainder.
@@ -8,7 +8,7 @@ export function recoveryIntermission(clips: RotationClip[], plannedDurationMs: n
   if (Math.abs(leadMs) < 250) return undefined;
   // Treat sub-250ms mux/frame rounding as on-time, matching the live status.
   const targetMs = plannedDurationMs + leadMs;
-  const eligible = clips.filter((clip) => !clip.season || clip.season === seasonAt(new Date(atMs)));
+  const eligible = clips.filter((clip) => rotationClipAt(clip,atMs));
   if (leadMs > 0) return eligible.filter((clip) =>
     clip.durationMs > plannedDurationMs && clip.durationMs <= targetMs + 250)
     .sort((a, b) => b.durationMs - a.durationMs || a.id.localeCompare(b.id))[0];

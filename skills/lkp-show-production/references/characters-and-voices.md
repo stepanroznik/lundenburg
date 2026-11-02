@@ -8,6 +8,9 @@ The repository registry remains authoritative. Use this guide as the established
 | Sisi | Vienna / German | Elegant White Vienna rabbit with blue eyes; precise, dignified, mildly theatrical, with dry reactions | `AAiTaAHdZuRZAfYWRq5V`, about 0.82 speed; precise and bright |
 | Schalinka | Brno / Czech | Lively crocodile; bold, cheeky, expressive, and proud of being the Brno dragon | `6Aa0226VrdZ4mFzZjj82`, about 0.90 speed; lively but intelligible |
 | Haluschka | Bratislava / Slovak | Gentle sheep; curious, warm, calm, and capable of quietly devastating observations | `AAiTaAHdZuRZAfYWRq5V`, about 0.88 speed; soft, flowing, and darker |
+| Jeschischek (Ježíšek, der Weihnachtsigel) | Christmas visitor / Czech only | Kind, hardworking, playful magical brown hedgehog in a red cape and green coat; slightly clumsy | Reuses Knurpsi’s raw voice, 0.88 speed, `christmas-gentle-v1` profile |
+
+Weather keeps the original four presenters; use `CharacterId` for the full cast and `Presenter` for weather city identity.
 
 Sisi and Haluschka intentionally share a raw voice. Distinguish them through language, tempo, phrasing, energy, and subtle EQ. Avoid obvious pitch shifting.
 
@@ -26,6 +29,7 @@ Use only the ElevenLabs timestamped TTS endpoint. Do not call voice-list or voic
 
 For Czech and Slovak TTS, transform character names at the speech boundary:
 
+- `Jeschischek` → `Ježíšek`; vocative `Jeschischku` → `Ježíšku`
 - `Schalinka` → `Šalinka`; vocative `Schalinko` → `Šalinko`
 - `Haluschka` → `Haluška`; vocative `Haluschko` → `Haluško`
 

@@ -1,6 +1,6 @@
 # LKP intermissions — Set 1
 
-Fifteen reusable 1080p30 shorts: the five-second channel ident, six dialogue skits, and two silent animations for each season. Characters share the weather show's SVG rig and established ElevenLabs voice profiles. Knurpsi and Sisi speak German, Schalinka Czech, and Haluschka Slovak. The ident's brand words are the explicitly requested exception. Sisi has white fur and blue irises.
+Nineteen reusable 1080p30 shorts, including four Christmas films: the five-second channel ident, six dialogue skits, and two silent animations for each season, plus the Christmas collection. Characters share the weather show's SVG rig and established ElevenLabs voice profiles. Knurpsi and Sisi speak German, Schalinka Czech, and Haluschka Slovak. The ident's brand words are the explicitly requested exception. Sisi has white fur and blue irises.
 
 ## The films
 
@@ -104,3 +104,39 @@ npm test
 ```
 
 Tests cover the exact soap dialogue, immutable character languages, no network use by silent films, Prague seasonal boundaries, complete casting, and real prepared speech timing. Existing weather and playout regression tests also remain applicable. The set is visually checked at multiple frames per film and the finished MP4 streams are probed after rendering.
+
+## Christmas: Jeschischek
+
+Jeschischek (Ježíšek, der Weihnachtsigel) is the fifth recurring cast member: a warm-brown hedgehog with a rounded cream face, a short snout, cream-and-gold wings, a red cape over a green coat and colourful parcels. He is kind, hardworking and a little clumsy. He speaks Czech only; the other four retain German, Czech and Slovak. His voice reuses an existing raw voice with a separate gentle Czech processing profile and the existing alignment/speech cache. Weather retains exactly its original four city presenters.
+
+| ID | Film | Master duration | Audio |
+| --- | --- | --- | --- |
+| 16-christmas-presents | Jeschischek und ein Geschenk zu viel | 22 s | Procedural Foley |
+| 17-christmas-fireplace | Weihnachten am Kamin | 20 s | Procedural fire/wood ambience |
+| 18-christmas-letters | Briefe an Jeschischek | 93.5 s | de / cs / sk |
+| 19-christmas-map | Wer bringt die Weihnachtsgeschenke? | 169.8 s | de / cs / sk |
+
+The Christmas films use the **normal intermission library**, with annual `availability: christmas`, not the broader winter season. The shared station availability helper enforces December 1–25 inclusive in Europe/Prague, including the whole film at midnight. Scheduling, embedded breaks, recovery choices and saved-segment playout all enforce eligibility. Real-date playout checks also protect an old saved plan or a delayed event. Paid creation remains separate from the broadcaster.
+
+There are **no fixed Christmas clock slots**. The children’s compiler prefers an unseen Christmas film at an ordinary programme boundary when it fits before the next anchor; the initial pass spaces these preferences by at least two hours using its existing persistent history. The ordinary residual filler path remains available. The general rotation prefers eligible Christmas films within the selected kind while retaining frequent idents. This is preferred seasonal rotation, not a promise of exactly four fixed daily airings. The original daily-slot proposal was superseded by the user’s request to use the normal interstitial mix.
+
+The Europe story distinguishes regional/family customs from LKP’s fictional coordinated deliveries. Jeschischek is LKP’s hedgehog interpretation, not a claim that traditional Ježíšek is a hedgehog. Tió de Nadal stays at home: children feed and cover the log, sing and tap it, and it **poops small gifts or sweets** beneath the blanket. The dialogue explains the joke directly. Sources are attached to the catalogue entry and exported scripts. Country outlines use public-domain Natural Earth data; a local marker identifies Catalonia rather than treating all Spain as one tradition.
+
+The approved character uses a small rounded face inset into the brown quills, a fur collar, and a wing emerging from the cape's shoulder seam. Gift attachment points are shared by the rig and packing scene. Preserve these proportions when extending the animation.
+
+Beat sheets: presents float from a packing table onto the spines with a visible magic trail, followed by failed wingbeats, removal of the tiny parcel and sudden takeoff. The fireplace has the four friends under a blanket on a sofa and Jeschischek on a cushion, with blinking, flickering fire and twinkling lights. Letters use one room, four illustrated wishes and an envelope/drawing reveal. The map uses static gift-bringer illustrations, region highlights, a domestic Tió demonstration with three timed stick contacts and gifts emerging beneath its blanket, and a navigation star that points into a visible wardrobe. Foley follows the same locked cue timings as the action.
+
+Prepare only missing speech, review stills, then render only missing masters:
+
+```bash
+npm run intermissions:prepare -- --audio cache --id 16-christmas-presents 17-christmas-fireplace 18-christmas-letters 19-christmas-map
+node --import tsx scripts/review-intermissions.tsx 16- 17- 18- 19-
+npm run intermissions:render -- --skip-existing --id 16-christmas-presents 17-christmas-fireplace 18-christmas-letters 19-christmas-map
+# Publish the selected validated films while retaining existing reviewed masters:
+npm run intermissions:publish -- --id 16-christmas-presents 17-christmas-fireplace 18-christmas-letters 19-christmas-map
+npm run intermissions:gallery
+```
+
+Final MP4s, SRT/VTT captions and the gallery are on the external media drive under `/mnt/lkp-media/LKP/.generated/lkp-pausenfilme/`. Original multilingual captions use the existing browser/gallery track infrastructure; these intermissions do not advertise prepared DVB subtitle streams. The broadcaster never generates voices or frames. Selected publication does not regenerate or invalidate the older fifteen broadcast masters. Failed encodes are checked before replacing a master; `--skip-existing` skips audio generation and bundling entirely when all selected masters match.
+
+For an explicitly authorized background finish on the Pi, run `node --import tsx scripts/finish-christmas.ts` detached under `nice`/`ionice`. It runs the full tests first, prepares only cached speech, renders one worker at a time, exports the gallery, preserves and synchronizes the isolated Pi source copies, and activates the existing acquisition release workflow before publishing the four seasonal entries. It waits for an older in-flight worker to finish before exposing the new library. It does not start playout or rebuild the live timetable. Source changes during the job stop publication. `runtime/christmas-production/latest.json` records the PID, stage, outputs, failures, and any remaining PC/remote synchronization requirements; each job has separate test and render logs. Re-running skips current masters.

@@ -3,7 +3,7 @@ import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { SpeechCache } from '../weather/speech.js';
 import { loadWeatherConfig } from '../weather/config.js';
-import type { Atom } from '../weather/model.js';
+import type { SpeechAtom as Atom } from '../weather/speech.js';
 import { catalogue, validateCatalogue } from './catalogue.js';
 import type { Film, Skit } from './model.js';
 

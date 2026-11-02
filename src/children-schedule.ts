@@ -1,10 +1,10 @@
+import { rotationClipAt } from './intermissions/rotation.js';
 import fs from 'node:fs';
 import { DateTime } from 'luxon';
 import type { AppConfig, MediaItem, ScheduleEntry, PlayoutSegment } from './types.js';
 import { ageEligible, childrenPolicy, daypart } from './children-policy.js';
 import { eligibleFor } from './channels.js';
 import { readRotationLibrary, type RotationClip } from './intermissions/rotation.js';
-import { seasonAt } from './intermissions/season.js';
 import type { AdBumper } from './editorial.js';
 import type { AdAsset } from './types.js';
 import { programmeEligible, programmeOrder } from './acquisition/programming.js';
@@ -91,18 +91,23 @@ export function buildChildrenSchedule(catalogue: MediaItem[], seed: string, star
   const uses=(m:MediaItem,fromMs=0)=>useCounts.get(`${m.id}:${fromMs}`) ?? 0;
   const lastUse=(m:MediaItem)=>lastUses.get(m.id) ?? 0;
   const push = (e: ScheduleEntry) => { result.push(e);account(e);previousShow=e.showId;cursor=e.endsAtMs;sequence++; };
-  const interstitial = (until:number,slot:string,date:string,hard=false):boolean => {
+  const interstitial = (until:number,slot:string,date:string,hard=false,preferSeasonal=false):boolean => {
     if(previousShow==='lkp-intermissions') return false;
     const remaining=until-cursor;
-    const eligible=clips.filter(clip=>(!clip.season || clip.season===seasonAt(new Date(cursor))) && exists(clip.mediaPath));
+    const eligible=clips.filter(clip=>rotationClipAt(clip,cursor) && exists(clip.mediaPath));
     // Prefer useful short programmes above; these finite published films fill the residual.
     const last=result.at(-1)?.mediaId ?? previous.at(-1)?.mediaId;
-    const choices=eligible.filter(clip=>Math.abs(clip.durationMs-remaining)<=toleranceMs && (!hard || clip.durationMs===remaining));
+    const midnight=DateTime.fromMillis(cursor,{zone:'Europe/Prague'}).startOf('day').toMillis();
+    const recentHoliday=clips.some(clip=>clip.availability && (fillerLastUse.get(`intermission-${clip.id}`)??0)>cursor-2*3600_000);
+    if(preferSeasonal && recentHoliday)return false;
+    const choices=eligible.filter(clip=>preferSeasonal
+      ? Boolean(clip.availability) && clip.durationMs<=remaining && (fillerLastUse.get(`intermission-${clip.id}`)??0)<midnight
+      : Math.abs(clip.durationMs-remaining)<=toleranceMs && (!hard || clip.durationMs===remaining));
     choices.sort((a,b)=>((fillerLastUse.get(`intermission-${a.id}`) ?? 0)>cursor-30*60_000?1:0)-((fillerLastUse.get(`intermission-${b.id}`) ?? 0)>cursor-30*60_000?1:0) ||
       (`intermission-${a.id}`===last?1:0)-(`intermission-${b.id}`===last?1:0) ||
       Math.abs(remaining-a.durationMs)-Math.abs(remaining-b.durationMs) || a.id.localeCompare(b.id));
     let clip=choices[0], durationMs=clip?.durationMs;
-    if (!clip && hard) {
+    if (!clip && hard && !preferSeasonal) {
       // Only the tail of a station ident may be bounded at an immutable station/weather handover.
       // Programmes and ads always run intact; never introduce a loop or a holding screen.
       clip=eligible.filter(c=>c.kind==='ident' && c.durationMs<=10_000 && c.durationMs>=remaining).sort((a,b)=>a.durationMs-b.durationMs || a.id.localeCompare(b.id))[0];
@@ -111,8 +116,8 @@ export function buildChildrenSchedule(catalogue: MediaItem[], seed: string, star
     if(!clip || !durationMs) return false;
     const id=stableId(seed,'filler',clip.id,cursor);
     push({id,sequence,mediaId:`intermission-${clip.id}`,showId:'lkp-intermissions',showTitle:'Lundenburg Kids Premium',episodeTitle:clip.title,description:clip.synopsis,
-      startsAtMs:cursor,endsAtMs:cursor+durationMs,durationMs,mediaPath:clip.mediaPath,audioLanguage:clip.languages.length===1?clip.languages[0]!:'mul',subtitleLanguages:[],listingVisibility:'hidden',presentation:{profile:'lkp',kind:'programme'},
-      playoutPlan:{version:1,programmeEventId:id,sourceDurationMs:clip.durationMs,durationMs,segments:[{type:'intermission',mediaPath:clip.mediaPath,durationMs,intermissionId:clip.id}],warnings:[],assembly:{slot,premiereDate:date,sources:[]}}});
+      startsAtMs:cursor,endsAtMs:cursor+durationMs,durationMs,mediaPath:clip.mediaPath,audioLanguage:clip.languages.length===1?clip.languages[0]!:'mul',subtitleLanguages:[],listingVisibility:clip.availability?'public':'hidden',presentation:{profile:'lkp',kind:'programme',...(clip.availability?{block:'christmas',genre:0x50}:{})},
+      playoutPlan:{version:1,programmeEventId:id,sourceDurationMs:clip.durationMs,durationMs,segments:[{type:'intermission',mediaPath:clip.mediaPath,durationMs,intermissionId:clip.id,...(clip.availability?{availability:clip.availability}:{})}],warnings:[],assembly:{slot,premiereDate:date,sources:[]}}});
     return true;
   };
   const advertisement=(until:number,slot:string,date:string,hard=false,requireClosure=false,variety=false,probe=false):boolean=>{
@@ -131,7 +136,7 @@ export function buildChildrenSchedule(catalogue: MediaItem[], seed: string, star
     const remaining=until-cursor, limit=Math.min(remaining+(hard?0:toleranceMs),variety?180_000:Infinity,c.adBreakEveryMinutes?180_000-state.adRunMs:Infinity);
     if(limit<=0)return false;
     const candidates:{ads:AdAsset[];durationMs:number;finish:boolean;nextClose?:boolean;recent:number;uses:number;key:string}[]=[];
-    const eligibleClips=clips.filter(clip=>(!clip.season || clip.season===seasonAt(new Date(cursor))) && exists(clip.mediaPath));
+    const eligibleClips=clips.filter(clip=>rotationClipAt(clip,cursor) && exists(clip.mediaPath));
     const canFinish=(duration:number)=>{
       const rest=remaining-duration;
       return rest<=toleranceMs && (!hard || rest===0) || eligibleClips.some(clip=>Math.abs(rest-clip.durationMs)<=toleranceMs && (!hard || clip.durationMs===rest)) || hard && eligibleClips.some(clip=>clip.kind==='ident' && clip.durationMs<=10_000 && rest>0 && rest<=clip.durationMs);
@@ -255,7 +260,7 @@ export function buildChildrenSchedule(catalogue: MediaItem[], seed: string, star
     if(sources.length && tailMode) {
       const closes=()=>{
         const after=cursor+budget-remaining,rest=until-after;
-        if(rest===0 || until!==endMs&&rest<=toleranceMs || clips.some(clip=>exists(clip.mediaPath)&&(!clip.season||clip.season===seasonAt(new Date(after)))&&(Math.abs(clip.durationMs-rest)<=(until===endMs?0:toleranceMs)||clip.kind==='ident'&&rest>0&&rest<=Math.min(5000,clip.durationMs))))return true;
+        if(rest===0 || until!==endMs&&rest<=toleranceMs || clips.some(clip=>exists(clip.mediaPath)&&rotationClipAt(clip,after)&&(Math.abs(clip.durationMs-rest)<=(until===endMs?0:toleranceMs)||clip.kind==='ident'&&rest>0&&rest<=Math.min(5000,clip.durationMs))))return true;
         if(rest>180_000)return false;
         const saved=cursor,savedRun=state.adRunMs;cursor=after;state.adRunMs=0;
         try{return advertisement(until,slot,premiereDate,until===endMs,true,false,true);}finally{cursor=saved;state.adRunMs=savedRun;}
@@ -274,7 +279,7 @@ export function buildChildrenSchedule(catalogue: MediaItem[], seed: string, star
       const bumper=fillers?.bumpers.find(b=>exists(b.mediaPath));
       const adMinimum=bumper && config.advertising?.enabled && config.station!.profiles.lkp.advertising
         ? Math.min(Infinity,...(fillers?.ads ?? []).filter(ad=>ad.enabled && (!ad.ageSuitability || /^(?:all(?:-ages)?|children|family|toddler|preschool|0\+?)$/i.test(ad.ageSuitability)) && adAvailableAt(ad,until-ad.durationMs) && exists(ad.mediaPath)).map(ad=>ad.durationMs+bumper.durationMs)) : Infinity;
-      if(Number.isFinite(adMinimum) && remaining>identLimit && !clips.some(clip=>clip.durationMs===remaining && (!clip.season || clip.season===seasonAt(new Date(until-remaining))) && exists(clip.mediaPath)) && remaining<adMinimum && sources.length) {
+      if(Number.isFinite(adMinimum) && remaining>identLimit && !clips.some(clip=>clip.durationMs===remaining && rotationClipAt(clip,until-remaining) && exists(clip.mediaPath)) && remaining<adMinimum && sources.length) {
         const deferred=sources.pop()!;remaining+=deferred.toMs-deferred.fromMs;
       }
     }
@@ -316,7 +321,8 @@ export function buildChildrenSchedule(catalogue: MediaItem[], seed: string, star
       const before=cursor;
       const last=result.at(-1) ?? previous.at(-1);
       const due=Boolean(c.adBreakEveryMinutes && cursor-state.lastAdEnd>=c.adBreakEveryMinutes*60_000 && last?.playoutPlan?.assembly?.sources.length);
-      const played=due && advertisement(until,slot,date,hard,false,true) || (closing
+      const holiday=Boolean(!closing && last?.playoutPlan?.assembly?.sources.length && interstitial(until,slot,date,hard,true));
+      const played=holiday || due && advertisement(until,slot,date,hard,false,true) || (closing
         ? (c.adBreakEveryMinutes && make(undefined,until,slot,date,true)) || interstitial(until,slot,date,hard) || advertisement(until,slot,date,hard,true)
         : make(undefined,Math.min(limit,cursor+30*60_000),slot,date) || make(undefined,limit,slot,date) || advertisement(until,slot,date,hard) || interstitial(until,slot,date,hard));
       if(!played) {

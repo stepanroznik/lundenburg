@@ -1,3 +1,4 @@
+import { rotationClipAt } from './intermissions/rotation.js';
 import fs from 'node:fs';
 import type {AdAsset,AppConfig,MediaItem,ScheduleEntry,PlayoutSegment} from './types.js';
 import {eligibleFor,profileWindow} from './channels.js';
@@ -7,7 +8,6 @@ import {adAvailableAt} from './advertising/availability.js';
 import {stationAssets} from './channel-schedule.js';
 import type {AdBumper} from './editorial.js';
 import type {RotationClip} from './intermissions/rotation.js';
-import {seasonAt} from './intermissions/season.js';
 
 export const recoveryState=()=>({uses:new Map<string,number>(),lastShow:'',staticUntil:0});
 /** Decoder failures use playable content, with a five-second ceiling on logo cards. */
@@ -27,7 +27,7 @@ export function playableRecovery(template:ScheduleEntry,from:number,until:number
   if(ad&&bumper){duration=ad.durationMs+bumper.durationMs;showId='lkp-advertising';title=ad.title;mediaId=ad.id;segments=[{type:'ad-ident',mediaPath:bumper.mediaPath,durationMs:bumper.durationMs,character:bumper.character},{type:'ad',mediaPath:ad.mediaPath,durationMs:ad.durationMs,adId:ad.id,tags:[...ad.tags]}];}
  }
  if(!duration&&profile==='lkp'&&state.lastShow!=='lkp-intermissions'){
-  const clip=clips.filter(c=>c.durationMs<=budget&&(!c.season||c.season===seasonAt(new Date(from)))&&fs.existsSync(c.mediaPath)).sort((a,b)=>(state.uses.get(a.id)??0)-(state.uses.get(b.id)??0)||b.durationMs-a.durationMs)[0];
+  const clip=clips.filter(c=>c.durationMs<=budget&&rotationClipAt(c,from)&&fs.existsSync(c.mediaPath)).sort((a,b)=>(state.uses.get(a.id)??0)-(state.uses.get(b.id)??0)||b.durationMs-a.durationMs)[0];
   if(clip){duration=clip.durationMs;showId='lkp-intermissions';title=clip.title;mediaId=clip.id;segments=[{type:'intermission',intermissionId:clip.id,mediaPath:clip.mediaPath,durationMs:duration}];}
  }
  // Ordinary programme boundaries are soft during recovery; the next profile

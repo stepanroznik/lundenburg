@@ -1,8 +1,10 @@
 import React from 'react';
+import { Hedgehog } from './Hedgehog.js';
 import { presenter, personalities } from './registry.js';
-import type { Mouth, Presenter } from './types.js';
+import type { Mouth, CharacterId as Presenter } from './types.js';
 
 export interface CharacterProps {
+  wingFlap?: number; parcels?: number;
   id: Presenter; frame: number; mouth?: Mouth;
   outfit?: 'everyday' | 'scarf' | 'raincoat' | 'summer' | 'bathing' | 'swimsuit';
   prop?: 'none' | 'umbrella' | 'fan' | 'pointer';
@@ -16,7 +18,8 @@ export interface CharacterProps {
   foregroundHands?: boolean;
   foregroundRightHand?: boolean;
 }
-export function Character({ id, frame, mouth = 'rest', outfit = 'everyday', prop = 'none', pointing = false, target = [400, -100], ambient, look, tilt, arm, leftArm = 0, emotion = 'happy', rightProp, leftProp, walk = false, grounded = false, crouch = 0, bend = 0, stride, rightHand, leftHand, rightPropAngle = 0, leftPropAngle = 0, foregroundHands = false, foregroundRightHand = false }: CharacterProps) {
+export function Character({ id, frame, wingFlap = 0, parcels = 3, mouth = 'rest', outfit = 'everyday', prop = 'none', pointing = false, target = [400, -100], ambient, look, tilt, arm, leftArm = 0, emotion = 'happy', rightProp, leftProp, walk = false, grounded = false, crouch = 0, bend = 0, stride, rightHand, leftHand, rightPropAngle = 0, leftPropAngle = 0, foregroundHands = false, foregroundRightHand = false }: CharacterProps) {
+  if(id==='jeschischek') return <Hedgehog id={id} frame={frame} mouth={mouth} wingFlap={wingFlap} parcels={parcels} look={look??0} tilt={tilt??0} emotion={emotion} walk={walk} crouch={crouch} bend={bend} rightProp={rightProp} leftProp={leftProp} rightPropAngle={rightPropAngle} leftPropAngle={leftPropAngle} {...(rightHand?{rightHand}:{})} {...(leftHand?{leftHand}:{})} {...(stride===undefined?{}:{stride})}/>;
   const p = presenter(id);
   const style = { outfit, prop };
   const blink = frame % 137 > 130;

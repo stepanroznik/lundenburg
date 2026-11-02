@@ -8,7 +8,7 @@ export function filmRevision(film: Film): string {
   const files:string[]=[];
   const walk=(directory:string)=>{for(const entry of fs.readdirSync(directory,{withFileTypes:true})){const file=path.join(directory,entry.name);if(entry.isDirectory())walk(file);else files.push(file);}};
   walk('src/characters');walk('src/intermissions/video');
-  files.push('src/intermissions/audio.ts','assets/weather/fonts/Fredoka.ttf');
+  files.push('src/intermissions/audio.ts','src/intermissions/christmas-timing.ts','assets/weather/fonts/Fredoka.ttf');
   for(const file of files.sort())hash.update(file).update(fs.readFileSync(file));
   return hash.update(JSON.stringify(film)).digest('hex');
 }

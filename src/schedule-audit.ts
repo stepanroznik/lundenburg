@@ -1,3 +1,4 @@
+import { availableDuring } from './programming/availability.js';
 import {DateTime} from 'luxon';
 import type {AppConfig,MediaItem,ScheduleEntry} from './types.js';
 import {ageEligible} from './children-policy.js';
@@ -39,6 +40,7 @@ export function auditSchedule(rows:ScheduleEntry[],media:MediaItem[],config:AppC
       const language=m.audioLanguage??m.defaultLanguage??'unknown';languages.set(language,(languages.get(language)??0)+segment.durationMs);
      }
     }
+    if(segment.type==='intermission' && !availableDuring(segment.availability,at,segment.durationMs))errors.push(`Seasonal intermission violation: ${segment.intermissionId}`);
     if(segment.type==='ad') {
      adIds.add(segment.adId);const n=count(ads,date,segment.adId);
      if(config.children?.maximumAdPlaysPerDay && n>config.children.maximumAdPlaysPerDay)errors.push(`Ad daily repeat limit: ${segment.adId} ${date}`);

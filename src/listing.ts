@@ -1,6 +1,7 @@
 import type { ScheduleEntry } from './types.js';
 
 export function isPublicScheduleEntry(entry: ScheduleEntry): boolean {
+  if (entry.showId === 'lkp-intermissions' && entry.listingVisibility === 'public') return true;
   if (entry.showId === 'lkp-weather') return true;
   if (entry.listingVisibility === 'hidden') return false;
   return !entry.showId.startsWith('lkp-');

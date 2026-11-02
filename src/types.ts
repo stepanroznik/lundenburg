@@ -84,7 +84,7 @@ export type PlayoutSegment =
   | { type: 'content' | 'credits'; mediaId?: string; subtitles?: SubtitleTrack[]; mediaPath: string; fromMs: number; toMs: number; durationMs: number }
   | { type: 'ad-ident'; mediaPath: string; durationMs: number; character: 'knurpsi' | 'sisi' | 'schalinka' | 'haluschka' }
   | { type: 'ad'; mediaPath: string; durationMs: number; adId: string; tags?: string[] }
-  | { type: 'intermission'; mediaPath: string; durationMs: number; intermissionId: string };
+  | { type: 'intermission'; mediaPath: string; durationMs: number; intermissionId: string; availability?: 'christmas' };
 
 export interface PlayoutPlan {
   assembly?: { slot: string; premiereDate: string; rerunOf?: string; sources: Array<{ mediaId: string; fromMs: number; toMs: number; part?: number; parts?: number }> };

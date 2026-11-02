@@ -1,3 +1,4 @@
+import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
@@ -44,7 +45,8 @@ export function writeCaptions(film: Film) {
 
 export async function renderSet(ids: string[], options: { stills?: boolean; preview?: boolean; scale?: number; skipExisting?: boolean; seconds?: number[] } = {}) {
   assertMediaStorage(loadConfig());
-  const films = readFilms(ids,options.preview);
+  const films = readFilms(ids,options.preview).filter(film=>options.stills || !options.skipExisting || film.preview || (options.scale??1)!==1 || !isCurrentRender(film,outputRoot));
+  if(!films.length){console.log('All selected masters are current; no assets regenerated.');return;}
   prepareBrand();
   if (!options.stills) for(const film of films) { mixAudio(film); writeCaptions(film); }
   const serveUrl = await bundle({entryPoint:path.resolve('src/intermissions/video/index.tsx'),publicDir:publicRoot,
@@ -71,11 +73,14 @@ export async function renderSet(ids: string[], options: { stills?: boolean; prev
       if(options.skipExisting && !partialPreview && isCurrentRender(film,outputRoot)) {console.log(`Existing: ${stem}`);continue;}
       const began=Date.now(); let step=-1;
       const partial=output.replace(/\.mp4$/,'.partial.mp4');
-      await renderMedia({...common,outputLocation:partial,codec:'h264',audioCodec:'aac',audioBitrate:'192k',videoBitrate:'3800k',pixelFormat:'yuv420p',x264Preset:'fast',concurrency:Number(process.env.INTERMISSION_CONCURRENCY)||2,scale:options.scale??1,
+      await renderMedia({...common,outputLocation:partial,codec:'h264',audioCodec:'aac',audioBitrate:'192k',videoBitrate:'3800k',pixelFormat:'yuv420p',colorSpace:'bt709',x264Preset:'fast',concurrency:Number(process.env.INTERMISSION_CONCURRENCY)||1,scale:options.scale??1,
         onProgress:p=>{const next=Math.floor(p.progress*4);if(next!==step){step=next;console.log(`${stem}: ${next*25}%`);}}});
+      const probe=JSON.parse(execFileSync('ffprobe',['-v','error','-show_streams','-show_format','-of','json',partial],{encoding:'utf8'}));
+      const video=probe.streams.find((s:{codec_type:string})=>s.codec_type==='video'),audio=probe.streams.find((s:{codec_type:string})=>s.codec_type==='audio');
+      if(!video || video.codec_name!=='h264' || video.pix_fmt!=='yuv420p' || video.width!==Math.round(1920*(options.scale??1)) || video.height!==Math.round(1080*(options.scale??1)) || video.r_frame_rate!=='30/1' || audio?.codec_name!=='aac' || audio.channels!==2 || Number(audio.sample_rate)!==48000 || Math.abs(Number(probe.format.duration)-film.durationInFrames/film.fps)>.15)throw new Error(`Rendered film failed QC: ${stem}`);
       fs.renameSync(partial,output);
       fs.writeFileSync(output.replace(/\.mp4$/,'.json'),JSON.stringify({id:film.skit.id,title:film.skit.title,kind:film.skit.kind,season:film.skit.season??'all',durationSeconds:film.durationInFrames/film.fps,cast:film.skit.cast,languages:[...new Set(film.skit.lines.map(l=>l.language))],synopsis:film.skit.synopsis,sources:film.skit.sources??[],preview:partialPreview,renderRevision:filmRevision(film),renderSeconds:(Date.now()-began)/1000},null,2));
       console.log(`Rendered ${stem}: ${((Date.now()-began)/1000).toFixed(1)}s`);
     }
-  } finally { await browser.close({silent:true}); }
+  } finally { await browser.close({silent:true}); if(path.dirname(serveUrl)===os.tmpdir() && path.basename(serveUrl).startsWith('remotion-webpack-bundle-')) fs.rmSync(serveUrl,{recursive:true,force:true}); }
 }

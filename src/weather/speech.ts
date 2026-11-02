@@ -7,6 +7,9 @@ import { presenter, type WeatherConfig } from './config.js';
 import type { Atom, Mouth, MouthCue, SpeechAsset } from './model.js';
 import { acquireWeatherLock } from './lock.js';
 
+import type { CharacterId } from '../characters/types.js';
+export type SpeechAtom = Omit<Atom, 'presenter'> & { presenter: CharacterId };
+
 const run = promisify(execFile);
 export const speechRoot = path.resolve('runtime/weather/public/speech');
 function canonical(value: unknown): string {
@@ -18,9 +21,9 @@ export const cacheHash = (value: unknown) => createHash('sha256').update(canonic
 export interface SpeechDirection { speed?: number; stability?: number; style?: number; previousText?: string; nextText?: string; }
 export function spokenNames(text: string, language: string): string {
   if (language !== 'cs' && language !== 'sk') return text;
-  return text.replace(/Haluschka/g, 'Haluška').replace(/Haluschko/g, 'Haluško').replace(/Schalinka/g, 'Šalinka').replace(/Schalinko/g, 'Šalinko');
+  return text.replace(/Jeschischek/g, 'Ježíšek').replace(/Jeschischku/g, 'Ježíšku').replace(/Haluschka/g, 'Haluška').replace(/Haluschko/g, 'Haluško').replace(/Schalinka/g, 'Šalinka').replace(/Schalinko/g, 'Šalinko');
 }
-export function speechParameters(atom: Atom, c: WeatherConfig, direction?: SpeechDirection) {
+export function speechParameters(atom: SpeechAtom, c: WeatherConfig, direction?: SpeechDirection) {
   const p = presenter(atom.presenter);
   return {
     version: 1, provider: 'elevenlabs', voiceId: p.voiceId, model: c.model,
@@ -64,7 +67,7 @@ export interface SpeechStats { hits: number; misses: number; characters: number 
 export class SpeechCache {
   readonly stats: SpeechStats = { hits: 0, misses: 0, characters: 0 };
   constructor(private c: WeatherConfig, private mode: 'tts' | 'cache' | 'silent' = 'tts', private request: typeof fetch = fetch) {}
-  async get(atom: Atom, direction?: SpeechDirection): Promise<SpeechAsset> {
+  async get(atom: SpeechAtom, direction?: SpeechDirection): Promise<SpeechAsset> {
     const parameters = speechParameters(atom, this.c, direction);
     const key = cacheHash(parameters);
     const directory = path.join(speechRoot, key);
@@ -126,7 +129,7 @@ export class SpeechCache {
       return asset;
     } finally { unlock(); }
   }
-  private usage(atom: Atom, key: string, hit: boolean, characters: number) {
+  private usage(atom: SpeechAtom, key: string, hit: boolean, characters: number) {
     fs.mkdirSync('runtime/weather', { recursive: true });
     fs.appendFileSync('runtime/weather/usage.jsonl', `${JSON.stringify({ at: new Date().toISOString(), presenter: atom.presenter, voice: presenter(atom.presenter).voiceId, text: atom.text, key, hit, characters })}\n`);
   }

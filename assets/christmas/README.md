@@ -1,0 +1,3 @@
+Christmas scenery, parcels, wings and gift-bringer icons are maintained as reusable SVG/React source. No bitmap generators or new dependencies are required.
+
+`src/intermissions/video/Europe.ts` contains country outlines derived from Natural Earth's public-domain 1:110m Admin 0 countries, with a simple equirectangular projection. Source: https://github.com/nvkelso/natural-earth-vector/blob/master/geojson/ne_110m_admin_0_countries.geojson ; terms: https://www.naturalearthdata.com/about/terms-of-use/ . Catalonia is indicated by a local highlight near Barcelona, not by shading all of Spain. The map illustrates examples, not exclusive national borders between traditions.

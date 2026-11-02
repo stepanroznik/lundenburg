@@ -1,3 +1,4 @@
+import { ChristmasScene } from './Christmas.js';
 import type { Film } from '../model.js';
 import { Actor } from './Actor.js';
 import { Outdoor, Stick, Biscuit, Bench, clamp, smooth, lerp, ink } from './Scenery.js';
@@ -38,6 +39,7 @@ function TrainCard({ opacity, frame }: { opacity: number; frame: number }) {
 }
 
 export function VoicedScene({ film, frame }: { film: Film; frame: number }) {
+  if(film.skit.scene.startsWith('christmas-')) return <ChristmasScene film={film} frame={frame}/>;
   const t = frame / film.fps;
   const start = (i: number) => (film.cues[i]?.from ?? film.logoFrom) / film.fps;
   const end = (i: number) => ((film.cues[i]?.from ?? film.logoFrom) + (film.cues[i]?.frames ?? 0)) / film.fps;

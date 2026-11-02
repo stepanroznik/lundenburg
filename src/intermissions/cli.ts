@@ -20,5 +20,5 @@ app.command('render').option('--id <ids...>').option('--stills').option('--secon
   await renderSet(o.id??[],{stills:Boolean(o.stills),preview:Boolean(o.preview),scale,skipExisting:Boolean(o.skipExisting),...(seconds?{seconds}:{})});
 });
 app.command('gallery').action(writeGallery);
-app.command('publish').description('publish only current, verified full-HD renders for channel rotation').action(publishLibrary);
+app.command('publish').description('publish only current, verified full-HD renders for channel rotation').option('--id <ids...>', 'Publish selected reviewed films while retaining existing masters').action(o=>publishLibrary(o.id??[]));
 await app.parseAsync();

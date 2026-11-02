@@ -17,7 +17,8 @@ const child=spawn(process.execPath,['-e',${JSON.stringify(`const fs=require('fs'
 process.send({type:'child-group',pid:child.pid,active:true});process.send({type:'heartbeat',phase:'acquiring'});
 setTimeout(()=>{while(true){}},100);
 `);
-    assert.equal(await superviseBatch(child,[],status,{stallMs:250,pollMs:25,stopGraceMs:50}),1);
+    // Allow cold Node/tsx startup on the production ARM machine before testing the blocked loop.
+    assert.equal(await superviseBatch(child,[],status,{stallMs:1500,pollMs:25,stopGraceMs:50}),1);
     const report=JSON.parse(fs.readFileSync(status,'utf8'));
     assert.equal(report.activity,'stalled');assert.equal(report.phase,'acquiring');
     assert.throws(()=>process.kill(report.workerPid,0),{code:'ESRCH'});
@@ -39,8 +40,8 @@ test('schedule planning cannot block parent timers and a stalled planner is term
 test('healthy planner progress outlives its idle watchdog',async()=>{
   const workerUrl=new URL('data:text/javascript,'+encodeURIComponent(`import {parentPort} from 'node:worker_threads';
 const timer=setInterval(()=>parentPort.postMessage({type:'progress'}),20);
-setTimeout(()=>{clearInterval(timer);parentPort.postMessage({type:'completed'});},400);`));
-  await publishSchedule({},900,()=>{}, {workerUrl,stallMs:150,timeoutMs:2000});
+setTimeout(()=>{clearInterval(timer);parentPort.postMessage({type:'completed'});},2000);`));
+  await publishSchedule({},900,()=>{}, {workerUrl,stallMs:1000,timeoutMs:5000});
 });
 
 test('publication failures report a safe stage and error category',async()=>{

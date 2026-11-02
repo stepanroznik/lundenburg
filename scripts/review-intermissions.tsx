@@ -13,16 +13,20 @@ import type {Film} from '../src/intermissions/model.js';
 
 const root='runtime/intermissions/review';fs.mkdirSync(root,{recursive:true});
 const moments:Record<string,number[]>={
+  'christmas-presents':[.5,1.4,2.6,5.1,10.8,14.5,16.3,17.9],
+  'christmas-fireplace':[.5,2,4,6,8,11,14,18],
   puddles:[.5,1.65,2.4,3.4,3.92,4.3,4.65,6],flowers:[.3,1.4,2.45,3.65,4.8,6.2,7.2,8.8],
   pool:[.5,1.5,2.5,3.5,4.5,5.5,6.8,8.5],beachball:[.5,1.25,2.1,2.85,3.5,5.3,6.4,7.5],
   leaves:[.5,2.5,3.2,3.85,4.3,5.8,6.5,7.4],kite:[.5,1.5,2.7,3.8,4.8,5.4,6.5,8],
   snowballs:[.5,1.3,1.53,2.15,2.65,3.4,4.15,6],snowman:[.2,1.1,2.2,3.65,4.5,5.8,8.4,9.6],
 };
-for(const file of fs.readdirSync('runtime/intermissions/manifests').filter(f=>f.endsWith('.json')&&!f.includes('.preview'))){
+for(const file of fs.readdirSync('runtime/intermissions/manifests').filter(f=>f.endsWith('.json')&&(!f.includes('.preview')||process.argv.includes('--preview')))){
   const film=JSON.parse(fs.readFileSync(path.join('runtime/intermissions/manifests',file),'utf8')) as Film;
   if(process.argv.length>2&&!process.argv.slice(2).some(id=>film.skit.id.startsWith(id)))continue;
   const end=(i:number)=>(film.cues[i]!.from+film.cues[i]!.frames)/30;
   let seconds=moments[film.skit.scene]??[.1,.5,1,2,3,4,5,6];
+  if(film.skit.scene==='christmas-letters')seconds=[0,1,3,5,7,10,13,14].map(i=>(film.cues[i]!.from+15)/30);
+  if(film.skit.scene==='christmas-map')seconds=[2,3,5,7,11].map(i=>(film.cues[i]!.from+30)/30).concat(film.cues[13]!.from/30+1.65,film.cues[13]!.from/30+5.7,film.cues[23]!.from/30+.5);
   if(film.skit.scene==='soap') seconds=[.5,2,4,end(1),end(2)-.2,end(2)+.2,end(2)+.8,end(2)+1.3];
   if(film.skit.scene==='dam'){
     const permit=film.cues.findIndex(c=>c.text==='Und eine Baugenehmigung?'),p=film.cues[permit]!.from/30;

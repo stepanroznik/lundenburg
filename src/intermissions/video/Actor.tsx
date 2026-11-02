@@ -1,5 +1,5 @@
 import { Character, type CharacterProps } from '../../characters/Character.js';
-import type { Presenter } from '../../characters/types.js';
+import type { CharacterId as Presenter } from '../../characters/types.js';
 import type { Film } from '../model.js';
 import { Shadow } from './Scenery.js';
 

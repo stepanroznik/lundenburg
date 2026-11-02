@@ -1,3 +1,4 @@
+import { ChristmasScene } from './Christmas.js';
 import type { Film } from '../model.js';
 import { Actor } from './Actor.js';
 import { Outdoor, Tree, Splash, Leaf, BeachBall, Flower, Shadow, clamp, smooth, lerp, ink } from './Scenery.js';
@@ -20,6 +21,7 @@ function WaterFlight({t,from,to,start,duration,lift}: {t:number;from:Point;to:Po
 }
 
 export function SilentScene({film,frame}:{film:Film;frame:number}) {
+  if(film.skit.scene.startsWith('christmas-')) return <ChristmasScene film={film} frame={frame}/>;
   const t=frame/film.fps, common={film,frame}, scene=film.skit.scene;
   if(scene==='puddles') {
     const run=at(t,.2,1.6), jump=clamp((t-1.8)/1.25), lift=Math.sin(jump*Math.PI);

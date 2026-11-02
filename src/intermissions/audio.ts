@@ -2,9 +2,10 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 import type { Film } from './model.js';
+import { christmasMapBeats, parcelStarts } from './christmas-timing.js';
 
 export const publicRoot = path.resolve('runtime/weather/public');
-export type Effect = { at: number; duration: number; frequency: number; level: number; noise?: number; bend?: number; texture?: 'water'|'leaves'|'wind'|'snow'|'rubber'|'soil'|'wood' };
+export type Effect = { at: number; duration: number; frequency: number; level: number; noise?: number; bend?: number; texture?: 'water'|'leaves'|'wind'|'snow'|'rubber'|'soil'|'wood'|'fire' };
 
 export function effectsFor(f: Film): Effect[] {
   const effects: Effect[] = [];
@@ -13,6 +14,21 @@ export function effectsFor(f: Film): Effect[] {
   const foley = (texture: NonNullable<Effect['texture']>, at: number, duration: number, level: number, frequency=220) => effects.push({at,duration,level,frequency,texture});
   const cue = (i: number) => (f.cues[i]?.from ?? 0) / 30;
   switch (f.skit.scene) {
+    case 'christmas-presents':
+      parcelStarts.forEach((t,i)=>tone(t+1.6,440+i*110,.22,.035,0,0));
+      for(let i=0;i<6;i++)foley('wind',11+i*.35,.2,.035,150);
+      tone(17,640,.9,.07,0,1.5); break;
+    case 'christmas-fireplace':
+      foley('fire',0,f.logoFrom/30,.045,95);
+      for(let i=0;i<10;i++)foley('wood',.9+i*1.7,.08,.022,300+i%3*150); break;
+    case 'christmas-letters': tone(cue(13),880,1,.025,0,0);break;
+    case 'christmas-map': {
+      const beats=christmasMapBeats(f);
+      for(const at of beats.taps)foley('wood',at,.1,.04,220);
+      tone(beats.treats,130,.3,.045,0,-.5);
+      for(let i=0;i<3;i++)tone(beats.treats+.25+i*.2,620+i*140,.32,.035,0,0);
+      tone(beats.starTurns,370,.25,.025,0,-.4);break;
+    }
     case 'ident': f.cues.forEach((c,i)=>tone(c.from/30+.1,[523.25,659.25,783.99][i]!, .5,.035,0,0)); break;
     case 'soap': splash(.3, f.logoFrom/30-.5, .025); break;
     case 'dam': foley('wood',.5,.12,.06,180); foley('wood',cue(f.cues.length-3)+.8,.14,.07,160); break;
@@ -65,6 +81,7 @@ export function writeEffectTrack(id: string, durationSeconds: number, output: st
       if(e.texture==='snow') wave=previous*.8*Math.exp(-p*2)+high*.13*(.5+.5*Math.sin(dt*143));
       if(e.texture==='rubber') wave=Math.sin(2*Math.PI*e.frequency*(dt-.27*dt*dt/e.duration))*.8+previous*.08;
       if(e.texture==='soil') wave=previous*.6+high*.12*(Math.sin(dt*97)>.6?1:0);
+      if(e.texture==='fire') wave=previous*.22+high*.06+high*(noise>.996?1.8:0);
       if(e.texture==='wood') wave=Math.sin(phase)*.6+Math.sin(phase*2.73)*.18+high*.12*Math.exp(-dt*40);
       value += wave*e.level*envelope;
     }

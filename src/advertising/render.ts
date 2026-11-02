@@ -1,3 +1,4 @@
+import { bumperDefinitions } from './model.js';
 import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
@@ -66,7 +67,9 @@ export async function renderBumpers(films: Film[], outputRoot: string, ffprobe: 
       const durationMs=Math.round(Number(probe.format.duration)*1000);
       if(video?.codec_name!=='h264'||video.width!==1920||video.height!==1080||video.pix_fmt!=='yuv420p'||video.avg_frame_rate!=='30/1'||
         audio?.codec_name!=='aac'||audio.sample_rate!=='48000'||audio.channels!==2||Math.abs(Number(video.duration)*1000-5000)>1||Math.abs(durationMs-5000)>100) throw new Error(`Bumper QC failed: ${film.skit.cast[0]}`);
-      staged.push({partial,output,bumper:{character:film.skit.cast[0]!,mediaPath:output,durationMs}});
+      const character=bumperDefinitions.find(d=>d.presenter===film.skit.cast[0])?.presenter;
+      if(!character)throw new Error('Unregistered advertising presenter');
+      staged.push({partial,output,bumper:{character,mediaPath:output,durationMs}});
       console.log(`Rendered animated bumper: ${film.skit.cast[0]}`);
     }
     if(stills)return reviewRoot;

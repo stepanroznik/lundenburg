@@ -1,3 +1,4 @@
+import { availableDuring } from './programming/availability.js';
 import fs from 'node:fs';
 import path from 'node:path';
 import { spawn, spawnSync, type ChildProcess, type SpawnOptions } from 'node:child_process';
@@ -235,7 +236,7 @@ class EncoderQueue {
 
   prepare(target: EncoderTarget | undefined, leadMs: number): void {
     if (this.stopped || !target) return;
-    if (target.intermission && (!this.config.station?.enabled || target.entry.presentation?.profile === 'lkp')) {
+    if (target.intermission && target.programme?.presentation?.block !== 'christmas' && (!this.config.station?.enabled || target.entry.presentation?.profile === 'lkp')) {
       const clip = recoveryIntermission(this.clips, target.entry.durationMs, leadMs, target.entry.startsAtMs);
       if (clip) {
         log('info', 'Recovery intermission prepared', {
@@ -385,6 +386,11 @@ async function transcodePlayout(
     const segment = plan.segments[index]!;
     const segmentEndMs = entry.startsAtMs + cumulativeMs + segment.durationMs;
     const segmentElapsedMs = index === position.segmentIndex ? position.offsetMs : 0;
+    if (segment.type === 'intermission' && !availableDuring(segment.availability, Date.now(), segment.durationMs-segmentElapsedMs)) {
+      log('warn', 'Seasonal intermission omitted outside its permitted dates', { intermissionId: segment.intermissionId });
+      cumulativeMs += segment.durationMs;
+      continue;
+    }
     if (segment.type === 'ad' && !adAvailableAt({ ...segment, durationMs: segment.durationMs - segmentElapsedMs }, Date.now())) {
       log('warn', 'Seasonal advertisement omitted outside its permitted dates', { adId: segment.adId });
       cumulativeMs += segment.durationMs;

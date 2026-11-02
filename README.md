@@ -693,3 +693,5 @@ the CLI in `src/weather/cli.ts`, and SVG studio/characters in
 `assets/weather/README.md`. The maintained
 [production skill](skills/lkp-show-production/SKILL.md) covers weather,
 intermissions and Nacht branding.
+
+Christmas intermissions introduce Jeschischek, the Czech-speaking Christmas hedgehog. Four pre-rendered films join the existing preferred seasonal rotation each December 1–25 in Europe/Prague, without fixed Christmas clock slots. See [INTERMISSIONS.md](INTERMISSIONS.md#christmas-jeschischek) for the films, preview gallery, captions and production commands.

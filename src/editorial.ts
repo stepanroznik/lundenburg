@@ -1,10 +1,10 @@
+import { rotationClipAt } from './intermissions/rotation.js';
 import { createHash } from 'node:crypto';
 import type {
   AdAsset, AdvertisingConfig, Breakpoint, CreditsPolicy, EditorialMarker, MediaItem,
   PlayoutPlan, PlayoutSegment,
 } from './types.js';
 import type { RotationClip } from './intermissions/rotation.js';
-import { seasonAt } from './intermissions/season.js';
 import { adAvailableAt } from './advertising/availability.js';
 
 export interface BreakSignal {
@@ -157,7 +157,7 @@ export function chooseAds(ads: AdAsset[], eventId: string, breakIndex: number, s
 }
 
 function chooseIntermission(clips: RotationClip[], eventId: string, breakIndex: number, seed: string, atMs: number): RotationClip | undefined {
-  const eligible = clips.filter((clip) => !clip.season || clip.season === seasonAt(new Date(atMs))).sort((a, b) => a.id.localeCompare(b.id));
+  const eligible = clips.filter((clip) => rotationClipAt(clip,atMs)).sort((a, b) => a.id.localeCompare(b.id));
   if (!eligible.length) return undefined;
   return eligible[Math.floor(unit(seed, eventId, breakIndex, 'intermission') * eligible.length)];
 }
@@ -204,8 +204,8 @@ export function buildPlayoutPlan(input: {
         result.push({ type: 'ad-ident', mediaPath: bumper.mediaPath, durationMs: bumper.durationMs, character });
         for (const ad of ads) result.push({ type: 'ad', mediaPath: ad.mediaPath, durationMs: ad.durationMs, adId: ad.id, tags: [...ad.tags] });
         previousAdId = ads.at(-1)?.id;
-        const intermission = chooseIntermission(input.intermissions ?? [], eventId, breakIndex, seed, eventStartMs + point.atMs);
-        if (intermission) result.push({ type: 'intermission', mediaPath: intermission.mediaPath, durationMs: intermission.durationMs, intermissionId: intermission.id });
+        const intermission = chooseIntermission(input.intermissions ?? [], eventId, breakIndex, seed, eventStartMs + result.reduce((sum,part)=>sum+part.durationMs,0));
+        if (intermission) result.push({ type: 'intermission', mediaPath: intermission.mediaPath, durationMs: intermission.durationMs, intermissionId: intermission.id, ...(intermission.availability?{availability:intermission.availability}:{}) });
       } else if (ads.length) warnings.push(`Break ${breakIndex + 1}: WERBUNG bumper unavailable; advertisements omitted`);
       cursor = point.atMs;
       breakIndex += 1;

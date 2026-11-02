@@ -1,17 +1,26 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { createHash } from 'node:crypto';
-import type { AppConfig, ScheduleEntry, IntermissionConfig } from '../types.js';
+import type { AppConfig, ScheduleEntry, IntermissionConfig, PlayoutPlan } from '../types.js';
 import type { LkpDatabase } from '../database.js';
 import { stableId } from '../util.js';
 import { seasonAt, type Season } from './season.js';
 
+import { availableDuring } from '../programming/availability.js';
+
 export const intermissionShowId = 'lkp-intermissions';
 export interface RotationClip {
   id: string; title: string; kind: 'ident' | 'silent' | 'voiced'; season?: Season;
+  availability?: 'christmas'; subtitleLanguages?: string[];
   mediaPath: string; durationMs: number; languages: string[]; synopsis: string;
 }
 export interface PublishedLibrary { version: 1; revision: string; clips: RotationClip[]; }
+export const clipAvailableAt = (clip: RotationClip, atMs: number) => (!clip.season || clip.season === seasonAt(new Date(atMs))) && availableDuring(clip.availability, atMs, clip.durationMs);
+export const rotationClipAt = clipAvailableAt;
+export function intermissionPlan(clip: RotationClip, eventId: string): PlayoutPlan {
+  return {version:1,programmeEventId:eventId,sourceDurationMs:clip.durationMs,durationMs:clip.durationMs,
+    segments:[{type:'intermission',mediaPath:clip.mediaPath,durationMs:clip.durationMs,intermissionId:clip.id,...(clip.availability?{availability:clip.availability}:{})}],warnings:[]};
+}
 const unit = (seed: string, id: string, purpose: string) => createHash('sha256').update(`${seed}\0${id}\0${purpose}`).digest().readUInt32BE(0) / 0x1_0000_0000;
 export const isProgramme = (e: ScheduleEntry) => e.showId !== intermissionShowId && e.showId !== 'lkp-weather' && (!e.presentation || e.presentation.kind === 'programme');
 
@@ -21,7 +30,7 @@ export function readRotationLibrary(config: AppConfig): RotationClip[] {
   if (manifest.version !== 1 || !manifest.revision || !Array.isArray(manifest.clips) || !manifest.clips.length) throw new Error('Invalid published intermission library');
   const ids = new Set<string>();
   for (const clip of manifest.clips) {
-    if (ids.has(clip.id) || !['ident','silent','voiced'].includes(clip.kind) || !Number.isSafeInteger(clip.durationMs) || clip.durationMs <= 0 || clip.durationMs > 120000 || !path.isAbsolute(clip.mediaPath) || !fs.existsSync(clip.mediaPath) || (clip.season && !['spring','summer','autumn','winter'].includes(clip.season))) throw new Error(`Invalid/missing intermission: ${clip.id}`);
+    if ((clip.availability !== undefined && clip.availability !== 'christmas') || ids.has(clip.id) || !['ident','silent','voiced'].includes(clip.kind) || !Number.isSafeInteger(clip.durationMs) || clip.durationMs <= 0 || clip.durationMs > (clip.availability ? 600000 : 120000) || !path.isAbsolute(clip.mediaPath) || !fs.existsSync(clip.mediaPath) || (clip.season && !['spring','summer','autumn','winter'].includes(clip.season))) throw new Error(`Invalid/missing intermission: ${clip.id}`);
     ids.add(clip.id);
   }
   return manifest.clips;
@@ -29,12 +38,14 @@ export function readRotationLibrary(config: AppConfig): RotationClip[] {
 
 export function chooseIntermission(clips: RotationClip[], policy: IntermissionConfig, seed: string, after: ScheduleEntry, atMs: number, previousClip?: string): RotationClip | undefined {
   if (unit(seed,after.id,'break') >= policy.boundaryRate) return;
-  const eligible = clips.filter(c=>!c.season||c.season===seasonAt(new Date(atMs)));
+  const eligible = clips.filter(c=>rotationClipAt(c,atMs));
   const sum=policy.weights.ident+policy.weights.silent+policy.weights.voiced;
   const pick=unit(seed,after.id,'kind')*sum;
   const kind=pick<policy.weights.ident?'ident':pick<policy.weights.ident+policy.weights.silent?'silent':'voiced';
   let choices=eligible.filter(c=>c.kind===kind);
   if(!choices.length)choices=eligible.filter(c=>c.kind==='ident');
+  const seasonal=choices.filter(c=>c.availability && c.id!==previousClip);
+  if(seasonal.length)choices=seasonal;
   if(!choices.length)return;
   if(kind!=='ident'&&choices.length>1)choices=choices.filter(c=>c.id!==previousClip);
   choices.sort((a,b)=>a.id.localeCompare(b.id));
@@ -61,7 +72,7 @@ export function planIntermissions(entries: ScheduleEntry[], clips: RotationClip[
     if(!next || !isProgramme(e)||!isProgramme(next)||original.endsAtMs<earliest)continue;
     const clip=chooseIntermission(clips,policy,seed,original,e.endsAtMs,previousClip);
     if(!clip || shift+clip.durationMs>slack[i+1]!)continue;
-    const intermission: ScheduleEntry={id:stableId('intermission-after',original.id),sequence:e.sequence+1,mediaId:`intermission-${clip.id}`,showId:intermissionShowId,showTitle:'Lundenburg Kids Premium',episodeTitle:clip.title,description:clip.synopsis,startsAtMs:e.endsAtMs,endsAtMs:e.endsAtMs+clip.durationMs,durationMs:clip.durationMs,mediaPath:clip.mediaPath,audioLanguage:clip.languages.length===1?clip.languages[0]!:'mul',subtitleLanguages:[],listingVisibility:'hidden'};
+    const intermission: ScheduleEntry={id:stableId('intermission-after',original.id),sequence:e.sequence+1,mediaId:`intermission-${clip.id}`,showId:intermissionShowId,showTitle:'Lundenburg Kids Premium',episodeTitle:clip.title,description:clip.synopsis,startsAtMs:e.endsAtMs,endsAtMs:e.endsAtMs+clip.durationMs,durationMs:clip.durationMs,mediaPath:clip.mediaPath,audioLanguage:clip.languages.length===1?clip.languages[0]!:'mul',subtitleLanguages:[],listingVisibility:clip.availability?'public':'hidden',...(clip.availability?{playoutPlan:intermissionPlan(clip,stableId('intermission-after',original.id))}:{} )};
     result.push(intermission);inserted.push(intermission);shift+=clip.durationMs;added++;previousClip=clip.id;
   }
   return {entries:result,inserted};

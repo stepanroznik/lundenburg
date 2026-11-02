@@ -8,7 +8,7 @@ import path from 'node:path';
 import { DateTime } from 'luxon';
 import type { AdAsset, AppConfig, MediaItem, ScheduleEntry } from './types.js';
 import { LkpDatabase } from './database.js';
-import { chooseIntermission, reconcileIntermissions, isProgramme, readRotationLibrary, intermissionShowId, type RotationClip } from './intermissions/rotation.js';
+import { intermissionPlan, chooseIntermission, reconcileIntermissions, isProgramme, readRotationLibrary, intermissionShowId, type RotationClip } from './intermissions/rotation.js';
 import { buildPlayoutPlan, type AdBumper } from './editorial.js';
 import { stableId } from './util.js';
 import { ordinaryProgramme, programmeOrder, programmeRotation } from './acquisition/programming.js';
@@ -190,7 +190,7 @@ export function buildScheduleEntries(
           description: clip.synopsis, startsAtMs: cursor, endsAtMs: cursor + clip.durationMs,
           durationMs: clip.durationMs, mediaPath: clip.mediaPath,
           audioLanguage: clip.languages.length === 1 ? clip.languages[0]! : 'mul',
-          subtitleLanguages: [], listingVisibility: 'hidden' });
+          subtitleLanguages: [], listingVisibility: clip.availability?'public':'hidden', ...(clip.availability?{playoutPlan:intermissionPlan(clip,stableId('intermission-after',entry.id))}:{} ) });
         cursor += clip.durationMs;
         sequence += 1;
         previousClip = clip.id;
